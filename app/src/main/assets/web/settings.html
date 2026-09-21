@@ -324,8 +324,9 @@
 
       <div class="grid2">
         <div class="field">
-          <label for="office">予報区</label>
-          <select id="office"><option>読み込み中…</option></select>
+          <label>警報・注意報の地域</label>
+          <div class="status" id="disasterArea">読み込み中…</div>
+          <div class="hint">「場所」で選んだ天気の地点がある市町村の警報・注意報を表示します。変えるときは「場所」を変更してください。</div>
         </div>
         <div class="field">
           <label for="minIntensity">表示する地震の最大震度</label>
@@ -353,8 +354,8 @@
       </div>
 
       <div class="notice info">
-        気象庁は警報の<strong>種別コードの名称テーブルを公開していません</strong>。誤った種別名を壁に出さないため、
-        種別名は表示せず、気象庁が発表した本文と、発表中の地域名を表示します。<br>
+        警報・注意報は気象庁の警報ページと同じ名前で表示します（例: <strong>レベル４土砂災害危険警報</strong>）。
+        市町村は、気象庁のページの「現在地」と同じ方法で、天気の地点の緯度経度から決めています。<br>
         カード右側の<strong>強震モニタ</strong>（防災科研・いま揺れている観測点）は 3 秒ごとに更新され、設定は不要です。
       </div>
 

@@ -142,14 +142,19 @@ data class QuakeInfo(
 /**
  * 気象庁の警報・注意報と地震情報。
  *
- * 警報の「種別名」は出さない。気象庁が種別コードの名称テーブルを公開しておらず
- * （const の JSON は 404）、推測で名前を当てると誤表示になるため。
- * 代わりに気象庁自身が書いた [headline] の本文と、発表中の地域名を出す。
+ * 警報・注意報は天気の地点がある市町村のものだけを持つ（[activeAreas] は 0 か 1 件）。
+ * 種別名は気象庁の警報ページと同じ表記（例: レベル４土砂災害危険警報）。
  */
 @Serializable
 data class DisasterState(
     val available: Boolean = false,
+    /** 天気の地点が属する府県予報区。例: 東京都 */
     val officeName: String? = null,
+    /**
+     * 天気の地点がある市町村（気象庁の市町村区分の名前）。例: 新宿区
+     * [available] なのに null なら、地点から市町村を決められなかった（国外の地点など）。
+     */
+    val areaName: String? = null,
     val headline: String? = null,
     val reportedAt: String? = null,
     val activeAreas: List<WarningArea> = emptyList(),
@@ -393,12 +398,16 @@ data class NotificationConfig(
     val volume: Double = 0.7,
 )
 
+/**
+ * 防災の設定。
+ *
+ * 警報・注意報の地域は持たない。天気の地点（[LocationConfig]）の市町村を
+ * [DisasterRepository] が自動で決める。以前あった府県予報区の選択（officeCode / officeName）は
+ * 古い config.json に残っていても読み飛ばされる。
+ */
 @Serializable
 data class DisasterConfig(
     val enabled: Boolean = false,
-    /** 気象庁の府県予報区コード（area.json の offices）。既定は東京都。 */
-    val officeCode: String = "130000",
-    val officeName: String = "東京都",
     /** この震度未満の地震は表示しない。"1".."7"、"5-"/"5+" 等の表記も来る。 */
     val minIntensity: String = "3",
 )

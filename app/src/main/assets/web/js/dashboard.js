@@ -971,7 +971,7 @@
     if (!state.config.disaster.enabled) {
       card.classList.remove("active");
       keyed(body, "disabled", function (el) {
-        html(el, '<div class="memo-empty">防災情報は未設定です。設定画面で地域を選んでください。</div>');
+        html(el, '<div class="memo-empty">防災情報の取得が無効です。設定画面の「防災」で有効にしてください。</div>');
       });
       return;
     }
@@ -995,7 +995,7 @@
 
     // 署名は「画面に出る内容」そのものから作る。取得時刻を混ぜると
     // 中身が同じまま描き直され、無駄な再描画になる。
-    var sig = [d.headline || ""];
+    var sig = [d.areaName || "", d.headline || ""];
     for (var a = 0; a < active.length; a++) {
       sig.push(active[a].code + ":" + (active[a].kinds || []).join(","));
     }
@@ -1022,10 +1022,17 @@
         }
       }
 
-      out += active.length
-        ? '<div class="dis-head"></div>'
-        : '<div class="dis-head dim">発表中の警報・注意報はありません。</div>';
-      // 地域ごとに発表中の種別を並べる。多いときはこの枠ごとスクロールして読む。
+      // 警報・注意報は天気の地点がある市町村のものだけ。国外の地点などで
+      // 市町村が決まらないと取りに行けないので、「発表なし」と区別して伝える。
+      if (!d.areaName) {
+        out += '<div class="dis-head dim">天気の地点から市町村を決められません。' +
+          "設定画面の「場所」で国内の地点を選んでください。</div>";
+      } else {
+        out += active.length
+          ? '<div class="dis-head"></div>'
+          : '<div class="dis-head dim">発表中の警報・注意報はありません。</div>';
+      }
+      // 市町村に発表中の種別を並べる。多いときはこの枠ごとスクロールして読む。
       for (i = 0; i < active.length; i++) {
         out += '<div class="dis-warn' + (active[i].severe ? " severe" : "") + '">' +
           '<b class="wname"></b><span class="wkinds"></span></div>';
@@ -1063,7 +1070,7 @@
       // 気象庁の本文・地域名・種別名は外部由来テキストなので textContent で入れる
       if (active.length) {
         var head = el.querySelector(".dis-head");
-        if (head) head.textContent = d.headline || (active.length + " 地域で発表中");
+        if (head) head.textContent = d.headline || (d.areaName + "に発表中");
       }
       var rows = el.querySelectorAll(".dis-warn");
       for (var r = 0; r < rows.length; r++) {
@@ -1100,7 +1107,8 @@
       if (top) top.scrollTop = 0;
     });
 
-    text($("disasterNote"), d.officeName || "");
+    // どの市町村の警報・注意報かを見出しの横に出す（発表が無いときも分かるように）
+    text($("disasterNote"), [d.officeName, d.areaName].filter(Boolean).join(" "));
   }
 
   // ---------------------------------------------------------------- 強震モニタ
