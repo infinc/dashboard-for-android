@@ -7,6 +7,10 @@
 	// 既存の namespace を使う場合は `wrangler kv namespace create MEMOS` で作り、
 	// 表示された id を "id" として書き足す（id は自分の Cloudflare アカウントの
 	// 資源を指すので、公開リポジトリには置かない）。
+	//
+	// このリポジトリの持ち主向け: 使っている id は private/personal-data.md にある。
+	// deploy の前に書き足し、終わったら消してからコミットすること。
+	// 足さずに deploy すると別の namespace が作られ、保存済みのメモが読めなくなる。
 	"kv_namespaces": [
 		{
 			"binding": "MEMOS"

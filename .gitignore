@@ -13,6 +13,11 @@ keystore.properties
 *.iml
 .DS_Store
 
+# 個人に紐づく値を集めた唯一の場所。
+# 地名・県名・Cloudflare の資源 ID など、公開したくない値はすべてここに書き、
+# 他のファイルには残さない。中身の説明は private/personal-data.md にある。
+private/
+
 # 端末調査の生ログ（Phase 0.5）。端末の型番・メモリ・温度がそのまま出る。
 docs/device-probe-*.txt
 

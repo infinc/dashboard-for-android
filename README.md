@@ -172,6 +172,20 @@ LINE Bot に送ったメッセージが壁に並ぶ。中継の作り方は `wor
 - 中継（Cloudflare Worker）を更新しないと複数表示と `/clear` は効かない:
   `cd worker && npx wrangler deploy`
 
+## 個人に紐づく値の置き場所
+
+このリポジトリは**そのまま公開できる状態を保つ**。地名・県名・アカウント固有の ID など、
+持ち主に紐づく値はコードにもドキュメントにも書かず、`private/` にまとめる
+（`.gitignore` 済み）。
+
+| 置き場所 | 中身 |
+|---|---|
+| `private/personal-data.md` | 実際の地点・府県予報区、Cloudflare の KV namespace id、環境依存ファイルの一覧 |
+| 端末の `filesDir/config.json` | LINE メモのトークン、Spotify の認可情報、LAN 公開の PIN。**リポジトリには複製しない** |
+
+`docs/shots/` と `docs/device-probe-*.txt` も除外してある。前者は壁に出ている内容
+（SSID・IP アドレス・LINE メモの本文・地点名・再生中の曲）がそのまま写るため。
+
 ## クレジット
 
 ### データ提供元
