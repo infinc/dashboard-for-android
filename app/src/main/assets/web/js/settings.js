@@ -254,18 +254,30 @@
       "待受 " + device.boundHost + ":" + device.port + " ／ 有効セッション " + device.activeSessions;
   }
 
-  function loadOffices() {
-    return api("/api/jma/offices").then(function (list) {
-      var html = "";
-      for (var i = 0; i < list.length; i++) {
-        html += '<option value="' + list[i].code + '">' + list[i].name + "</option>";
-      }
-      $("office").innerHTML = html;
-      $("office").value = config.disaster.officeCode;
+  /**
+   * 警報・注意報の地域は天気の地点から端末が自動で決めるので、選ばせずに表示だけする。
+   * 決まった結果は /api/state の disaster に載っている。
+   */
+  function loadDisasterArea() {
+    return api("/api/state").then(function (s) {
+      var d = (s && s.disaster) || {};
+      var text;
+      if (!config.disaster.enabled) text = "防災情報の取得が無効です";
+      else if (!d.available) text = "まだ取得できていません";
+      else if (!d.areaName) text = "天気の地点から市町村を決められません。「場所」で国内の地点を選んでください";
+      else text = [d.officeName, d.areaName].filter(Boolean).join(" ");
+      $("disasterArea").textContent = text;
     }).catch(function () {
-      $("office").innerHTML = '<option value="' + config.disaster.officeCode + '">' +
-        config.disaster.officeName + "（一覧を取得できません）</option>";
+      $("disasterArea").textContent = "取得できません";
     });
+  }
+
+  /** 地点や取得の有無を変えた直後は、定期取得を待たずに決め直させてから表示する。 */
+  function refreshDisasterArea() {
+    $("disasterArea").textContent = "確認中…";
+    return api("/api/refresh", { method: "POST" })
+      .catch(function () { /* 取得に失敗しても、いま決まっている地域は出せる */ })
+      .then(loadDisasterArea);
   }
 
   // ---------------------------------------------------------------- 保存
@@ -314,18 +326,12 @@
   });
 
   $("saveDisaster").addEventListener("click", function () {
-    var select = $("office");
-    var name = select.options[select.selectedIndex]
-      ? select.options[select.selectedIndex].text
-      : config.disaster.officeName;
     saveDisplay("disasterStatus", {
       disaster: {
         enabled: $("disasterEnabled").checked,
-        officeCode: select.value,
-        officeName: name,
         minIntensity: $("minIntensity").value
       }
-    });
+    }).then(refreshDisasterArea);
   });
 
   $("saveFeed").addEventListener("click", function () {
@@ -436,7 +442,7 @@
                 configured: true, name: r.name, latitude: r.latitude,
                 longitude: r.longitude, timezone: r.timezone
               }
-            }, "placeStatus", "地点を " + r.name + " に変更しました");
+            }, "placeStatus", "地点を " + r.name + " に変更しました").then(refreshDisasterArea);
             $("results").innerHTML = "";
             $("q").value = "";
           });
@@ -492,7 +498,7 @@
       render();
       return Promise.all([
         api("/api/device").then(function (d) { device = d; renderDevice(); }),
-        loadOffices()
+        loadDisasterArea()
       ]);
     })
     .catch(function (e) { $("access").textContent = "読み込みエラー: " + e.message; });

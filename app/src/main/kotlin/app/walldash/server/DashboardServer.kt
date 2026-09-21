@@ -243,11 +243,6 @@ class DashboardServer(
                 )
             }
 
-            get("/api/jma/offices") {
-                if (!authorized(call)) { unauthorized(call); return@get }
-                call.respond(disasterRepository.offices())
-            }
-
             post("/api/memo") {
                 if (!guardWrite(call)) return@post
                 val patch = call.receive<MemoPatch>()

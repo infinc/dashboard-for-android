@@ -27,12 +27,16 @@ import kotlin.math.min
  * ここで持つのは「直近に起きた 1 件」だけにする。過去の一覧は表示しない。
  *
  * 種別コードの名称テーブルは気象庁が JSON で公開していない（const 配下は 404）ので、
- * 公開資料の対応表を [WARNING_KINDS] に持つ。未知のコードは名前を推測せずコードのまま出す。
+ * 気象庁の警報ページが持つ対応表を [WARNING_KINDS] に写してある。
+ * 未知のコードは名前を推測せずコードのまま出す。
  *
  * 警報の取得先は `warning/data/r8/{府県コード}.json`。
  * 以前の `warning/data/warning/{府県コード}.json` は気象庁が更新を止めており
  * （2026-09-21 時点で全国が 2026-05-28 のまま）、古い内容をそのまま壁に出してしまうので使わない。
- * 新しい方は 1 県ぶんが種類ごとの文書の配列で届くため、区域ごとに束ね直す必要がある。
+ *
+ * 警報・注意報の対象は、天気の地点（[LocationConfig]）がある**市町村**。
+ * 緯度経度から気象庁の市町村区分を [JmaAreaLocator] で決め、その親をたどって府県予報区も決める。
+ * 天気と防災で別々に地域を選ばせると、地点を変えたときに片方だけ古いまま残るため。
  */
 class DisasterRepository(
     context: Context,
@@ -41,14 +45,16 @@ class DisasterRepository(
 ) {
 
     private val cacheFile = File(context.filesDir, "disaster-cache.json")
+    private val areaFile = File(context.filesDir, "disaster-area.json")
+    private val locator = JmaAreaLocator(client)
 
     @Volatile
     var state: DisasterState = DisasterState()
         private set
 
-    /** area.json は 260KB 程度あるので一度だけ取ってメモリに置く。 */
+    /** 天気の地点から決めた市町村。地点が変わるまで使い回す（再起動をまたいでも）。 */
     @Volatile
-    private var areaNames: Map<String, String>? = null
+    private var resolved: ResolvedArea? = null
 
     private var lastAttemptAt = 0L
     private var consecutiveFailures = 0
@@ -57,6 +63,9 @@ class DisasterRepository(
         runCatching {
             if (cacheFile.exists()) state = Http.json.decodeFromString(cacheFile.readText())
         }.onFailure { Log.w(TAG, "防災キャッシュの読み込みに失敗", it) }
+        runCatching {
+            if (areaFile.exists()) resolved = Http.json.decodeFromString(areaFile.readText())
+        }.onFailure { Log.w(TAG, "市町村の読み込みに失敗", it) }
     }
 
     suspend fun refreshIfDue() {
@@ -64,60 +73,71 @@ class DisasterRepository(
         if (!config.disaster.enabled) return
         val now = System.currentTimeMillis()
         val due = if (consecutiveFailures == 0) INTERVAL_MS else backoffMs()
-        if (now - lastAttemptAt < due) return
+        // 天気の地点を変えたら、次の定期取得を待たずに対象の市町村を決め直す。
+        // 失敗が続いている間は間隔を守る（通信できないまま 15 秒ごとに叩かないため）。
+        val moved = resolved?.matches(config.location) != true && consecutiveFailures == 0
+        if (!moved && now - lastAttemptAt < due) return
         refreshNow()
     }
 
     suspend fun refreshNow() {
         lastAttemptAt = System.currentTimeMillis()
-        val config = configStore.get().disaster
+        val config = configStore.get()
         try {
-            val names = areaNames ?: loadAreaNames().also { areaNames = it }
+            val area = resolveArea(config.location)
             val docs: List<WarningDocDto> =
-                client.get("$BASE/warning/data/r8/${config.officeCode}.json").body()
+                if (area.found) client.get("$BASE/warning/data/r8/${area.officeCode}.json").body()
+                else emptyList()
             val quakes: List<QuakeDto> = client.get("$BASE/quake/data/list.json").body()
 
             /*
              * 1 つの県ぶんが「大雨」「土砂災害」「風」「波」「雷」…と別々の文書で届く。
-             * 区域ごとに全文書を束ねないと、最後に読んだ 1 種類しか出ない。
+             * 各文書の class20Items（市町村ごとの行）から、天気の地点の市町村の行だけを拾って束ねる。
              *
-             * class10Items が一次細分区域（北部・南部など）、class20Items が市町村。
-             * 壁掛けの距離で市町村名まで並べても読めないので一次細分区域だけを使う。
+             * 一次細分区域（北部・南部など、class10Items）は使わない。区域の中の
+             * どこか 1 か所に出ていれば区域全体に出るので、自分の市町村より強く出ることがある
+             * （実際に、市町村は強風注意報なのに区域では暴風警報と出ていた）。
              */
-            val kindsByArea = LinkedHashMap<String, LinkedHashSet<String>>()
+            val kinds = LinkedHashSet<String>()
+            val issuing = mutableListOf<Pair<WarningDocDto, Int>>()
             for (doc in docs) {
-                for (area in doc.warning?.class10Items.orEmpty()) {
-                    if (area.areaCode.isBlank()) continue
-                    // 解除されたものと、そもそも発表が無い区域（code が付かない）は除く
-                    val live = area.kinds.filter { it.code != null && it.status != "解除" }
-                    if (live.isEmpty()) continue
-                    val into = kindsByArea.getOrPut(area.areaCode) { LinkedHashSet() }
-                    live.forEach { k -> into.add(kindLabel(doc.dataTypeCode, k.code)) }
-                }
+                val row = doc.warning?.class20Items?.firstOrNull { it.areaCode == area.code } ?: continue
+                // 解除されたものと、そもそも発表が無い種別（code が付かない）は除く
+                val live = row.kinds
+                    .filter { it.code != null && it.status != "解除" }
+                    .map { kindLabel(it.code) }
+                if (live.isEmpty()) continue
+                kinds += live
+                issuing += doc to live.maxOf(::kindRank)
             }
 
-            val active = kindsByArea.map { (areaCode, kinds) ->
+            val active = if (kinds.isEmpty()) emptyList() else listOf(
                 WarningArea(
-                    code = areaCode,
-                    name = names[areaCode] ?: areaCode,
+                    code = area.code.orEmpty(),
+                    name = area.name.orEmpty(),
                     count = kinds.size,
                     kinds = kinds.toList(),
-                    severe = kinds.any { it.contains("警報") },
+                    // 知らないコードも赤にする。実際にレベル４の大雨危険警報（43）が
+                    // 表に無く、橙の「コード43」で出ていた。誤るなら強い側に倒す。
+                    severe = kinds.any { it.contains("警報") || it.startsWith(UNKNOWN_KIND_PREFIX) },
                 )
-            }
+            )
 
             /*
-             * 見出しは文書ごとにあるが、壁に出すのは最新の 1 本だけにする。
-             * 5 本つなぐと 3 行を超えてカードから溢れ、下に並ぶ区域の行が押し出された。
-             * どの種別が出ているかは区域の行が伝えるので、ここは
-             * 「いま何が起きたか」を示す最新の本文に絞る。
+             * 見出しは文書ごとにあるが、壁に出すのは 1 本だけにする。
+             * 5 本つなぐと 3 行を超えてカードから溢れ、下の種別の行が押し出された。
              *
-             * 発表時刻は同じ気象台の JST 表記なので、文字列の比較で最新が取れる。
+             * この市町村に出ている文書のうち、段階がいちばん高いもの、同じ段階なら新しいもの。
+             * 県全体の最新を選ぶと段階の低い方の本文が出ることがある（土砂災害がレベル４の日に、
+             * 同時刻に出た大雨の本文が選ばれていた）。
+             * 発表時刻は同じ気象台の JST 表記なので、文字列の比較で新旧が決まる。
              */
-            val latest = docs
-                .filter { !it.headlineText.isNullOrBlank() }
-                .maxByOrNull { it.reportDatetime.orEmpty() }
-            val headline = latest?.headlineText?.trim()?.takeIf(String::isNotEmpty)
+            val headline = issuing
+                .sortedWith(
+                    compareByDescending<Pair<WarningDocDto, Int>> { it.second }
+                        .thenByDescending { it.first.reportDatetime.orEmpty() },
+                )
+                .firstNotNullOfOrNull { it.first.headlineText?.trim()?.takeIf(String::isNotEmpty) }
             val reportedAt = docs.mapNotNull { it.reportDatetime }.maxOrNull()
 
             // 津波・台風・噴火は警報や地震とは別系統。個別に失敗を受けて、
@@ -134,7 +154,8 @@ class DisasterRepository(
 
             state = DisasterState(
                 available = true,
-                officeName = config.officeName,
+                officeName = area.officeName,
+                areaName = area.name.takeIf { area.found },
                 headline = headline,
                 reportedAt = reportedAt,
                 activeAreas = active,
@@ -142,7 +163,7 @@ class DisasterRepository(
                 typhoons = typhoons,
                 volcanoes = volcanoes,
                 quakes = quakes
-                    .filter { meetsThreshold(it.maxIntensity, config.minIntensity) }
+                    .filter { meetsThreshold(it.maxIntensity, config.disaster.minIntensity) }
                     // 震源が確定する前の速報は震央地名が空で届く。
                     // 「震度3」だけ出ても場所が分からず壁では役に立たないので落とす。
                     .filter { !it.epicenter.isNullOrBlank() }
@@ -277,36 +298,58 @@ class DisasterRepository(
             .sortedByDescending { it.reportedAt ?: "" }
     }
 
-    /** 設定画面の予報区プルダウン用。気象庁の offices をそのまま返す。 */
-    suspend fun offices(): List<Office> {
-        val dto: AreaDto = client.get("$BASE/common/const/area.json").body()
-        return dto.offices.map { (code, v) -> Office(code, v.name) }.sortedBy { it.code }
+    // ------------------------------------------------------------ 対象の市町村
+
+    /**
+     * 天気の地点の市町村と、それが属する府県予報区。
+     * 地点が前回と同じなら決め直さない（見つからなかった結果も覚えておく）。
+     */
+    private suspend fun resolveArea(location: LocationConfig): ResolvedArea {
+        resolved?.let { if (it.matches(location)) return it }
+
+        val found = locator.locate(location.latitude, location.longitude)
+        val office = found?.let { officeOf(it.code) }
+        val next = ResolvedArea(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            code = found?.code.takeIf { office != null },
+            name = found?.name.takeIf { office != null },
+            officeCode = office?.first,
+            officeName = office?.second,
+        )
+        if (!next.found) Log.w(TAG, "天気の地点から市町村を決められない（国外の地点など）")
+        resolved = next
+        runCatching { areaFile.writeText(Http.json.encodeToString(next)) }
+        return next
     }
 
-    private suspend fun loadAreaNames(): Map<String, String> {
-        val dto: AreaDto = client.get("$BASE/common/const/area.json").body()
-        // 警報 JSON に出てくるのは主に一次細分区域(class10s)。
-        // 将来 areaTypes の構成が変わっても名前が出るよう、他の階層も辞書に入れておく。
-        return dto.offices.mapValues { it.value.name } +
-            dto.class15s.mapValues { it.value.name } +
-            dto.class20s.mapValues { it.value.name } +
-            dto.class10s.mapValues { it.value.name }
+    /** 市町村 → 二次細分の中間 → 一次細分 → 府県予報区、と area.json の親をたどる。 */
+    private suspend fun officeOf(class20: String): Pair<String, String>? {
+        val a: AreaDto = client.get("$BASE/common/const/area.json").body()
+        val class15 = a.class20s[class20]?.parent ?: return null
+        val class10 = a.class15s[class15]?.parent ?: return null
+        val office = a.class10s[class10]?.parent ?: return null
+        val name = a.offices[office]?.name ?: return null
+        return office to name
+    }
+
+    /** 見出しを選ぶときの段階。名前は [WARNING_KINDS] の表記から読む。 */
+    private fun kindRank(label: String): Int = when {
+        label.contains("特別警報") -> 5
+        label.contains("危険警報") -> 4
+        label.contains("警報") || label.startsWith(UNKNOWN_KIND_PREFIX) -> 3
+        else -> 2
     }
 
     /**
-     * 区域に並べる種別の名前。
+     * 区域に並べる種別の名前。どの文書（大雨・土砂災害・風…）から来たコードも同じ表で引く。
      *
-     * 気象警報・注意報の文書（大雨・風・波・雷など）は [WARNING_KINDS] で名前に直せる。
-     *
-     * 土砂災害警戒情報（[SEDIMENT_DOC]）はコード体系が別で、気象庁が対応表を公開していない。
-     * 実データでは北部が 29、南部が 09 で、気象庁のページはそれぞれ
-     * 「土砂災害注意報」「土砂災害警報」と出していたが、観測できたのはこの 1 例だけなので
-     * 警報か注意報かまでは決めつけない。文書の種類そのものは確実なので、それだけを出す。
-     * 段階を出さないぶん実際より強く読めるが、防災の表示で誤るなら強い側に倒す。
+     * 以前は土砂災害の文書（VPWW56）だけ段階を捨てて「土砂災害」と出していた。
+     * 対応表が手元に無かったための措置だったが、注意報もレベル４の危険警報も同じ表示になり、
+     * 段階が上がっても種別名が変わらないので通知音も鳴らなかった。
      */
-    private fun kindLabel(dataTypeCode: String?, code: String?): String =
-        if (dataTypeCode == SEDIMENT_DOC) SEDIMENT_LABEL
-        else WARNING_KINDS[code] ?: "コード$code"
+    private fun kindLabel(code: String?): String =
+        WARNING_KINDS[code] ?: "$UNKNOWN_KIND_PREFIX$code"
 
     private fun backoffMs(): Long = min(60_000L shl min(consecutiveFailures - 1, 4), 15 * 60_000L)
 
@@ -350,30 +393,40 @@ class DisasterRepository(
             level.contains("レベル３") || level.contains("レベル４") || level.contains("レベル５") ||
                 level.contains("危険") || level.contains("避難")
 
+        /** 対応表に無いコードの表示（"コード43" など）。赤で出す判定にも使う。 */
+        const val UNKNOWN_KIND_PREFIX = "コード"
+
         /**
          * 警報・注意報の種別コード → 名称。
          *
-         * 気象庁は名称テーブルを JSON では公開していないので、公開資料
-         * （「気象警報・注意報の種類」）の対応表をここに持つ。
+         * 気象庁は名称テーブルを JSON では公開していないので、気象庁の警報ページ
+         * （`bosai/warning/`）のスクリプトが持つ対応表を写した（2026-09-21 確認、全 33 件）。
+         * 名前もページの表示に合わせてある。
+         *
+         * - 大雨・土砂災害・高潮は警戒レベル付きの名前で、レベル４に「危険警報」（4x）がある
+         * - 土砂災害（09/29/39/49）も他の種別と同じ表に載っている。文書ごとに別の体系ではない
+         * - 洪水（04/18）とその他の注意報（27）はこの表に無い（ページでは河川ごとの氾濫情報を
+         *   別の表で扱っている）
+         *
          * 知らないコードが来たときは推測せず "コードNN" と出す。誤った種別名を
          * 壁に出すより、コードのまま出して調べられる方がましなため。
          */
-        /** 土砂災害警戒情報の文書。種別コードの体系が気象警報・注意報とは別。 */
-        const val SEDIMENT_DOC = "VPWW56"
-        const val SEDIMENT_LABEL = "土砂災害"
-
         val WARNING_KINDS = mapOf(
-            "02" to "暴風雪警報", "03" to "大雨警報", "04" to "洪水警報",
-            "05" to "暴風警報", "06" to "大雪警報", "07" to "波浪警報",
-            "08" to "高潮警報",
-            "10" to "大雨注意報", "12" to "大雪注意報", "13" to "風雪注意報",
-            "14" to "雷注意報", "15" to "強風注意報", "16" to "波浪注意報",
-            "17" to "融雪注意報", "18" to "洪水注意報", "19" to "高潮注意報",
-            "20" to "濃霧注意報", "21" to "乾燥注意報", "22" to "なだれ注意報",
-            "23" to "低温注意報", "24" to "霜注意報", "25" to "着氷注意報",
-            "26" to "着雪注意報", "27" to "その他の注意報",
-            "32" to "暴風雪特別警報", "33" to "大雨特別警報", "35" to "暴風特別警報",
-            "36" to "大雪特別警報", "37" to "波浪特別警報", "38" to "高潮特別警報",
+            // 大雨・土砂災害・高潮は警戒レベル付き
+            "10" to "レベル２大雨注意報", "03" to "レベル３大雨警報",
+            "43" to "レベル４大雨危険警報", "33" to "レベル５大雨特別警報",
+            "29" to "レベル２土砂災害注意報", "09" to "レベル３土砂災害警報",
+            "49" to "レベル４土砂災害危険警報", "39" to "レベル５土砂災害特別警報",
+            "19" to "レベル２高潮注意報", "08" to "レベル３高潮警報",
+            "48" to "レベル４高潮危険警報", "38" to "レベル５高潮特別警報",
+            // それ以外は段階なし
+            "15" to "強風注意報", "05" to "暴風警報", "35" to "暴風特別警報",
+            "13" to "風雪注意報", "02" to "暴風雪警報", "32" to "暴風雪特別警報",
+            "12" to "大雪注意報", "06" to "大雪警報", "36" to "大雪特別警報",
+            "16" to "波浪注意報", "07" to "波浪警報", "37" to "波浪特別警報",
+            "14" to "雷注意報", "17" to "融雪注意報", "20" to "濃霧注意報",
+            "21" to "乾燥注意報", "22" to "なだれ注意報", "23" to "低温注意報",
+            "24" to "霜注意報", "25" to "着氷注意報", "26" to "着雪注意報",
         )
 
         /**
@@ -393,8 +446,22 @@ class DisasterRepository(
         }
     }
 
+    /** [resolveArea] の結果。どの地点について決めたかも持ち、地点が変われば決め直す。 */
     @Serializable
-    data class Office(val code: String, val name: String)
+    private data class ResolvedArea(
+        val latitude: Double,
+        val longitude: Double,
+        /** 気象庁の市町村区分コード（area.json の class20s）。見つからなければ null。 */
+        val code: String? = null,
+        val name: String? = null,
+        val officeCode: String? = null,
+        val officeName: String? = null,
+    ) {
+        val found: Boolean get() = code != null && officeCode != null
+
+        fun matches(location: LocationConfig): Boolean =
+            latitude == location.latitude && longitude == location.longitude
+    }
 
     // ------------------------------------------------------------ DTO
 
@@ -413,9 +480,10 @@ class DisasterRepository(
         val warning: WarningBodyDto? = null,
     )
 
+    /** class10Items（北部・南部などの一次細分区域）も届くが、市町村の行だけを使う。 */
     @Serializable
     private data class WarningBodyDto(
-        val class10Items: List<WarningAreaDto> = emptyList(),
+        val class20Items: List<WarningAreaDto> = emptyList(),
     )
 
     @Serializable
@@ -476,5 +544,5 @@ class DisasterRepository(
     )
 
     @Serializable
-    private data class AreaNameDto(val name: String = "")
+    private data class AreaNameDto(val name: String = "", val parent: String? = null)
 }
