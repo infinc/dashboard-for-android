@@ -1,51 +1,193 @@
 # Walldash
 
-使っていない Android タブレットを、Wi-Fi の状態・時刻・天気を常時表示する壁掛けダッシュボードにするアプリ。
+使っていない Android タブレットを、壁に掛けて情報を表示し続けるダッシュボードにするアプリです。
 
-- ダッシュボード UI は WebView + アプリ内蔵の Ktor サーバー（`assets/web` の HTML/CSS/JS）
-- 設定は PC のブラウザから行う（USB 経由が主導線、LAN 公開は明示的なオプトイン）
-- 天気は [Open-Meteo](https://open-meteo.com/)（API キー不要）
+**表示できるもの**: 時刻・天気（時間別予報・週間予報）・防災情報（警報・地震・津波・台風・噴火）・
+ニュース（RSS）・Wi-Fi と端末の状態・タイマー・今日の単語・LINE メモ・Spotify で再生中の曲
 
----
-
-## 必要なもの
-
-| 用途 | 導入 |
+| 入れればすぐ使える | 自分のアカウントの用意が必要 |
 |---|---|
-| JDK 17+ | 既存の JDK でよい（確認: `java -version`） |
-| Android SDK / adb | `brew install --cask android-commandlinetools android-platform-tools` |
-| SDK 本体 | `sdkmanager --install "platforms;android-36" "build-tools;36.0.0"` + `sdkmanager --licenses` |
-| Gradle | 不要（`./gradlew` が自動取得する。Wrapper は Gradle 8.14.5 で固定） |
+| 時刻、天気、防災、ニュース、Wi-Fi、端末状態、タイマー、今日の単語 | LINE メモ（LINE と Cloudflare）、Spotify |
 
-`local.properties` の `sdk.dir` が SDK の場所を指していること。
+アプリストアでは配布していません。PC でこのソースコードからアプリを作り（ビルド）、
+USB ケーブルでタブレットに入れます。Android アプリを作った経験がなくても、下の手順どおりに進めれば入れられます。
 
 ---
 
-## タブレット側の初回準備
+## インストール
 
-1. 設定 → デバイス情報 → **ビルド番号を 7 回タップ**して開発者オプションを有効化
-2. 開発者オプション → **USB デバッグを ON**
-3. PC と USB 接続 → 端末に出る「USB デバッグを許可しますか」で**許可**
-4. `adb devices` に端末が表示されれば準備完了
+全体の流れ:
 
----
+1. 用意するものをそろえる
+2. PC にビルド環境を入れる
+3. タブレットの USB デバッグを ON にする
+4. アプリを作ってタブレットに入れる
+5. タブレットで初期設定をする
 
-## ビルドとインストール
+### 1. 用意するもの
+
+| もの | 条件 |
+|---|---|
+| Android タブレット | Android 7.0 以上。動作を確認しているのは Lenovo TB-X306F（Android 10）のみ |
+| PC | Windows / Mac / Linux のどれでも |
+| USB ケーブル | **データ通信に対応したもの**。充電専用のケーブルだと PC がタブレットを認識しません |
+| Wi-Fi | タブレットがインターネットにつながること（天気やニュースの取得に使います） |
+| このリポジトリ | GitHub のページの緑の「Code」ボタン →「Download ZIP」で取得して展開するか、`git clone` します |
+
+### 2. PC にビルド環境を入れる
+
+**A と B のどちらか一方**を行います。迷ったら A にしてください。
+
+#### A. Android Studio を使う（Windows / Mac / Linux）
+
+1. <https://developer.android.com/studio> から Android Studio をダウンロードしてインストールします
+2. 初回起動時のセットアップ画面では「Standard」を選び、表示されるライセンスにすべて同意して最後まで進めます
+
+Java や Android SDK は Android Studio が自動で入れるので、ほかに入れるものはありません。
+
+#### B. ターミナルを使う（Mac）
+
+[Homebrew](https://brew.sh/) が入っている前提です。Java と Android SDK を入れます:
 
 ```bash
-./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+brew install --cask temurin@17 android-commandlinetools android-platform-tools
 ```
 
-## 設定画面を開く（USB 経由 — 主導線）
+Android SDK のライセンスに同意します（何度か `y/N` と聞かれるので、すべて `y` と入力して Enter）:
+
+```bash
+sdkmanager --licenses
+```
+
+> Java（JDK）は **17 か 21** を使ってください。このプロジェクトが使う Gradle 8.14 は JDK 25 以降に対応していません。
+> 入っている版は `java -version` で確認できます。
+
+### 3. タブレットの USB デバッグを ON にする
+
+アプリストア以外からアプリを入れるための設定です。項目の名前は機種によって少し違います。
+
+1. タブレットの「設定」→「タブレット情報」（「デバイス情報」「端末情報」などの場合もあります）を開く
+2. 「ビルド番号」を **7 回続けてタップ**する。「これでデベロッパーになりました」と出れば OK
+   （見当たらない場合は「ソフトウェア情報」の中にあることが多いです）
+3. 「設定」→「システム」→「開発者向けオプション」を開き、「**USB デバッグ**」を ON にする
+4. タブレットを USB ケーブルで PC につなぐ
+5. タブレットに「USB デバッグを許可しますか？」と出たら、「このパソコンからのアクセスを常に許可する」に
+   チェックを入れて「**許可**」を押す（出ない場合はケーブルを抜き差しします）
+
+### 4. アプリを作ってタブレットに入れる
+
+手順 2 で選んだほうを行います。
+
+#### A. Android Studio の場合
+
+1. Android Studio の「Open」で、このリポジトリのフォルダ（`settings.gradle.kts` が入っているフォルダ）を開く。
+   「Trust Project?」と聞かれたら「Trust Project」を選ぶ
+2. 画面下のステータスバーで同期（Gradle Sync）が終わるまで待つ。初回は必要なファイルのダウンロードで
+   数分〜十数分かかります
+3. 画面上部の実行先の欄にタブレットの名前が出ていることを確認する
+4. 緑の ▶（Run 'app'）を押す。タブレットにアプリが入り、そのまま起動します
+
+> 「Android Gradle Plugin をアップグレードしますか」という案内が出ても、アップグレードせずに閉じてください。
+> 動作を確認している版から変わるため、ビルドが通らなくなることがあります。
+
+#### B. ターミナルの場合
+
+ターミナルでこのリポジトリのフォルダに移動します（`cd ` と入力したあと、Finder からフォルダを
+ドラッグ＆ドロップすると場所が入ります）。
+
+Android SDK の場所をこのプロジェクトに伝えます。**最初の 1 回だけ**必要です:
+
+```bash
+echo "sdk.dir=$(brew --prefix)/share/android-commandlinetools" > local.properties
+```
+
+> これを飛ばすとビルドが `SDK location not found` で失敗します。
+> `local.properties` は PC ごとに違う設定なので、リポジトリには含めていません。
+
+タブレットが認識されているか確認します。一覧に `device` と出れば OK です
+（`unauthorized` と出た場合は、タブレットの画面で「許可」を押します）:
+
+```bash
+adb devices
+```
+
+アプリを作ってタブレットに入れます。初回は必要なファイルのダウンロードで数分〜十数分かかります:
+
+```bash
+./gradlew :app:installDebug
+```
+
+`BUILD SUCCESSFUL` と出たら完了です。タブレットのアプリ一覧から **Walldash** を開きます。
+
+### 5. タブレットで初期設定をする
+
+初めて開くと、権限の確認が出ます。**どちらも「許可」**を選んでください。
+
+| 出てくる確認 | 使いみち |
+|---|---|
+| 通知（Android 13 以降） | アプリが動き続けていることを示す通知を出すため |
+| 付近のデバイス（Android 13 以降）／位置情報（Android 12 以前） | Wi-Fi カードにネットワーク名（SSID）を出すため。Android はこの権限がないとネットワーク名を教えてくれません。**タブレットの現在地を取得することはありません**（天気の地点は設定画面で自分で選びます） |
+
+次に、画面下の**歯車ボタン**で設定画面を開き、最低限この 3 つを設定します。
+
+| 設定画面の項目 | 設定すること |
+|---|---|
+| 全体 → 場所 | 住んでいる地域を**ローマ字か英語**で検索して選ぶ（例: `Sapporo`）。**設定しないと東京の天気が出ます** |
+| カード → 防災 | 住んでいる都道府県（府県予報区）を選ぶ |
+| カード → ニュース | 読みたいニュースの RSS の URL を登録する |
+
+壁に掛けて使い続ける場合は、下の「[常時運用のための端末設定](#常時運用のための端末設定)」も行ってください。
+LINE メモと Spotify は、使う場合だけ設定します（[LINE メモ](#line-メモ)・[Spotify](#spotify)）。
+
+### PC のブラウザから設定する（任意）
+
+タブレットの画面で文字を打つのが面倒なときは、USB でつないだまま PC のブラウザから同じ設定画面を開けます。
 
 ```bash
 adb forward tcp:8080 tcp:8080
 ```
 
-→ PC のブラウザで <http://localhost:8080/settings>
+PC のブラウザで <http://localhost:8080/settings> を開きます。USB でつながった PC からしか届かない経路なので、
+ログインは不要です。接続がよく切れる場合は、`bash tools/keep-forward.sh` を動かしておくと自動でつなぎ直します。
 
-loopback からのアクセスは認証不要。これが設定の標準経路。
+> Android Studio で環境を入れた場合、`adb` は次の場所にあります（そのままでは `adb` と打っても見つかりません）。
+> Mac: `~/Library/Android/sdk/platform-tools/adb`　Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
+
+### アプリを更新する
+
+新しいソースコードを取得して（`git pull`、または ZIP を取り直して展開）、手順 4 をもう一度行います。
+**設定はそのまま残ります**。ZIP を別のフォルダに展開し直した場合は、手順 4-B の `local.properties` も作り直してください。
+
+> 別の PC で作ったアプリで上書きしようとすると、`INSTALL_FAILED_UPDATE_INCOMPATIBLE` で失敗します
+> （開発用の署名が PC ごとに違うため）。その場合は一度アンインストールしてから入れ直します。**このとき設定は消えます**。
+
+### アンインストール
+
+タブレットの「設定」→「アプリ」→「Walldash」→「アンインストール」。
+
+### うまくいかないとき
+
+| 症状 | 対処 |
+|---|---|
+| `SDK location not found` | 手順 4-B の `local.properties` を作る（Android Studio では自動で作られます） |
+| `adb devices` に何も出ない | データ通信対応のケーブルか、USB デバッグが ON かを確認する。別の USB ポートも試す。Windows ではメーカーの USB ドライバが必要な機種があります |
+| `adb devices` に `unauthorized` と出る | タブレットの画面に出ている「USB デバッグを許可」で「許可」を押す。出ていなければケーブルを抜き差しする |
+| Java（JDK）に関するエラーでビルドが止まる | JDK 17 か 21 を使う。Mac で複数の JDK が入っている場合は `export JAVA_HOME=$(/usr/libexec/java_home -v 17)` を実行してからビルドし直す |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 上の「アプリを更新する」を参照 |
+| Wi-Fi カードに「権限が必要」と出る | タブレットの「設定」→「アプリ」→「Walldash」→「権限」で「付近のデバイス」または「位置情報」を許可する |
+| Wi-Fi カードに「位置情報サービスを ON に」と出る | タブレットの位置情報を ON にする（Android の仕様で、ネットワーク名の取得に必要です） |
+| 表示が崩れる・真っ白になる | Play ストアで「Android System WebView」を最新にする |
+
+---
+
+## 仕組み
+
+- ダッシュボード UI は WebView + アプリ内蔵の Ktor サーバー（`assets/web` の HTML/CSS/JS）
+- 設定画面も同じサーバーが配信する。タブレットの歯車からも、USB でつないだ PC のブラウザからも開ける
+  （LAN 公開は明示的なオプトイン）
+- 天気は [Open-Meteo](https://open-meteo.com/)（API キー不要）
+- Gradle は不要（`./gradlew` が自動取得する。Wrapper は Gradle 8.14.5 で固定）。
+  足りない SDK の部品（Platform 36・Build-Tools 35 など）も、ライセンスに同意済みならビルド時に自動で入る
 
 ---
 
@@ -80,6 +222,10 @@ loopback からのアクセスは認証不要。これが設定の標準経路�
 
 ### スリープを無効化
 
+ダッシュボードを表示している間は、アプリが画面を消さないようにしている。
+ダッシュボード以外の画面になっても消えないようにするには、端末のスリープ自体を無効化する
+（端末の「設定 → ディスプレイ → スリープ」を最長にするのでもよい）:
+
 ```bash
 adb shell settings put system screen_off_timeout 2147483647
 ```
@@ -89,7 +235,7 @@ adb shell settings put system screen_off_timeout 2147483647
 `BOOT_COMPLETED` でサービスは自動起動するが、**Android 10 以降のバックグラウンド Activity 起動制限により、
 ダッシュボード画面が自動で前面に出るとは限らない**。
 
-対策として設定画面の「端末」セクションから **ホームアプリとして登録**できる。
+対策として設定画面の「端末 → ホームアプリ」から **ホームアプリとして登録**できる。
 有効化したあと端末側でホームアプリの選択ダイアログが出たら Walldash を選ぶ。
 登録しない場合は、再起動のたびに手動でアプリを開く運用になる。
 
@@ -165,12 +311,24 @@ apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
 
 ## LINE メモ
 
-LINE Bot に送ったメッセージが壁に並ぶ。中継の作り方は `worker/README.md` を参照。
+LINE Bot に送ったメッセージが壁に並ぶ。中継の作り方は [`worker/README.md`](worker/README.md) を参照。
 
 - 新しい順に最大 30 件まで保存され、カードに入りきらない分は指でスクロールして読む
 - LINE で **`/clear`** と送ると保存されているメモを全部消す
 - 中継（Cloudflare Worker）を更新しないと複数表示と `/clear` は効かない:
   `cd worker && npx wrangler deploy`
+
+## Spotify
+
+Spotify で再生中の曲のジャケットと曲名を出し、再生・一時停止・曲送りができる。
+タブレットから音は出ない（操作は Spotify を鳴らしている端末に送られる）。曲送りには Spotify Premium が必要。
+
+使うには、自分用の Spotify アプリ登録（無料）が要る:
+
+1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) で「Create app」を押す
+2. **Redirect URI** に `http://127.0.0.1:8080/api/spotify/callback` を追加し、API は「Web API」を選ぶ
+3. できた **Client ID** を、設定画面の「カード → Spotify」に貼って保存し、「Spotify と連携」を押す
+   （Client Secret は使わない）
 
 ## 個人に紐づく値の置き場所
 
