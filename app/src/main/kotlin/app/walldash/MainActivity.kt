@@ -2,9 +2,12 @@ package app.walldash
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +23,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -27,7 +31,10 @@ import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +43,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import app.walldash.data.ConfigStore
+import app.walldash.data.Favorite
 import app.walldash.server.DashboardServer
 
 /**
@@ -56,6 +64,13 @@ class MainActivity : ComponentActivity() {
     private var browserView: WebView? = null
     private var browserUrlField: EditText? = null
 
+    /** いま開いているページを登録する星。メニューは押したときに組み立てる。 */
+    private var favStar: TextView? = null
+
+    /** 星の状態と登録名を決めるために、開いているページを覚えておく。 */
+    private var currentUrl: String = ""
+    private var currentTitle: String = ""
+
     /**
      * 戻るキーはブラウズ中だけ拾う。ダッシュボード表示中の挙動は今までどおりにしておく
      * （壁掛けの常用画面なので、ここで握ると閉じられなくなる端末が出る）。
@@ -70,6 +85,15 @@ class MainActivity : ComponentActivity() {
     private val idleHandler = Handler(Looper.getMainLooper())
     private val dimRunnable = Runnable { applyBrightness(dimmed = true) }
     private var dimmed = false
+
+    /**
+     * 通知音を鳴らす直前のメディア音量。null は「通知のために動かしていない」。
+     *
+     * WebAudio のゲインで絞る方式では、端末の主音量が小さいときに通知もそのぶん小さくなり、
+     * 「主音量は小さいままでも通知だけは聞こえるようにする」ができなかった。
+     * そのため主音量そのものを設定値まで動かし、鳴り終わったら必ずここへ戻す。
+     */
+    private var volumeBeforeNotice: Int? = null
 
     /** 通知で明るくする直前の状態。null は「通知のために明るくしてはいない」。 */
     private var dimBeforeNotice: Boolean? = null
@@ -182,6 +206,46 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * 通知音のあいだだけ、メディア音量を設定した値へ動かす。
+     *
+     * [holdMs] 経過後に元の音量へ戻す。鳴っている最中に重ねて呼ばれたら、
+     * そのたびに戻す時刻を延ばす（タイマーの連打のように音が続く場合のため）。
+     * 元の音量は最初の 1 回だけ覚える。途中で上書きすると、戻す先が
+     * 「通知のために上げた音量」になってしまう。
+     */
+    private fun holdNoticeVolume(holdMs: Long) {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val max = runCatching { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        if (max <= 0) return
+
+        val want = ConfigStore.getInstance(this).get().notifications.volume
+        val target = Math.round(want * max).toInt().coerceIn(0, max)
+
+        handler.removeCallbacks(restoreVolumeRunnable)
+        if (volumeBeforeNotice == null) {
+            volumeBeforeNotice = runCatching {
+                audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            }.getOrNull() ?: return
+        }
+        // FLAG は 0。音量 UI も操作音も出さずに変える。
+        runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0) }
+            .onFailure { Log.w(TAG, "メディア音量を変更できない（マナーモード等）", it) }
+        handler.postDelayed(restoreVolumeRunnable, holdMs)
+    }
+
+    /** 通知のために動かした音量を元に戻す。動かしていなければ何もしない。 */
+    private fun restoreNoticeVolume() {
+        handler.removeCallbacks(restoreVolumeRunnable)
+        val saved = volumeBeforeNotice ?: return
+        volumeBeforeNotice = null
+        val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0) }
+            .onFailure { Log.w(TAG, "メディア音量を戻せない", it) }
+    }
+
+    private val restoreVolumeRunnable = Runnable { restoreNoticeVolume() }
+
+    /**
      * 一定時間タッチが無ければバックライトを落とす。
      * CSS で暗くするのではなくウィンドウの輝度を下げているので、
      * 消費電力と焼き付きの両方に効く。触れば即座に戻る。
@@ -225,7 +289,17 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) hideSystemBars()
     }
 
+    /*
+     * 他のアプリへ移るときは、通知のために上げた音量を必ず戻す。
+     * ここで戻さないと、鳴っている途中で離れた場合に上げたままになる。
+     */
+    override fun onPause() {
+        restoreNoticeVolume()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        restoreNoticeVolume()
         idleHandler.removeCallbacksAndMessages(null)
         handler.removeCallbacksAndMessages(null)
         browserView?.destroy()
@@ -312,12 +386,48 @@ class MainActivity : ComponentActivity() {
             }
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(v: WebView, url: String, icon: android.graphics.Bitmap?) {
-                    // 入力中に書き換えると打っている途中の文字が消えるので、焦点が無いときだけ
-                    if (browserUrlField?.hasFocus() != true) browserUrlField?.setText(url)
+                    onBrowserUrlChanged(url)
+                }
+
+                override fun onPageFinished(v: WebView, url: String) {
+                    onBrowserUrlChanged(url)
+                    // onReceivedTitle が来ないページ用の保険。
+                    if (currentTitle.isBlank()) currentTitle = cleanTitle(v.title, url)
+                    updateFavStar()
+                }
+
+                /*
+                 * YouTube のように、ページを読み直さず履歴だけ書き換えて中身を差し替える
+                 * サイト（history.pushState）は onPageStarted も onPageFinished も通らない。
+                 * 動画を選んでも URL 欄が前のままで、★ も切り替わらなかったのはこのため。
+                 * URL が変わったことはこちらに来るので、同じ処理をここでも呼ぶ。
+                 * 普通の読み込み・戻る進む・# の変化でも呼ばれるが、
+                 * onBrowserUrlChanged() が同じ URL を無視するので二重にはならない。
+                 */
+                override fun doUpdateVisitedHistory(v: WebView, url: String, isReload: Boolean) {
+                    onBrowserUrlChanged(url)
+                }
+            }
+
+            /*
+             * 題名は onPageFinished の時点ではまだ入っていないことがある
+             * （実機で Yahoo!ニュースを登録したらホスト名になった）。
+             * 確実なのは WebChromeClient 側のこの通知なので、こちらを主に使う。
+             */
+            webChromeClient = object : WebChromeClient() {
+                override fun onReceivedTitle(v: WebView, title: String?) {
+                    currentTitle = cleanTitle(title, v.url.orEmpty())
                 }
             }
         }
         browserView = view
+
+        // いま開いているページの登録・解除。押すたびに ☆ と ★ が入れ替わる。
+        val star = toolButton("☆") { toggleFavorite() }.apply { textSize = 20f }
+        favStar = star
+
+        // 三本線。いまは「お気に入り」だけだが、あとから項目を足す入口にする。
+        val menu = toolButton("\u2630") { showBrowserMenu(it) }.apply { textSize = 18f }
 
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -333,6 +443,8 @@ class MainActivity : ComponentActivity() {
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     .apply { leftMargin = dp(6) },
             )
+            addView(star)
+            addView(menu)
         }
 
         layer.addView(
@@ -376,6 +488,7 @@ class MainActivity : ComponentActivity() {
         }
         browserView = null
         browserUrlField = null
+        favStar = null
         root.removeView(layer)
         browserLayer = null
 
@@ -400,7 +513,284 @@ class MainActivity : ComponentActivity() {
         hideKeyboard()
     }
 
-    private fun toolButton(label: String, onClick: () -> Unit): TextView =
+    // ------------------------------------------------------- お気に入り
+
+    private fun favorites(): List<Favorite> =
+        ConfigStore.getInstance(this).get().browser.favorites
+
+    /**
+     * 表示中のページが変わったときの共通処理。URL 欄と ★ をそろえる。
+     *
+     * 呼ばれる経路が 3 つある（読み込み開始・読み込み完了・履歴の書き換え）ので、
+     * 同じ URL で重ねて呼ばれても困らないように先頭で弾く。
+     */
+    private fun onBrowserUrlChanged(url: String) {
+        if (url == currentUrl) return
+        currentUrl = url
+        // 新しいページの題名はまだ来ていない。直後の onReceivedTitle で入る。
+        // ここで前のページの題名を残すと、登録名の既定値が別ページのものになる。
+        currentTitle = ""
+        syncUrlField(url)
+        updateFavStar()
+    }
+
+    /** URL 欄を表示中のページに合わせる。入力中の文字は消さない。 */
+    private fun syncUrlField(url: String) {
+        val field = browserUrlField ?: return
+        if (field.hasFocus()) return
+        if (field.text.toString() != url) field.setText(url)
+    }
+
+    /** 登録できるのは実際に開いている http(s) のページだけ。 */
+    private fun favoritableUrl(): String? =
+        currentUrl.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+
+    private fun updateFavStar() {
+        val star = favStar ?: return
+        val url = favoritableUrl()
+        val saved = url != null && favorites().any { it.url == url }
+        star.text = if (saved) "★" else "☆"
+        star.setTextColor(
+            Color.parseColor(
+                when {
+                    saved -> "#FFB347"
+                    url == null -> "#5B6774"   // 登録できないページでは押せないと分かる灰色
+                    else -> "#93A1B1"
+                },
+            ),
+        )
+    }
+
+    /**
+     * いま開いているページを登録する／登録を外す。
+     *
+     * 追加と削除を 1 つのボタンにまとめている。壁の前で触るボタンを増やしたくないのと、
+     * 「星が付いているかどうか」がそのまま登録状態の表示になるため。
+     * 追加するときだけ名前を尋ねる（URL はいま開いているものをそのまま使う）。
+     */
+    private fun toggleFavorite() {
+        val url = favoritableUrl() ?: run {
+            toast("このページは登録できません")
+            return
+        }
+        if (favorites().any { it.url == url }) {
+            ConfigStore.getInstance(this).updateFavorites { list -> list.filterNot { it.url == url } }
+            updateFavStar()
+            toast("お気に入りから外しました")
+            return
+        }
+        if (favorites().size >= ConfigStore.MAX_FAVORITES) {
+            toast("お気に入りは ${ConfigStore.MAX_FAVORITES} 件までです")
+            return
+        }
+        promptAddFavorite(url)
+    }
+
+    /**
+     * 名前を決めて登録する。
+     *
+     * 既定値はページの題名（無ければホスト名）を入れておき、全選択した状態で開く。
+     * そのまま「追加」を押せば題名のまま、打ち始めれば置き換わる。
+     * ページの題名はサイト名や煽り文句が長く付いていることが多く、
+     * 一覧に並べるには自分で短くしたくなるため。
+     */
+    private fun promptAddFavorite(url: String) {
+        val input = EditText(this).apply {
+            setText(favoriteTitle(url))
+            setSingleLine()
+            setSelectAllOnFocus(true)
+            setTextColor(Color.parseColor("#E8EEF5"))
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        val box = FrameLayout(this).apply {
+            setPadding(dp(22), dp(10), dp(22), 0)
+            addView(input)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("お気に入りに追加")
+            .setMessage(url)
+            .setView(box)
+            .setPositiveButton("追加") { _, _ ->
+                // 空にされたら題名かホスト名に戻す。一覧に無名の行を作らない。
+                val name = input.text.toString().trim().ifEmpty { favoriteTitle(url) }
+                ConfigStore.getInstance(this).updateFavorites { list ->
+                    list + Favorite(url = url, title = name)
+                }
+                updateFavStar()
+                toast("お気に入りに追加しました")
+            }
+            .setNegativeButton("キャンセル", null)
+            .create()
+
+        // 壁の前で触るので、開いた時点でキーボードまで出しておく
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        input.requestFocus()
+    }
+
+    /**
+     * 題名として使えるものだけを残す。
+     * <title> の無いページでは WebView が URL をそのまま題名として渡してくるので、
+     * それはホスト名に落とすために空として扱う。
+     */
+    private fun cleanTitle(raw: String?, url: String): String {
+        val title = raw?.trim().orEmpty()
+        if (title.isEmpty()) return ""
+        if (title == url || title.startsWith("http://") || title.startsWith("https://")) return ""
+        return title
+    }
+
+    /** 登録名の既定値。ページの title が無ければホスト名にする（空欄にはしない）。 */
+    private fun favoriteTitle(url: String): String {
+        val title = currentTitle.trim()
+        if (title.isNotEmpty()) return title
+        return runCatching { Uri.parse(url).host }.getOrNull()?.removePrefix("www.") ?: url
+    }
+
+    // ------------------------------------------------------- メニュー
+
+    /**
+     * 三本線のメニュー。いまは「お気に入り」だけだが、
+     * ツールバーにボタンを足さずに項目を増やせる入口として置いている。
+     */
+    private fun showBrowserMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, MENU_FAVORITES, 0, "お気に入り")
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_FAVORITES -> { showFavoritesDialog(); true }
+                    else -> false
+                }
+            }
+            show()
+        }
+    }
+
+    /**
+     * 登録済みの一覧。名前を押せばそこへ移動し、削除も同じ画面からできる。
+     * 消しても開いたままにするので、続けて整理できる。
+     */
+    private fun showFavoritesDialog() {
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply {
+            setPadding(dp(14), dp(4), dp(14), dp(4))
+            addView(rows)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("お気に入り")
+            .setView(scroll)
+            .setNegativeButton("閉じる", null)
+            .create()
+
+        fun refresh() {
+            rows.removeAllViews()
+            val saved = favorites()
+            if (saved.isEmpty()) {
+                rows.addView(
+                    TextView(this).apply {
+                        text = "まだありません。ページを開いて ☆ を押すと登録できます。"
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#93A1B1"))
+                        setPadding(dp(4), dp(16), dp(4), dp(16))
+                    },
+                )
+                return
+            }
+            for (fav in saved) rows.addView(favoriteRow(fav, dialog) { refresh() })
+        }
+
+        refresh()
+        dialog.show()
+    }
+
+    /** 一覧の 1 行。左半分が移動、右端が削除。 */
+    private fun favoriteRow(fav: Favorite, dialog: AlertDialog, onChanged: () -> Unit): View {
+        val label = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // 行の大半を当たり判定にする。壁の前では細い文字だけを狙わせない。
+            setPadding(dp(4), dp(11), dp(10), dp(11))
+            isClickable = true
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = fav.title
+                    textSize = 15f
+                    setTextColor(Color.parseColor("#E8EEF5"))
+                    setSingleLine()
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+            )
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = fav.url
+                    textSize = 11.5f
+                    setTextColor(Color.parseColor("#5B6774"))
+                    setSingleLine()
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+            )
+            setOnClickListener {
+                dialog.dismiss()
+                openFavorite(fav.url)
+            }
+        }
+
+        val remove = TextView(this).apply {
+            text = "削除"
+            textSize = 13f
+            setTextColor(Color.parseColor("#FF6B6B"))
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#4A2B2B"))
+            }
+            isClickable = true
+            setOnClickListener { confirmRemoveFavorite(fav, onChanged) }
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(remove)
+        }
+    }
+
+    /**
+     * お気に入りから開く。
+     *
+     * URL 欄に焦点が残っていると onPageStarted は欄を書き換えない
+     * （打っている途中の文字を消さないための作り）。お気に入りを選んだときは
+     * 入力中ではないので、焦点を外して欄も移動先に合わせる。
+     */
+    private fun openFavorite(url: String) {
+        browserUrlField?.clearFocus()
+        hideKeyboard()
+        browserUrlField?.setText(url)
+        browserView?.loadUrl(url)
+    }
+
+    private fun confirmRemoveFavorite(fav: Favorite, onDone: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("お気に入りから削除")
+            .setMessage("${fav.title}\n${fav.url}")
+            .setPositiveButton("削除") { _, _ ->
+                ConfigStore.getInstance(this).updateFavorites { list ->
+                    list.filterNot { it.url == fav.url }
+                }
+                updateFavStar()
+                onDone()
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toolButton(label: String, onClick: (View) -> Unit): TextView =
         TextView(this).apply {
             text = label
             textSize = 15f
@@ -409,7 +799,7 @@ class MainActivity : ComponentActivity() {
             minWidth = dp(46)
             setPadding(dp(8), dp(9), dp(8), dp(9))
             isClickable = true
-            setOnClickListener { onClick() }
+            setOnClickListener { onClick(it) }
         }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -440,6 +830,16 @@ class MainActivity : ComponentActivity() {
                     "browser" -> showBrowser(request.url?.getQueryParameter("url"))
                     "wake" -> wakeForNotice()
                     "restore" -> restoreAfterNotice()
+                    /*
+                     * 通知音のあいだだけメディア音量を設定値へ動かす。
+                     * ms=0 はその場で元へ戻す（タイマーを手で止めたときなど）。
+                     * 上限を設けるのは、呼び出し側の不具合で上げっぱなしにしないため。
+                     */
+                    "volume" -> {
+                        val ms = request.url?.getQueryParameter("ms")?.toLongOrNull() ?: 0L
+                        if (ms <= 0) restoreNoticeVolume()
+                        else holdNoticeVolume(ms.coerceAtMost(MAX_VOLUME_HOLD_MS))
+                    }
                 }
                 return true
             }
@@ -500,6 +900,10 @@ class MainActivity : ComponentActivity() {
         const val MAX_LOAD_ATTEMPTS = 20
         const val RETRY_DELAY_MS = 500L
         const val CONFIG_WATCH_MS = 3_000L
+        /** 音量を上げたままにできる上限。 */
+        const val MAX_VOLUME_HOLD_MS = 60_000L
+        /** 三本線メニューの項目 id。 */
+        const val MENU_FAVORITES = 1
         val FAILURE_HTML = """
             <html><body style="background:#0A0C10;color:#E8EEF5;font-family:sans-serif;
             display:flex;align-items:center;justify-content:center;height:100vh;margin:0">

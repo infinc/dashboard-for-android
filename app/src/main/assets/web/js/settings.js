@@ -123,6 +123,16 @@
     return display;
   }
 
+  /** 通知は display とは別の入れ物なので、ここで組み立てる。 */
+  function notificationsPatch() {
+    var n = {};
+    for (var k in (config.notifications || {})) n[k] = config.notifications[k];
+    n.disasterSound = $("disasterSound").checked;
+    n.chargingSound = $("chargingSound").checked;
+    n.volume = Number($("noticeVolume").value) / 100;
+    return n;
+  }
+
   function unitsPatch() {
     var units = {};
     for (var u in config.units) units[u] = config.units[u];
@@ -152,7 +162,6 @@
     $("idleDimEnabled").checked = d.idleDimEnabled !== false;
     $("idleDimAfter").value = d.idleDimAfterSeconds;
     $("idleDimBrightness").value = Math.round(d.idleDimBrightness * 100);
-    updateRangeLabels();
 
     // 場所
     $("locNow").textContent = "現在の設定地点: " + config.location.name + "（" + config.location.timezone + "）";
@@ -208,20 +217,32 @@
       ? "連携済み"
       : (sp.clientId ? "未連携 —「Spotify と連携」を押してください" : "Client ID を保存すると連携できます"));
 
+    // 通知。古い config には無いので既定値で補う。
+    var n = config.notifications || {};
+    $("disasterSound").checked = n.disasterSound !== false;
+    $("chargingSound").checked = n.chargingSound !== false;
+    $("noticeVolume").value = Math.round((n.volume == null ? 0.7 : n.volume) * 100);
+
     // ネットワーク
     var lanOn = config.lan.enabled;
     $("lanToggle").textContent = lanOn ? "LAN 公開を無効にする" : "LAN 公開を有効にする";
     setStatus("lanStatus", lanOn
       ? "公開中 — 他端末から http://<この端末のIP>:8080/settings で PIN ログイン"
       : (config.lan.pinSet ? "loopback のみ待受（PIN 設定済み）" : "loopback のみ待受（PIN 未設定）"));
+
+    // つまみの数値は最後にまとめて書く。
+    // 値を入れる前に呼ぶと、その時点で未設定のつまみが HTML の初期値のまま表示される。
+    updateRangeLabels();
   }
 
   function updateRangeLabels() {
     $("normalBrightnessValue").textContent = $("normalBrightness").value + "%";
     $("idleDimBrightnessValue").textContent = $("idleDimBrightness").value + "%";
+    $("noticeVolumeValue").textContent = $("noticeVolume").value + "%";
   }
   $("normalBrightness").addEventListener("input", updateRangeLabels);
   $("idleDimBrightness").addEventListener("input", updateRangeLabels);
+  $("noticeVolume").addEventListener("input", updateRangeLabels);
 
   function renderDevice() {
     var on = device.launcherHomeEnabled;
@@ -287,6 +308,10 @@
   bindSimpleSave("saveTimer", "timerStatus");
   bindSimpleSave("saveWord", "wordStatus");
   bindSimpleSave("saveHamster", "hamsterStatus");
+
+  $("saveNotify").addEventListener("click", function () {
+    patch({ notifications: notificationsPatch() }, "notifyStatus");
+  });
 
   $("saveDisaster").addEventListener("click", function () {
     var select = $("office");

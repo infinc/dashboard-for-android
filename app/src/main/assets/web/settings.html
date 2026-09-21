@@ -33,6 +33,9 @@
       <button class="nav-item" type="button" data-pane="place">
         <i class="dot dot-off"></i><span>場所</span>
       </button>
+      <button class="nav-item" type="button" data-pane="notify">
+        <i class="dot dot-off"></i><span>通知</span>
+      </button>
 
       <div class="nav-group">カード</div>
       <button class="nav-item" type="button" data-pane="clock">
@@ -180,6 +183,47 @@
       </div>
       <div class="status" id="locNow"></div>
       <div class="status" id="placeStatus"></div>
+    </section>
+
+    <!-- ============================================================ 通知 -->
+    <section class="pane" data-pane="notify">
+      <h1>通知</h1>
+      <p class="lead">ダッシュボードが鳴らす音の設定です。音を切っても、画面のバナー表示は出ます。</p>
+
+      <div class="field">
+        <label>鳴らすもの</label>
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="disasterSound"> 警報・注意報などの防災情報</label>
+          <label class="toggle"><input type="checkbox" id="chargingSound"> 充電ケーブルの抜き差し</label>
+        </div>
+        <div class="hint">
+          防災情報は、警報・注意報・地震・津波・台風・噴火のいずれかが<strong>切り替わったとき</strong>に
+          1 回だけ鳴ります（同じ内容が続いている間は鳴りません）。<br>
+          充電は、壁掛けで挿しっぱなしにしていたケーブルが抜けたことに気づけるようにするためのものです。
+          挿したときと抜いたときで音が上下逆になります。
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="noticeVolume">通知音の音量 <b id="noticeVolumeValue" class="val"></b></label>
+        <input id="noticeVolume" type="range" min="0" max="100" step="5">
+        <div class="hint">
+          通知音を鳴らす直前に、<strong>端末のメディア音量をここで決めた大きさまで自動で動かし</strong>、
+          鳴り終わったらすぐ元の音量に戻します。<br>
+          端末の音量を小さくしていても、通知だけはこの大きさで鳴ります。
+          0% にすると鳴りません。タイマーの鳴動にも同じ音量が適用されます。
+        </div>
+      </div>
+
+      <div class="notice info">
+        音はすべて画面内で合成していて、音源ファイルは持ちません。<br>
+        <strong>タイマーの鳴動だけは切る設定を用意していません。</strong>
+        自分で時間を決めて鳴らすものなので、鳴らないと用をなさないためです。音量は上の設定に従います。<br>
+        ブラウズで動画を見ている最中に通知が鳴ると、<strong>その 1〜2 秒だけ動画の音量も一緒に変わります</strong>
+        （端末の音量そのものを動かしているため）。鳴り終われば元に戻ります。
+      </div>
+
+      <div class="save"><button id="saveNotify" type="button">保存</button><span class="status" id="notifyStatus"></span></div>
     </section>
 
     <!-- ============================================================ 時刻 -->

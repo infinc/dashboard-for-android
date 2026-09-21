@@ -28,6 +28,11 @@ import kotlin.math.min
  *
  * 種別コードの名称テーブルは気象庁が JSON で公開していない（const 配下は 404）ので、
  * 公開資料の対応表を [WARNING_KINDS] に持つ。未知のコードは名前を推測せずコードのまま出す。
+ *
+ * 警報の取得先は `warning/data/r8/{府県コード}.json`。
+ * 以前の `warning/data/warning/{府県コード}.json` は気象庁が更新を止めており
+ * （2026-09-21 時点で全国が 2026-05-28 のまま）、古い内容をそのまま壁に出してしまうので使わない。
+ * 新しい方は 1 県ぶんが種類ごとの文書の配列で届くため、区域ごとに束ね直す必要がある。
  */
 class DisasterRepository(
     context: Context,
@@ -68,26 +73,52 @@ class DisasterRepository(
         val config = configStore.get().disaster
         try {
             val names = areaNames ?: loadAreaNames().also { areaNames = it }
-            val warning: WarningDto =
-                client.get("$BASE/warning/data/warning/${config.officeCode}.json").body()
+            val docs: List<WarningDocDto> =
+                client.get("$BASE/warning/data/r8/${config.officeCode}.json").body()
             val quakes: List<QuakeDto> = client.get("$BASE/quake/data/list.json").body()
 
-            // areaTypes[0] は一次細分区域、[1] は市町村等。
-            // 壁掛けの距離で市町村名まで並べても読めないので、一次細分区域だけにする。
-            val active = warning.areaTypes.firstOrNull()?.areas.orEmpty()
-                .mapNotNull { area ->
-                    val live = area.warnings.filter { it.code != null && it.status != "解除" }
-                    if (live.isEmpty()) return@mapNotNull null
-                    val kinds = live.mapNotNull { it.code }.map { WARNING_KINDS[it] ?: "コード$it" }
-                    WarningArea(
-                        code = area.code,
-                        name = names[area.code] ?: area.code,
-                        count = live.size,
-                        kinds = kinds,
-                        severe = kinds.any { it.contains("警報") },
-                    )
+            /*
+             * 1 つの県ぶんが「大雨」「土砂災害」「風」「波」「雷」…と別々の文書で届く。
+             * 区域ごとに全文書を束ねないと、最後に読んだ 1 種類しか出ない。
+             *
+             * class10Items が一次細分区域（北部・南部など）、class20Items が市町村。
+             * 壁掛けの距離で市町村名まで並べても読めないので一次細分区域だけを使う。
+             */
+            val kindsByArea = LinkedHashMap<String, LinkedHashSet<String>>()
+            for (doc in docs) {
+                for (area in doc.warning?.class10Items.orEmpty()) {
+                    if (area.areaCode.isBlank()) continue
+                    // 解除されたものと、そもそも発表が無い区域（code が付かない）は除く
+                    val live = area.kinds.filter { it.code != null && it.status != "解除" }
+                    if (live.isEmpty()) continue
+                    val into = kindsByArea.getOrPut(area.areaCode) { LinkedHashSet() }
+                    live.forEach { k -> into.add(kindLabel(doc.dataTypeCode, k.code)) }
                 }
-                .distinctBy { it.code }
+            }
+
+            val active = kindsByArea.map { (areaCode, kinds) ->
+                WarningArea(
+                    code = areaCode,
+                    name = names[areaCode] ?: areaCode,
+                    count = kinds.size,
+                    kinds = kinds.toList(),
+                    severe = kinds.any { it.contains("警報") },
+                )
+            }
+
+            /*
+             * 見出しは文書ごとにあるが、壁に出すのは最新の 1 本だけにする。
+             * 5 本つなぐと 3 行を超えてカードから溢れ、下に並ぶ区域の行が押し出された。
+             * どの種別が出ているかは区域の行が伝えるので、ここは
+             * 「いま何が起きたか」を示す最新の本文に絞る。
+             *
+             * 発表時刻は同じ気象台の JST 表記なので、文字列の比較で最新が取れる。
+             */
+            val latest = docs
+                .filter { !it.headlineText.isNullOrBlank() }
+                .maxByOrNull { it.reportDatetime.orEmpty() }
+            val headline = latest?.headlineText?.trim()?.takeIf(String::isNotEmpty)
+            val reportedAt = docs.mapNotNull { it.reportDatetime }.maxOrNull()
 
             // 津波・台風・噴火は警報や地震とは別系統。個別に失敗を受けて、
             // 取れなかったものだけ前回の値を残す。
@@ -104,8 +135,8 @@ class DisasterRepository(
             state = DisasterState(
                 available = true,
                 officeName = config.officeName,
-                headline = warning.headlineText?.takeIf { it.isNotBlank() },
-                reportedAt = warning.reportDatetime,
+                headline = headline,
+                reportedAt = reportedAt,
                 activeAreas = active,
                 tsunami = tsunami,
                 typhoons = typhoons,
@@ -262,6 +293,21 @@ class DisasterRepository(
             dto.class10s.mapValues { it.value.name }
     }
 
+    /**
+     * 区域に並べる種別の名前。
+     *
+     * 気象警報・注意報の文書（大雨・風・波・雷など）は [WARNING_KINDS] で名前に直せる。
+     *
+     * 土砂災害警戒情報（[SEDIMENT_DOC]）はコード体系が別で、気象庁が対応表を公開していない。
+     * 実データでは北部が 29、南部が 09 で、気象庁のページはそれぞれ
+     * 「土砂災害注意報」「土砂災害警報」と出していたが、観測できたのはこの 1 例だけなので
+     * 警報か注意報かまでは決めつけない。文書の種類そのものは確実なので、それだけを出す。
+     * 段階を出さないぶん実際より強く読めるが、防災の表示で誤るなら強い側に倒す。
+     */
+    private fun kindLabel(dataTypeCode: String?, code: String?): String =
+        if (dataTypeCode == SEDIMENT_DOC) SEDIMENT_LABEL
+        else WARNING_KINDS[code] ?: "コード$code"
+
     private fun backoffMs(): Long = min(60_000L shl min(consecutiveFailures - 1, 4), 15 * 60_000L)
 
     private companion object {
@@ -312,6 +358,10 @@ class DisasterRepository(
          * 知らないコードが来たときは推測せず "コードNN" と出す。誤った種別名を
          * 壁に出すより、コードのまま出して調べられる方がましなため。
          */
+        /** 土砂災害警戒情報の文書。種別コードの体系が気象警報・注意報とは別。 */
+        const val SEDIMENT_DOC = "VPWW56"
+        const val SEDIMENT_LABEL = "土砂災害"
+
         val WARNING_KINDS = mapOf(
             "02" to "暴風雪警報", "03" to "大雨警報", "04" to "洪水警報",
             "05" to "暴風警報", "06" to "大雪警報", "07" to "波浪警報",
@@ -348,24 +398,34 @@ class DisasterRepository(
 
     // ------------------------------------------------------------ DTO
 
+    /**
+     * 警報・注意報の 1 文書。
+     *
+     * 応答は文書の配列で、[dataTypeCode] が種類を表す
+     * （VPWW55=大雨など / VPWW56=土砂災害 / VPWW58=風 / VPWW59=波 / VPWW61=雷）。
+     * 使っていないが、どの文書から来た値かをログで追えるように残す。
+     */
     @Serializable
-    private data class WarningDto(
+    private data class WarningDocDto(
         val reportDatetime: String? = null,
         val headlineText: String? = null,
-        val areaTypes: List<AreaTypeDto> = emptyList(),
+        val dataTypeCode: String? = null,
+        val warning: WarningBodyDto? = null,
     )
 
     @Serializable
-    private data class AreaTypeDto(val areas: List<AreaEntryDto> = emptyList())
-
-    @Serializable
-    private data class AreaEntryDto(
-        val code: String = "",
-        val warnings: List<WarningEntryDto> = emptyList(),
+    private data class WarningBodyDto(
+        val class10Items: List<WarningAreaDto> = emptyList(),
     )
 
     @Serializable
-    private data class WarningEntryDto(val code: String? = null, val status: String? = null)
+    private data class WarningAreaDto(
+        val areaCode: String = "",
+        val kinds: List<WarningKindDto> = emptyList(),
+    )
+
+    @Serializable
+    private data class WarningKindDto(val code: String? = null, val status: String? = null)
 
     @Serializable
     private data class QuakeDto(

@@ -375,6 +375,24 @@ val DEFAULT_WEATHER_FIELDS: List<String> = listOf(
     "apparent", "pm25", "pop", "rain", "humidity", "wind", "uv", "aqi", "visibility",
 )
 
+/**
+ * 通知音。
+ *
+ * 音はすべてブラウザ内で合成している（音源ファイルは持たない）。
+ * [volume] は端末の主音量とは別で、その中でさらに絞るための割合。
+ * 壁掛けだと端末の主音量は他の用途とも共有されるため、
+ * 通知だけを小さくしたい／大きくしたいという要求がここに来る。
+ */
+@Serializable
+data class NotificationConfig(
+    /** 警報・注意報・地震・津波・台風・噴火が切り替わったときの音。 */
+    val disasterSound: Boolean = true,
+    /** 充電ケーブルの抜き差しの音。 */
+    val chargingSound: Boolean = true,
+    /** 0.0..1.0。0 にすると鳴らない。 */
+    val volume: Double = 0.7,
+)
+
 @Serializable
 data class DisasterConfig(
     val enabled: Boolean = false,
@@ -418,6 +436,30 @@ data class SpotifyConfig(
     val refreshToken: String? = null,
 )
 
+/**
+ * ブラウズ画面のお気に入り 1 件。
+ *
+ * favicon は持たない。取得のために別の通信を増やしたくないのと、
+ * 壁の前から見るには 16px の絵より文字のほうが早く読めるため。
+ */
+@Serializable
+data class Favorite(
+    val url: String,
+    /** 一覧に出す名前。ページの title が取れなければホスト名を入れる。 */
+    val title: String,
+)
+
+/**
+ * ブラウズ機能の設定。
+ *
+ * 壁掛け端末で長い URL を打つのは現実的でないので、一度開いた先を
+ * その場で登録して次からは 1 タップで戻れるようにする。
+ */
+@Serializable
+data class BrowserConfig(
+    val favorites: List<Favorite> = emptyList(),
+)
+
 @Serializable
 data class RefreshConfig(
     val wifiIntervalMs: Long = 2000,
@@ -435,7 +477,15 @@ data class Config(
     val disaster: DisasterConfig = DisasterConfig(),
     val feed: FeedConfig = FeedConfig(),
     val memo: MemoConfig = MemoConfig(),
+    val notifications: NotificationConfig = NotificationConfig(),
     val spotify: SpotifyConfig = SpotifyConfig(),
+    /**
+     * ブラウズのお気に入り。
+     *
+     * PublicConfig には載せない。どこを見ているかは生活の様子が出るうえ、
+     * 端末の前で登録して端末の前で使うものなので、外に出す経路を作る理由がない。
+     */
+    val browser: BrowserConfig = BrowserConfig(),
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -471,6 +521,7 @@ data class PublicConfig(
     val feed: FeedConfig,
     val memo: MemoPublic,
     val spotify: SpotifyPublic = SpotifyPublic(),
+    val notifications: NotificationConfig = NotificationConfig(),
 )
 
 fun Config.toPublic() = PublicConfig(
@@ -493,6 +544,7 @@ fun Config.toPublic() = PublicConfig(
         clientId = spotify.clientId,
         connected = !spotify.refreshToken.isNullOrBlank(),
     ),
+    notifications = notifications,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -504,6 +556,7 @@ data class ConfigPatch(
     val refresh: RefreshConfig? = null,
     val disaster: DisasterConfig? = null,
     val feed: FeedConfig? = null,
+    val notifications: NotificationConfig? = null,
 )
 
 /** Spotify 設定の更新。refreshToken は認可の経路でしか入らない。 */

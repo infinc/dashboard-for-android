@@ -59,8 +59,14 @@ class ConfigStore(context: Context) {
             refresh = patch.refresh?.let(::sanitizeRefresh) ?: c.refresh,
             disaster = patch.disaster ?: c.disaster,
             feed = patch.feed?.let(::sanitizeFeed) ?: c.feed,
+            notifications = patch.notifications?.let(::sanitizeNotifications) ?: c.notifications,
         )
     }
+
+    /** 音量は 0..1 に収める。0 は「鳴らさない」として有効な値なので下限を切らない。 */
+    private fun sanitizeNotifications(n: NotificationConfig) = n.copy(
+        volume = n.volume.coerceIn(0.0, 1.0),
+    )
 
     /** フィードは数と件数に上限を設ける。壁掛けで読める量と、取得にかかる時間の両方のため。 */
     private fun sanitizeFeed(f: FeedConfig) = f.copy(
@@ -87,6 +93,30 @@ class ConfigStore(context: Context) {
             .filter { it in DEFAULT_WEATHER_FIELDS }
             .distinct()
             .ifEmpty { DEFAULT_WEATHER_FIELDS },
+    )
+
+    /**
+     * お気に入り。
+     *
+     * 追加は端末の前でボタンを押すだけなので、うっかり増え続けやすい。
+     * 同じ URL は 1 件にまとめ、件数と名前の長さに上限を設ける
+     * （帯に並べて横スクロールで選ぶ UI なので、増えすぎると探せなくなる）。
+     */
+    /**
+     * ブラウズのお気に入りを書き換える。
+     *
+     * 呼び出し側が整形を忘れても上限と重複が効くよう、入口をこれ 1 つにしている。
+     */
+    fun updateFavorites(mutate: (List<Favorite>) -> List<Favorite>): Config = update { c ->
+        c.copy(browser = sanitizeBrowser(c.browser.copy(favorites = mutate(c.browser.favorites))))
+    }
+
+    private fun sanitizeBrowser(b: BrowserConfig) = b.copy(
+        favorites = b.favorites
+            .map { it.copy(url = it.url.trim(), title = it.title.trim().take(MAX_FAVORITE_TITLE)) }
+            .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
+            .distinctBy { it.url }
+            .take(MAX_FAVORITES),
     )
 
     private fun sanitizeRefresh(r: RefreshConfig) = r.copy(
@@ -121,6 +151,9 @@ class ConfigStore(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: ConfigStore(context.applicationContext).also { instance = it }
             }
+
+        const val MAX_FAVORITES = 30
+        private const val MAX_FAVORITE_TITLE = 80
 
         private val ALLOWED_LAYOUTS = setOf("balanced", "clock", "weather")
         private val ALLOWED_ALIGNS = setOf("left", "center", "right")

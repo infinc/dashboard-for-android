@@ -740,6 +740,8 @@
     if (lastCharging === null) { lastCharging = now; return; }
     if (lastCharging === now) return;
     lastCharging = now;
+    // 覚えの更新は音を切っていても続ける。次に入れたときに鳴らせなくなるため。
+    if (notices().chargingSound === false) return;
     if (now) {
       // 挿さった: 低→高
       playCue([[523.3, 0, 0.14], [784.0, 0.13, 0.26]]);
@@ -1575,6 +1577,14 @@
   var timerHours = 0;
   var timerMinutes = 5;
   var audioCtx = null;
+
+  /*
+   * 音量を当てるまでの待ち。
+   *
+   * 音量の変更は Activity 側（walldash://volume）で非同期に起きるので、
+   * 先に鳴らすと変更前の音量で出てしまう。少しだけ置いてから鳴らす。
+   */
+  var VOLUME_SETTLE_MS = 180;
   var ringTimer = null;
   var ringLeft = 0;
 
@@ -1704,6 +1714,31 @@
 
   // ------------------------------------------------------------ 鳴動
 
+  /** 通知設定。state が来る前でも既定で鳴らせるように既定値を返す。 */
+  function notices() {
+    return (state && state.config && state.config.notifications) || {};
+  }
+
+  /*
+   * 通知音を鳴らす。
+   *
+   * 音量は WebAudio のゲインでは作らない。ゲインで絞ると端末の主音量に対する
+   * 割合にしかならず、主音量が小さいときは通知も小さくなってしまう。
+   * 壁掛けで欲しいのは逆で、「主音量が小さくても通知は設定した大きさで鳴る」こと。
+   *
+   * そこで Activity にメディア音量そのものを設定値まで動かしてもらい、
+   * 当たるのを待ってから鳴らし、鳴り終わる頃に元の音量へ戻してもらう。
+   * PC のブラウザで開発しているときは walldash:// が解決できないので、
+   * 音量はブラウザ任せのまま音だけ鳴る。
+   */
+  function withNoticeVolume(soundMs, play) {
+    ensureAudio();
+    if (!audioCtx) return;
+    // 戻すのは鳴り終わってから。余白を足しておかないと最後が切れる。
+    appCall("volume?ms=" + Math.round(VOLUME_SETTLE_MS + soundMs + 400));
+    setTimeout(play, VOLUME_SETTLE_MS);
+  }
+
   function ensureAudio() {
     try {
       if (!audioCtx) {
@@ -1766,21 +1801,27 @@
    * ただしタイマーが鳴っている最中は触らない。
    */
   function playCue(notes, type) {
-    ensureAudio();
-    if (!audioCtx) return;
-    for (var i = 0; i < notes.length; i++) {
-      tone(notes[i][0], notes[i][1], notes[i][2], type || "sine");
+    var i, endSec = 0;
+    for (i = 0; i < notes.length; i++) {
+      endSec = Math.max(endSec, notes[i][1] + notes[i][2]);
     }
-    if (audioCloseTimer) clearTimeout(audioCloseTimer);
-    audioCloseTimer = setTimeout(function () {
-      if (timerMode === "ringing") return;
-      try {
-        if (audioCtx && audioCtx.state === "running") audioCtx.suspend();
-      } catch (e) { /* 閉じられなくても動作には影響しない */ }
-    }, 1600);
+    withNoticeVolume(endSec * 1000, function () {
+      for (var j = 0; j < notes.length; j++) {
+        tone(notes[j][0], notes[j][1], notes[j][2], type || "sine");
+      }
+      if (audioCloseTimer) clearTimeout(audioCloseTimer);
+      audioCloseTimer = setTimeout(function () {
+        if (timerMode === "ringing") return;
+        try {
+          if (audioCtx && audioCtx.state === "running") audioCtx.suspend();
+        } catch (e) { /* 閉じられなくても動作には影響しない */ }
+      }, 1600);
+    });
   }
 
   function chime() {
+    // 音を切っていても画面のバナーは出す。気づける手段を全部消さないため。
+    if (notices().disasterSound === false) return;
     playCue([[1318.5, 0, 0.20], [987.8, 0.17, 0.36]], "triangle");
   }
 
@@ -1791,16 +1832,24 @@
     ringTimer = setInterval(ringPulse, 2000);
   }
 
+  /*
+   * 3 連打を 2 秒ごとに繰り返す。1 回ごとに音量の保持を掛け直すので、
+   * 鳴っているあいだは上げたままになり、止まれば最後の保持が切れて元へ戻る。
+   */
   function ringPulse() {
     if (ringLeft-- <= 0) { stopRing(); return; }
-    beep(0);
-    beep(0.45);
-    beep(0.9);
+    withNoticeVolume(1250, function () {
+      beep(0);
+      beep(0.45);
+      beep(0.9);
+    });
   }
 
   function stopRing() {
     if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
     ringLeft = 0;
+    // 手で止めたときは、保持が切れるのを待たずにその場で音量を戻す
+    appCall("volume?ms=0");
     // 鳴らし終わったら音声経路を閉じる。開けたままだと 24 時間つけっぱなしの端末で
     // オーディオが起きっぱなしになる。次に鳴らす前に ensureAudio() が起こし直す。
     try {

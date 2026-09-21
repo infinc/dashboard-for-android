@@ -31,19 +31,29 @@ let config = {
   lan: { enabled: false, pinSet: false },
   location: { configured: true, name: "東京", latitude: 35.6895, longitude: 139.6917, timezone: "Asia/Tokyo" },
   units: { temperature: "c", wind: "kmh", clock24h: true, showSeconds: true },
+  // Kotlin 側の DisplayConfig と同じ形にしておくこと。
+  // ここが欠けていると、設定画面が「未設定」を既定値で補ってしまい、
+  // 実機との違いに気づけないまま UI を詰めることになる。
   display: {
     layout: "balanced", showClock: true, showWifi: true, showWeather: true,
     showHourly: true, showDaily: true, showSun: true, accent: "#4DD4FF",
     normalBrightness: 1.0, burnInShiftEnabled: true,
     idleDimEnabled: true, idleDimAfterSeconds: 300, idleDimBrightness: 0.15,
     showDisaster: true, showFeed: true, showDeviceStats: true, showMemo: true,
-    showTimer: true, showWord: true, showSpotify: true,
+    showTimer: true, showWord: true, showSpotify: true, showHamster: true,
+    clockAlign: "left", clockDateFormat: "ja",
+    weatherFields: ["apparent", "pm25", "pop", "rain", "humidity", "wind", "uv", "aqi", "visibility"],
+    disasterShowTyphoon: true, disasterShowVolcano: true, disasterShowKmoni: true,
+    hourlyMode: "both",
+    spotifyShowControls: true, spotifyShowProgress: true,
+    wifiShowGlobe: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
   disaster: { enabled: true, officeCode: "130000", officeName: "東京都", minIntensity: "3" },
   spotify: { enabled: true, clientId: "mock-client-id", connected: true },
   feed: { enabled: true, urls: ["https://example.com/rss"], maxItems: 6 },
   memo: { enabled: true, endpoint: "https://example.workers.dev/memo", tokenSet: true, pollIntervalMs: 30000 },
+  notifications: { disasterSound: true, chargingSound: true, volume: 0.7 },
 };
 
 // ---- 端末状態: 実機に近い値 ----
@@ -444,6 +454,8 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && req.method === "GET") return json(res, 200, config);
     if (path === "/api/settings" && req.method === "POST") {
       const patch = await readBody(req);
+      // Kotlin の ConfigStore.applyPatch と同じ「まるごと差し替え」にする。
+      // 部分更新にすると、実機では消える項目がモックでは残ってしまう。
       config = {
         ...config,
         configVersion: config.configVersion + 1,
@@ -451,6 +463,9 @@ const server = createServer(async (req, res) => {
         units: patch.units ?? config.units,
         display: patch.display ?? config.display,
         refresh: patch.refresh ?? config.refresh,
+        disaster: patch.disaster ?? config.disaster,
+        feed: patch.feed ?? config.feed,
+        notifications: patch.notifications ?? config.notifications,
       };
       weatherCache = null;
       return json(res, 200, config);

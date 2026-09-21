@@ -149,6 +149,131 @@ CSS だけ直しても見た目は変わらない。CSS 側は JS が動かな�
 値域は `ConfigStore.sanitizeDisplay()` が固定する。許可リストに無い値は黙って既定へ戻るので、
 選択肢を増やしたら `ALLOWED_*` も直すこと。
 
+### 3-2d. ブラウズのお気に入り
+
+お気に入りは `Config.browser.favorites` に入り、他の設定と同じ `config.json` に保存される。
+UI は Web ではなく **`MainActivity` の素の View**（ブラウズ画面はダッシュボードとは別の
+WebView を重ねたものなので、ダッシュボードの HTML/CSS/JS は一切関係しない）。
+
+操作は 2 つ。ツールバー右の **☆／★** が登録・解除、その右の **☰** がメニュー。
+
+| 部品 | 場所 |
+|---|---|
+| ☆／★ の切り替え | `MainActivity.toggleFavorite()` / `updateFavStar()` |
+| 登録時の名前入力 | `promptAddFavorite()`（既定値は `favoriteTitle()`、全選択で開く） |
+| ☰ メニュー | `showBrowserMenu()`（`PopupMenu`。項目 id は `MENU_*`） |
+| 一覧（確認・移動・削除） | `showFavoritesDialog()` / `favoriteRow()` / `confirmRemoveFavorite()` |
+| 一覧から開く | `openFavorite()` |
+| 名前の既定値 | `WebChromeClient.onReceivedTitle` → `cleanTitle()` → `favoriteTitle()` |
+| 保存と整形 | `ConfigStore.updateFavorites()`（`sanitizeBrowser` を必ず通す） |
+
+注意点:
+
+- **URL 欄は焦点が残っていると更新されない。** `syncUrlField()` が
+  「打っている途中の文字を消さない」ために `hasFocus()` を見ているため、
+  お気に入りから開くときは `openFavorite()` が焦点を外してから読み込ませる。
+  これをしないと、選んだ先に移動したのに URL 欄が前の入力のまま残る。
+- **ページ内で履歴だけ書き換えるサイトは `onPageStarted` を通らない。**
+  YouTube は動画を選んでもページを読み直さず `history.pushState` で URL を変えるだけなので、
+  URL 欄も ★ も前のページのままになっていた。`doUpdateVisitedHistory()` がこの通知を受けるので、
+  URL が変わったときの処理は `onBrowserUrlChanged()` にまとめ、
+  読み込み開始・読み込み完了・履歴の書き換えの 3 経路から呼んでいる
+  （同じ URL で重ねて呼ばれても先頭で弾く）。
+- 一覧は削除しても開いたままにする（`refresh()` が中身だけ作り直す）。
+  続けて整理できるようにするため。
+
+- **題名は `WebView.getTitle()` では当てにならない。** `onPageFinished` の時点ではまだ
+  入っていないことがあり、実機で Yahoo!ニュースを登録したらホスト名になった。
+  `WebChromeClient.onReceivedTitle` を主に使い、`onPageFinished` は保険にしている。
+- `<title>` の無いページでは WebView が URL をそのまま題名として渡してくる。
+  `cleanTitle()` がそれを空として扱い、ホスト名に落とす。
+- **`favorites` は `PublicConfig` に載せていない。** どこを見ているかは生活の様子が出るうえ、
+  端末の前で登録して端末の前で使うものなので、外に出す経路を作っていない。
+  設定画面から編集する機能を足すなら、LAN 未認証へのマスク（3-8）を先に決めること。
+- 登録すると `configVersion` が +1 される（3-4）。ダッシュボード側は再描画が走るが、
+  ブラウズ中は `webView.onPause()` で止めてあるので実害はない。
+
+### 3-2e. 通知音
+
+音はすべて Web Audio API でその場で合成している（音源ファイルは持たない）。
+設定は `Config.notifications`（`display` とは別の入れ物）。
+
+| キー | 効く場所 |
+|---|---|
+| `disasterSound` | `dashboard.js` の `chime()` が先頭で弾く。**バナー表示は止めない** |
+| `chargingSound` | `checkChargingChange()`。覚えの更新は続けてから弾く（次の抜き差しを取りこぼさないため） |
+| `volume` | **端末のメディア音量そのもの**を一時的に動かして作る（下記） |
+
+#### 音量は WebAudio のゲインではなく端末の音量を動かす
+
+最初は WebAudio の GainNode で絞る実装にしたが、**端末の主音量が小さいと通知も小さくなる**ため
+やめた。壁掛けで欲しいのは逆で、「端末の音量が小さくても通知だけは設定した大きさで鳴る」こと。
+
+いまの流れ:
+
+1. `dashboard.js` の `withNoticeVolume(soundMs, play)` が
+   `walldash://volume?ms=…` を呼ぶ（鳴る長さ + 余白）
+2. `MainActivity.holdNoticeVolume()` が**今の音量を覚えてから**
+   `AudioManager.STREAM_MUSIC` を設定値まで動かす
+3. `VOLUME_SETTLE_MS`（180ms）置いてから音を鳴らす。
+   **待たずに鳴らすと変更前の音量で出る**（音量変更は非同期に起きるため）
+4. 保持時間が切れたら `restoreNoticeVolume()` が元の音量へ戻す
+
+注意点:
+
+- **元の音量は最初の 1 回だけ覚える。** 鳴っている最中に重ねて呼ばれたときに上書きすると、
+  戻す先が「通知のために上げた音量」になってしまう。
+- タイマーの鳴動は 2 秒ごとに保持を掛け直す。止めたときは `ms=0` でその場で戻す。
+- `onPause()` と `onDestroy()` でも戻す。鳴っている最中に他のアプリへ移られると上げたままになる。
+- **副作用**: 端末の音量そのものを動かすので、ブラウズで動画を見ている最中に通知が鳴ると
+  その 1〜2 秒だけ動画の音量も変わる。設定画面にもその旨を書いてある。
+- マナーモードや DND では `setStreamVolume` が拒まれることがある。`runCatching` で握って
+  ログだけ出す（音が出せなくても表示は続ける）。
+
+タイマーの鳴動だけは切る設定を置いていない（自分で時間を決めて鳴らすものなので、
+鳴らないと用をなさない）。音量は同じ経路を通る。
+
+**音を足すときは `withNoticeVolume()` を通すこと。** 直接 `tone()` / `beep()` を呼ぶと
+音量設定が効かず、端末のそのときの音量で鳴る。
+
+### 3-2f. 気象庁の警報エンドポイントは移動済み
+
+**使うのは `bosai/warning/data/r8/{府県コード}.json`。**
+以前の `bosai/warning/data/warning/{府県コード}.json` は**気象庁が更新を止めている**。
+2026-09-21 に確認した時点で、全国どの府県も `last-modified` が 2026-05-28 のまま止まっており、
+実際には大雨警報が出ている日に 4 か月前の濃霧注意報を壁に出し続けていた。
+200 が返り JSON も正しい形なので、**取得の失敗としては検知できない**のが厄介な点。
+
+他の気象庁データ（`quake/data/list.json`、`typhoon/data/targetTc.json`、
+`forecast/data/forecast/*.json`）は同じ日に更新されていたので、止まっているのは警報だけ。
+
+新しい方は形がまったく違う:
+
+| | 旧 `data/warning/` | 新 `data/r8/` |
+|---|---|---|
+| 最上位 | オブジェクト 1 つ | **文書の配列**（大雨・土砂災害・風・波・雷…） |
+| 区域 | `areaTypes[0].areas[].code` | `warning.class10Items[].areaCode` |
+| 種別 | `areas[].warnings[]` | `class10Items[].kinds[]` |
+| 見出し | 1 つ | **文書ごとに 1 つ** |
+
+そのため `DisasterRepository` は**区域ごとに全文書を束ね直す**。
+束ねないと最後に読んだ 1 種類しか出ない。
+
+見出しは**最新の文書 1 本だけ**を出す。5 本つなぐと 3 行を超えてカードから溢れ、
+下に並ぶ区域の行が押し出された。どの種別が出ているかは区域の行が伝える。
+
+**土砂災害警戒情報（`dataTypeCode = VPWW56`）は種別コードの体系が別。**
+`WARNING_KINDS` で引くと別の警報名になりかねないので、この文書のコードは引かず
+「土砂災害」とだけ出す（`kindLabel()`）。ある県の実データでは 2 つの区域に
+それぞれ 29 と 09 が入っており、気象庁のページは前者を「土砂災害注意報」、
+後者を「土砂災害警報」と出していた。とはいえ観測できたのはこの 1 例だけなので、
+警報か注意報かまでは決めつけない。
+
+エンドポイントを疑うときは、**気象庁の警報ページをブラウザで開いて通信を見る**のが早い
+（`https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code={府県コード}`。
+既定の東京都なら `130000`）。
+今回もそれで `data/r8/` が分かった。
+
 ### 3-3. 設定を保存するとき（`display` は「まるごと差し替え」）
 
 `ConfigPatch.display` は差分ではなく**置き換え**。`applyPatch` が `patch.display ?: c.display`
@@ -157,6 +282,13 @@ CSS だけ直しても見た目は変わらない。CSS 側は JS が動かな�
 そのため `settings.js` は、どの面の「保存」を押しても画面上の**すべての** `input[data-w]` から
 `display` を組み立て直している（`displayPatch()`）。面ごとに部分更新すると、
 別の面で変えたチェックが保存のたびに巻き戻る。
+
+### 3-3b. モックサーバーの設定は手で合わせる
+
+`tools/mock-server.mjs` の `config` は Kotlin の `Config` を手書きで写したもの。
+**欠けていても動いてしまう**（設定画面が未設定を既定値で補うため）ので、
+`Models.kt` に項目を足したらここにも足すこと。
+足さないと、実機では出るはずの違いがモックでは見えないまま UI を詰めることになる。
 
 ### 3-4. `configVersion` の役割
 
