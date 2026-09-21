@@ -1,0 +1,5 @@
+# ローカル開発用。実際の値を入れた .dev.vars はコミットしないこと。
+LINE_CHANNEL_SECRET=
+LINE_CHANNEL_ACCESS_TOKEN=
+DEVICE_TOKEN=
+ALLOWED_USER_IDS=

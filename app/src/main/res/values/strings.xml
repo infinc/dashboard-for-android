@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Walldash</string>
+    <string name="notif_channel_name">ダッシュボード稼働中</string>
+    <string name="notif_title">Walldash 稼働中</string>
+</resources>

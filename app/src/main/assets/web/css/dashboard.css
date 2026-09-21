@@ -1,0 +1,1023 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;              /* 壁掛けなのでスクロールさせない */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 画面上部のごく淡い光。inset は使えないので四辺を個別指定する。 */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(130% 80% at 50% -25%, rgba(77, 212, 255, 0.09), transparent 62%);
+}
+
+/* 焼き付き防止のシフト用ラッパ。JS が数分ごとに translate を書き換える。 */
+#shift {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  transition: transform 3s ease-in-out;
+  will-change: transform;
+}
+
+/*
+ * 列は 24 分割。12 分割だと「7 列の 65%」のような幅を作れず、
+ * 時間別予報を狭めた残りに別のカードを置けなかった。
+ * .sN（N/12 相当）は倍の値で同じ割合になるので、既存のカードの見た目は変わらない。
+ */
+main {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  grid-auto-rows: 1fr;
+  grid-gap: var(--gap);            /* 古い WebView 向けに grid-gap も併記 */
+  gap: var(--gap);
+  padding: var(--gap);
+  min-height: 0;
+}
+
+/* ---- カード ---- */
+.card {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-gap: 8px;
+  gap: 8px;
+}
+
+/* 上端 1px のハイライトで面を浮かせる */
+.card::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 12px; right: 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.13), transparent);
+}
+
+.card.hidden { display: none; }
+
+.card-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  grid-gap: 8px;
+  gap: 8px;
+}
+.card-title {
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-note { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.card-body { min-height: 0; overflow: hidden; }
+
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-2); }
+.dim { color: var(--text-3); }
+.warn { color: var(--amber); }
+.bad { color: var(--red); }
+.good { color: var(--green); }
+
+/* ---- 列幅（クラス名は 12 分割時代のまま、値だけ 24 分割に合わせる） ----
+   ここで決まるのは「全カードが表示されているときの素の幅」。
+   実際の幅は dashboard.js の packCards() が grid-column で上書きする
+   （カードを隠したとき、行の右端に空白を残さず残りへ配り直すため）。
+   同じ値を dashboard.js の SPAN_BASE / SPAN_LAYOUT / SPAN_PORTRAIT が持っている。
+   ここを変えたら向こうも直すこと。直さないと JS が上書きした幅に戻ってしまう。 */
+.s3 { grid-column: span 6; }
+.s4 { grid-column: span 8; }
+.s5 { grid-column: span 10; }
+.s6 { grid-column: span 12; }
+.s7 { grid-column: span 14; }
+.s8 { grid-column: span 16; }
+.s12 { grid-column: span 24; }
+
+/* 時間別予報は従来の 7/12 から約 65% に縮め、左に寄せる。
+   空いた右側が Spotify の枠になる。 */
+.c-hourly { grid-column: span 9; }
+.c-spotify { grid-column: span 5; }
+
+/* ---- 時計 ---- */
+.clock-time {
+  font-size: clamp(48px, 11vh, 92px);
+  font-weight: 650;
+  line-height: 0.94;
+  letter-spacing: -0.03em;
+  display: flex;
+  align-items: baseline;
+}
+.clock-sec {
+  font-size: 0.28em;
+  color: var(--accent);
+  margin-left: 0.14em;
+  font-weight: 600;
+}
+.clock-date { color: var(--text-2); font-size: clamp(13px, 1.9vh, 17px); margin-top: 8px; }
+.clock-sub { color: var(--text-3); font-size: 12px; margin-top: 2px; }
+
+/* 揃え。時刻だけは flex なので justify-content も要る（text-align が効かない）。 */
+.c-clock.al-center .card-body { text-align: center; }
+.c-clock.al-center .clock-time { justify-content: center; }
+.c-clock.al-right .card-body { text-align: right; }
+.c-clock.al-right .clock-time { justify-content: flex-end; }
+
+/* ---- メモ（LINE） ---- */
+/* 複数のメモを新しい順に積み、入りきらない分はカードごとスクロールして読む。 */
+.memo-item { padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.memo-item:first-child { border-top: 0; padding-top: 0; }
+.memo-text {
+  font-size: clamp(15px, 2.3vh, 20px);
+  font-weight: 600;
+  line-height: 1.42;
+  word-break: break-word;
+}
+/* 1 件しか無いときは壁から離れても読めるよう、従来どおり大きく出す。 */
+.memo-list.single .memo-text { font-size: clamp(20px, 3.6vh, 34px); line-height: 1.35; }
+.memo-empty { color: var(--text-3); font-size: 14px; line-height: 1.8; }
+.memo-meta {
+  color: var(--text-3); font-size: 12px; margin-top: 4px;
+  display: grid; grid-template-columns: 1fr auto; grid-gap: 8px; gap: 8px;
+}
+.memo-list.single .memo-meta { font-size: 12.5px; margin-top: 8px; }
+.memo-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memo-age { white-space: nowrap; }
+.card.c-memo { border-color: rgba(139, 124, 255, 0.35); }
+.card.c-memo .card-title { color: var(--violet); }
+
+/* ---- 天気 ---- */
+.wx-now { display: grid; grid-template-columns: auto 1fr; align-items: center; grid-gap: 12px; gap: 12px; }
+/* 気温の右、カード見出しの真下にあたる余白。 */
+.wx-side { text-align: right; font-size: 11.5px; line-height: 1.35; }
+.wx-side span { color: var(--text-3); display: block; }
+.wx-side b { font-size: 16px; font-weight: 650; display: block; }
+.wx-side i { color: var(--text-3); font-style: normal; font-size: 10px; }
+.wx-icon { width: clamp(34px, 5.4vh, 46px); height: clamp(34px, 5.4vh, 46px); }
+.wx-temp { font-size: clamp(24px, 4.2vh, 36px); font-weight: 650; line-height: 1; letter-spacing: -0.02em; }
+.wx-label { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+/* 9 項目を 3 列 3 行で収める。2 列だと 5 行になり最終行がカードから出る。
+   これ以上増やすとあふれるので、項目を足すときは行数を確かめること。 */
+.wx-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-gap: 2px 10px;
+  gap: 2px 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.32;
+}
+.wx-grid span { color: var(--text-3); }
+.wx-grid b { font-weight: 600; float: right; }
+
+/* ---- 凡例 ---- */
+.legend { display: flex; align-items: center; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.legend > * + * { margin-left: 5px; }
+.legend .sw { display: inline-block; vertical-align: middle; }
+.legend .sw-line { width: 14px; height: 2.5px; border-radius: 2px; background: var(--accent); }
+/* --accent-rgb は dashboard.js が applyConfig() で入れる。
+   未設定のときのために既定のシアンを予備値として書いておく。 */
+.legend .sw-bar {
+  width: 8px; height: 10px; border-radius: 2px;
+  background: rgba(var(--accent-rgb, 77, 212, 255), 0.35);
+}
+.legend .sw-range { width: 16px; height: 5px; border-radius: 3px; background: linear-gradient(90deg, #4DD4FF, #FFB347); }
+.legend .sep { color: var(--border); }
+
+/* ---- 予報チャート ---- */
+.chart { width: 100%; height: 100%; display: block; }
+
+/* ---- スクロールするカード本体（ニュースなど） ---- */
+.card-body.scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px; }
+.card-body.scroll::-webkit-scrollbar { width: 5px; }
+.card-body.scroll::-webkit-scrollbar-track { background: transparent; }
+.card-body.scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ---- Wi-Fi ---- */
+.wifi-main { display: grid; grid-template-columns: auto 1fr; align-items: center; grid-gap: 10px; gap: 10px; }
+/* 下りと上りを 2 行に積む。横に並べるとこのカード幅では 4 桁（1000Mbps 超）が入らない。
+   数字は右揃えにして、桁数が違っても 2 行の位が縦に揃うようにする。 */
+.wifi-speeds { min-width: 0; }
+.wifi-sp {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: baseline; grid-gap: 4px; gap: 4px; line-height: 1.1;
+}
+.wifi-sp b { font-size: clamp(15px, 2.35vh, 20px); font-weight: 650; text-align: right; }
+/* 矢印だけだと増減の意味に読めるので「下り」「上り」を添える。 */
+.wifi-dir { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.wifi-dir em { font-style: normal; margin-left: 2px; }
+.wifi-unit { font-size: 10.5px; color: var(--text-2); font-weight: 500; }
+/* 方向別の値が取れない端末は 1 行だけなので、従来どおり大きく出せる。 */
+.wifi-speeds.single .wifi-sp b { font-size: clamp(22px, 4vh, 32px); }
+/* カード全体を「左＝値の列／右＝地球」に分ける。
+   地球を値の下に積むとカードからはみ出すので、横に並べて高さを食わせない。
+   値側の列が狭くなるぶん、数字も自然と左へ寄る。 */
+.wifi-split {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  grid-gap: 8px; gap: 8px; min-height: 0;
+}
+/* 地球を出さない設定のとき。display:none だけだと gap が残る。 */
+.c-wifi.no-globe .wifi-split { grid-template-columns: 1fr; }
+.c-wifi.no-globe .globe { display: none; }
+.wifi-col { min-width: 0; }
+.wifi-rows { margin-top: 4px; font-size: 12px; }
+.wifi-row {
+  display: grid; grid-template-columns: auto 1fr; grid-gap: 10px; gap: 10px;
+  padding: 1px 0; line-height: 1.2;
+}
+.wifi-row span { color: var(--text-3); }
+.wifi-row b { font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* dBm の数字だけでは強弱が読み取れないので、言葉のラベルを色付きで添える。
+   色は .wifi-row span より詳細度を上げないと効かない。 */
+.wifi-level { font-size: 11px; font-weight: 600; margin-left: 3px; }
+.wifi-row .wifi-level.good { color: var(--green); }
+.wifi-row .wifi-level.warn { color: var(--amber); }
+.wifi-row .wifi-level.bad { color: var(--red); }
+.bars { display: inline-block; height: 18px; line-height: 0; }
+.bars i { display: inline-block; width: 4px; background: var(--border); border-radius: 1px; margin-right: 3px; vertical-align: bottom; }
+.bars i.on { background: var(--accent); }
+
+/* ---- 回る地球（Wi-Fi カード） ----
+   白黒のみ。大陸を 48 単位で 2 枚並べ、円でくり抜いた中を左へ流して回転に見せる。
+   端まで流れたら 1 枚ぶん戻るので、継ぎ目なく回り続ける。 */
+.globe { width: 78px; height: 78px; display: block; }
+.globe-sea { fill: rgba(255, 255, 255, 0.06); }
+/* <use> 自身に fill を置き、複製された海岸線へ継承させる。
+   東京の赤点だけは自前の fill を持つので上書きされない。 */
+.globe-land { fill: rgba(255, 255, 255, 0.72); }
+.globe-grid { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.8; }
+.globe-edge { fill: none; stroke: rgba(255, 255, 255, 0.42); stroke-width: 1; }
+.globe-spin { animation: globe-rotate 18s linear infinite; }
+@keyframes globe-rotate {
+  from { transform: translateX(0); }
+  to { transform: translateX(-76px); }
+}
+
+/* ---- CPU 使用率 ---- */
+/* 見出しの下をグラフで埋める。高さは行の残り全部。 */
+.cpu { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+.cpu-chart-wrap { position: relative; min-height: 0; margin-top: 3px; }
+/* 右端は目盛りの数字に空けておく。線が数字の下へ潜り込まないようにするため。 */
+.cpu-chart {
+  position: absolute; top: 0; right: 30px; bottom: 0; left: 0;
+  width: auto; height: 100%; display: block;
+}
+.cpu-scale { position: absolute; top: 0; right: 0; bottom: 0; width: 30px; }
+.cpu-scale span {
+  position: absolute; left: 0;
+  font-size: 9px; line-height: 1; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+}
+.cpu-chart-empty { font-size: 11px; color: var(--text-3); }
+
+/* ---- 端末状態 ---- */
+/* 左半分を CPU のグラフ、右半分をその他の値にする。 */
+.stats-split {
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-gap: 16px; gap: 16px; min-height: 0; height: 100%;
+}
+.meters { display: grid; grid-template-columns: 1fr; align-content: start; }
+.meter { margin-bottom: 3px; }
+.meter-top { display: grid; grid-template-columns: 1fr auto; font-size: 12px; margin-bottom: 3px; }
+.meter-top span { color: var(--text-3); }
+/* 見出し内の色指定は .meter-top span より詳細度を上げないと効かない。 */
+.meter-top .bad { color: var(--red); }
+.meter-top .good { color: var(--green); }
+.meter-bar { height: 6px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.6s ease; }
+.meter-fill.warn { background: var(--amber); }
+.meter-fill.bad { background: var(--red); }
+.meter-fill.good { background: var(--green); }
+
+/* ---- 防災 ---- */
+.card.c-disaster.active { border-color: rgba(255, 179, 71, 0.5); }
+/* 左に気象庁の発表、右に強震モニタ。モニタは縦いっぱいに取り、幅はその比率で決まる。 */
+/* モニタ側は固定幅にする。画像を height:100% で伸ばして幅を決めさせると、
+   端末の WebView では親の高さが確定せず横に広がり、左の文字が潰れた。 */
+.dis-split {
+  display: grid; grid-template-columns: 1fr 112px;
+  grid-gap: 12px; gap: 12px; min-height: 0;
+}
+/* 強震モニタを出さない設定のとき。列ごと畳まないと右に 112px の空きが残る。 */
+.c-disaster.no-kmoni .dis-split { grid-template-columns: 1fr; }
+.c-disaster.no-kmoni .kmoni { display: none; }
+.card.c-disaster.active .card-title { color: var(--amber); }
+/* 左列は「上＝発表内容（余った高さぶん）／下＝直近の地震（固定）」。
+   こうしないと本文が長い日に地震行がカードの外へ押し出される。 */
+#disasterBody { display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+/* 発表が多い日は件数が読めないので、この枠だけスクロールさせる。
+   overflow-anchor を切るのは、台風や噴火が増えて中身が伸びたときに
+   ブラウザが勝手にスクロール位置をずらし、壁に出したい先頭（津波・警報）が
+   画面外へ押し出されるため。壁掛けでは指で戻す人がいない。 */
+.dis-top {
+  min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px;
+  overflow-anchor: none;
+}
+.dis-top::-webkit-scrollbar { width: 5px; }
+.dis-top::-webkit-scrollbar-track { background: transparent; }
+.dis-top::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.dis-head {
+  font-size: 12.5px; line-height: 1.45;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+/* 地域名 + その地域で発表中の種別。警報以上は赤、注意報どまりは橙。 */
+.dis-warn {
+  margin-top: 5px; font-size: 12px; line-height: 1.45;
+  display: grid; grid-template-columns: auto 1fr; grid-gap: 7px; gap: 7px;
+}
+.dis-warn .wname { color: var(--text-2); font-weight: 600; white-space: nowrap; }
+.dis-warn .wkinds { color: var(--amber); }
+.dis-warn.severe .wkinds { color: var(--red); font-weight: 600; }
+
+/* ---- 津波・台風・噴火 ---- */
+/* 種類ごとの小見出し。全部を続けて並べると何の情報か分からなくなるため。 */
+.dis-sec {
+  margin-top: 9px; padding-top: 6px; border-top: 1px solid var(--border-soft);
+  font-size: 10.5px; letter-spacing: 0.12em; color: var(--text-3);
+}
+.dis-sec.severe { color: var(--red); }
+.dis-sec i { font-style: normal; color: var(--text-3); letter-spacing: 0; margin-left: 3px; }
+/* 「名前 → 状態」の 1 行。津波と噴火で共用する。 */
+.dis-row {
+  margin-top: 4px; font-size: 12px; line-height: 1.4;
+  display: grid; grid-template-columns: auto 1fr; grid-gap: 7px; gap: 7px;
+}
+.dis-row b { color: var(--text-2); font-weight: 600; white-space: nowrap; }
+.dis-row span { color: var(--text-3); text-align: right; }
+.dis-row.severe b { color: var(--text); }
+.dis-row.severe span { color: var(--red); font-weight: 600; }
+/* 津波は数が少なく重要度が高いので、状態ではなく題名のほうを目立たせる。 */
+.dis-row.ts b { color: var(--red); }
+/* 台風は項目が多いので 3 行に分ける。 */
+.dis-tc { margin-top: 4px; font-size: 12px; line-height: 1.4; }
+.dis-tc .tc-head { display: grid; grid-template-columns: auto 1fr; grid-gap: 7px; gap: 7px; }
+.dis-tc .tc-head b { color: var(--amber); font-weight: 650; white-space: nowrap; }
+.dis-tc .tc-head span { color: var(--text-2); text-align: right; }
+.dis-tc .tc-line { color: var(--text-3); font-size: 11.5px; }
+
+/* 発表中の下の空きに、直近の地震 1 件。 */
+.dis-quake {
+  margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border-soft);
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+  grid-gap: 7px; gap: 7px; font-size: 12px;
+}
+.dis-quake b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shindo {
+  display: inline-block; min-width: 26px; text-align: center;
+  padding: 1px 6px; border-radius: 6px; font-weight: 700; font-size: 11.5px;
+  background: var(--border); color: var(--text);
+}
+.shindo.lv3 { background: rgba(255, 179, 71, 0.25); color: var(--amber); }
+.shindo.lv5 { background: rgba(255, 107, 107, 0.25); color: var(--red); }
+
+/* ---- 強震モニタ ---- */
+.kmoni { position: relative; min-height: 0; }
+/* 四辺で箱を決め、中身は background-size: contain で収める。
+   <img> だと絶対配置でも寸法が元画像側に解決されてはみ出すため、背景画像にしている。 */
+.kmoni-base, .kmoni-live {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+/* 元画像は白地なので、暗い壁面に合わせて反転させる。 */
+.kmoni-base {
+  background-image: url("http://www.kmoni.bosai.go.jp/data/map_img/CommonImg/base_map_w.gif");
+  filter: invert(1) brightness(0.82) contrast(1.1);
+  opacity: 0.55;
+}
+/* 画像の右下には防災科研のロゴが焼き込まれているので、時刻は左に置く。 */
+.kmoni-foot {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  text-align: left;
+  font-size: 10px; color: var(--text-3);
+  background: linear-gradient(180deg, transparent, rgba(10, 12, 16, 0.85));
+  padding: 8px 2px 1px;
+}
+
+/* ---- ニュース ---- */
+.news-item { padding: 5px 0; border-bottom: 1px solid var(--border-soft); }
+.news-item:last-child { border-bottom: 0; }
+.news-title {
+  font-size: 13.5px; line-height: 1.45;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.news-src { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+
+/* ---- 週間予報 ---- */
+.daily { display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; }
+/* カードが半分幅になったので、1 日あたりの幅を固定して横スクロールで見る。
+   1fr で詰めると文字が潰れて壁から読めなくなる。 */
+.daily-days {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 92px;
+  grid-gap: 6px; gap: 6px;
+  min-height: 0;
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.daily-days::-webkit-scrollbar { height: 5px; }
+.daily-days::-webkit-scrollbar-track { background: transparent; }
+.daily-days::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.day { text-align: center; min-width: 0; display: grid; grid-template-rows: auto auto auto auto auto; align-content: center; grid-gap: 2px; gap: 2px; }
+.day-name { font-size: 12.5px; }
+.day-icon svg { width: 26px; height: 26px; }
+.day-temps { font-size: 13.5px; }
+.day-temps b { font-weight: 650; }
+.day-bar { height: 5px; border-radius: 3px; background: var(--border-soft); position: relative; }
+.day-bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, #4DD4FF, #FFB347); }
+/* 「35.0mm 100%」で 1 行に収める。折り返すとカードから溢れる。 */
+.day-rain { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.day-rain b { color: var(--accent); font-weight: 600; }
+.daily-scale {
+  display: grid; grid-template-columns: auto 1fr auto;
+  font-size: 11.5px; color: var(--text-3); margin-top: 4px; padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+.daily-scale .mid { text-align: center; }
+
+/* ---- タイマー ---- */
+.tm-set {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  grid-gap: 10px; gap: 10px; height: 100%;
+}
+
+/* ドラムロール。行の高さ 26px は JS の TIMER_ROW と揃えること。 */
+.tm-picker {
+  position: relative;
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; grid-gap: 2px; gap: 2px;
+}
+.tm-col {
+  height: 78px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: y mandatory;
+  text-align: center;
+  /* 上下に 1 行ぶんの余白を入れ、中央に来た行を選択とみなす */
+  padding: 26px 0;
+  position: relative;
+  z-index: 1;
+}
+.tm-col::-webkit-scrollbar { width: 0; height: 0; }
+.tm-col i {
+  display: block; height: 26px; line-height: 26px;
+  scroll-snap-align: center;
+  font-style: normal; font-size: 19px; font-weight: 600;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+/* 中央の帯。どの行が選ばれているかを示す。 */
+.tm-band {
+  position: absolute; left: 0; right: 0; top: 26px; height: 26px;
+  background: var(--accent-dim);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.tm-colon { font-size: 18px; color: var(--text-3); position: relative; z-index: 1; }
+.tm-set button {
+  background: var(--green); color: #04221A; border: 0; border-radius: 10px;
+  padding: 14px 16px; font-size: 15px; font-weight: 650; font-family: inherit; cursor: pointer;
+}
+
+/* ---- タイマー: 作動中 / 鳴動中 ---- */
+.tm-run, .tm-ring {
+  display: grid; align-content: center; justify-items: center;
+  grid-gap: 10px; gap: 10px; height: 100%;
+}
+.tm-left { font-size: clamp(28px, 5.4vh, 44px); font-weight: 650; line-height: 1; letter-spacing: -0.02em; }
+.tm-left.soon { color: var(--red); }
+.tm-done { font-size: clamp(20px, 3.6vh, 28px); font-weight: 650; color: var(--red); }
+.tm-actions button, .tm-ring button {
+  background: transparent; color: var(--text-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 20px; font-size: 14px; font-family: inherit; cursor: pointer;
+}
+.tm-ring button { background: var(--red); color: #2A0606; border: 0; font-weight: 650; }
+.c-timer button:focus { outline: none; }
+
+/* ---- Spotify ---- */
+/* このカードは枠と見出しを緑にする。中の文字は他のカードと同じ色のまま。 */
+.card.c-spotify { border-color: rgba(61, 220, 151, 0.5); }
+.c-spotify .card-title { color: var(--green); }
+/* 上＝ジャケットと曲名、下＝再生位置と操作。 */
+.sp-wrap {
+  display: grid; grid-template-rows: 1fr auto;
+  grid-gap: 8px; gap: 8px; height: 100%; min-height: 0;
+}
+.sp-now {
+  display: grid; grid-template-columns: auto 1fr; align-items: center;
+  grid-gap: 12px; gap: 12px; min-height: 0;
+}
+.sp-cover {
+  width: clamp(56px, 9vh, 74px); height: clamp(56px, 9vh, 74px);
+  border-radius: 10px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+}
+.sp-cover img { width: 100%; height: 100%; display: block; }
+.sp-meta { min-width: 0; }
+/* 長い曲名は 2 行で打ち切る。カードから溢れると操作ボタンを押し出すため。 */
+.sp-track {
+  font-size: clamp(13px, 1.9vh, 16px); font-weight: 650; line-height: 1.3;
+  word-break: break-word;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.sp-artist {
+  font-size: 11.5px; color: var(--text-2); margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-foot { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+.sp-time { font-size: 11.5px; color: var(--text-3); }
+.sp-controls { display: flex; align-items: center; }
+.sp-controls button {
+  background: transparent; border: 0; color: var(--text-2); cursor: pointer;
+  width: 38px; height: 34px; padding: 0; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.sp-controls button:active { background: rgba(255, 255, 255, 0.14); }
+.sp-controls button:focus { outline: none; }
+.sp-idle { color: var(--text-3); font-size: 13px; line-height: 1.7; }
+
+/* 再生位置も操作ボタンも出さない設定のとき。
+   下段が無くなったぶんの高さを、ジャケットと曲名に回して壁から読めるようにする。
+
+   ジャケットを広げすぎないこと。このカードは 24 列中 5 列（およそ 250px）しかなく、
+   絵を 120px まで伸ばすと曲名の桁が足りなくなって単語の途中で折れる。
+   絵・曲名・アーティスト名のどれも通常より大きく、かつ曲名が 1 行に収まる幅を残す。 */
+.sp-wrap.big { grid-template-rows: 1fr; }
+.sp-wrap.big .sp-now { grid-gap: 14px; gap: 14px; }
+.sp-wrap.big .sp-cover { width: clamp(64px, 12vh, 100px); height: clamp(64px, 12vh, 100px); }
+.sp-wrap.big .sp-track { font-size: clamp(15px, 2.5vh, 21px); -webkit-line-clamp: 3; }
+.sp-wrap.big .sp-artist { font-size: clamp(12px, 1.7vh, 15px); margin-top: 6px; }
+
+/* ---- 今日の単語 ---- */
+/* 赤は枠と見出しだけ。中身（単語・品詞・意味）は白のまま読ませて、
+   発音記号だけ水色にして単語と見分けられるようにする。
+   右上の注記は他のカードと同じ灰色（.card-note の既定）のままにする。 */
+.card.c-word { border-color: rgba(255, 107, 107, 0.4); }
+.c-word .card-title { color: var(--red); }
+.word-main {
+  font-size: clamp(20px, 3.4vh, 30px); font-weight: 650; letter-spacing: -0.01em;
+  line-height: 1.1; word-break: break-word;
+  color: var(--text);
+}
+.word-ipa { font-size: 14.5px; color: var(--accent); margin-top: 3px; }
+.word-meaning { margin-top: 8px; font-size: 13px; line-height: 1.5; }
+.word-pos {
+  display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px;
+  background: var(--border); color: var(--text); font-size: 11px; vertical-align: middle;
+}
+.word-meaning b { font-weight: 600; color: var(--text); }
+
+/* ---- フッター ---- */
+footer {
+  padding: 0 var(--gap) 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  grid-gap: 10px;
+  gap: 10px;
+}
+footer a { color: var(--text-3); text-decoration: none; }
+
+/* 設定とブラウズ。クレジット文よりは目立たせたいので、文字色ではなく白にする。 */
+.foot-actions { display: flex; align-items: center; }
+.foot-actions button {
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.foot-actions button + button { margin-left: 3px; }
+.foot-actions button:active { background: rgba(255, 255, 255, 0.18); }
+/* 取得し直している間だけ回す。押したことが分かるようにするため。 */
+.foot-actions button.busy svg { animation: foot-spin 0.8s linear infinite; }
+@keyframes foot-spin { to { transform: rotate(360deg); } }
+/* 壁掛けでキーボード操作は無いので、押すたびに残るフォーカス枠は出さない */
+.foot-actions button:focus { outline: none; }
+
+/* ---- 接続断バナー ---- */
+#offline {
+  position: fixed;
+  left: 50%; bottom: 14px;
+  transform: translateX(-50%) translateY(140%);
+  background: rgba(255, 107, 107, 0.16);
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  color: #FFD9D9;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  z-index: 50;
+  transition: transform 0.4s ease;
+}
+
+/* ---- 防災情報の通知バナー ---- */
+/* 壁の前を通りかかった人に気づかせるためのもの。数秒で自分から引っ込む。
+   上から出すのは、接続断バナー（下）と重ならないようにするため。 */
+#toast {
+  position: fixed;
+  top: 14px; left: 50%;
+  transform: translateX(-50%) translateY(-200%);
+  z-index: 70;
+  max-width: 72vw;
+  background: rgba(18, 22, 29, 0.97);
+  border: 1px solid rgba(255, 179, 71, 0.55);
+  border-radius: 14px;
+  padding: 10px 18px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+  transition: transform 0.35s ease;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+/* 津波は他と扱いを変える。枠の色だけで種類の重さが分かるようにする。 */
+#toast.severe { border-color: rgba(255, 107, 107, 0.7); }
+.toast-title { font-size: 11px; letter-spacing: 0.12em; color: var(--amber); }
+#toast.severe .toast-title { color: var(--red); }
+.toast-body {
+  font-size: 15px; font-weight: 600; line-height: 1.45; margin-top: 3px;
+  color: var(--text);
+}
+#offline.show { transform: translateX(-50%) translateY(0); }
+
+/* ---- 回し車のハムスター ---- */
+/*
+ * ハムスターと回し車の意匠は Uiverse.io の Nawsome 作「Loader」(MIT License) を使っている。
+ * 画面下の中央に固定し、走る／上で休むの 2 状態を JS(hamster.js) が切り替える。
+ * 元のクラス名（.wheel / .hamster / .spoke）は一般的な語なので、
+ * ダッシュボード側の指定とぶつからないよう #hamster の下に閉じ込める。
+ */
+#hamster {
+  position: fixed;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  z-index: 45;
+  /* 飾りなので、下のカードやフッターの操作を妨げない */
+  pointer-events: none;
+}
+
+#hamster .wheel-and-hamster {
+  --dur: 1s;
+  position: relative;
+  width: 12em;
+  height: 12em;
+  font-size: 6.5px;
+}
+
+#hamster .wheel,
+#hamster .hamster,
+#hamster .hamster div,
+#hamster .spoke { position: absolute; }
+
+#hamster .wheel,
+#hamster .spoke {
+  border-radius: 50%;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#hamster .wheel {
+  background: radial-gradient(100% 100% at center, hsla(0,0%,60%,0) 47.8%, hsl(0,0%,60%) 48%);
+  z-index: 2;
+}
+
+#hamster .hamster {
+  animation: hamster var(--dur) ease-in-out infinite;
+  top: 50%;
+  left: calc(50% - 3.5em);
+  width: 7em;
+  height: 3.75em;
+  transform: rotate(4deg) translate(-0.8em, 1.85em);
+  transform-origin: 50% 0;
+  z-index: 1;
+}
+
+#hamster .hamster__head {
+  animation: hamsterHead var(--dur) ease-in-out infinite;
+  background: hsl(30,90%,55%);
+  border-radius: 70% 30% 0 100% / 40% 25% 25% 60%;
+  box-shadow: 0 -0.25em 0 hsl(30,90%,80%) inset, 0.75em -1.55em 0 hsl(30,90%,90%) inset;
+  top: 0;
+  left: -2em;
+  width: 2.75em;
+  height: 2.5em;
+  transform-origin: 100% 50%;
+}
+
+#hamster .hamster__ear {
+  animation: hamsterEar var(--dur) ease-in-out infinite;
+  background: hsl(0,90%,85%);
+  border-radius: 50%;
+  box-shadow: -0.25em 0 hsl(30,90%,55%) inset;
+  top: -0.25em;
+  right: -0.25em;
+  width: 0.75em;
+  height: 0.75em;
+  transform-origin: 50% 75%;
+}
+
+#hamster .hamster__eye {
+  animation: hamsterEye var(--dur) linear infinite;
+  background-color: hsl(0,0%,0%);
+  border-radius: 50%;
+  top: 0.375em;
+  left: 1.25em;
+  width: 0.5em;
+  height: 0.5em;
+}
+
+#hamster .hamster__nose {
+  background: hsl(0,90%,75%);
+  border-radius: 35% 65% 85% 15% / 70% 50% 50% 30%;
+  top: 0.75em;
+  left: 0;
+  width: 0.2em;
+  height: 0.25em;
+}
+
+#hamster .hamster__body {
+  animation: hamsterBody var(--dur) ease-in-out infinite;
+  background: hsl(30,90%,90%);
+  border-radius: 50% 30% 50% 30% / 15% 60% 40% 40%;
+  box-shadow: 0.1em 0.75em 0 hsl(30,90%,55%) inset, 0.15em -0.5em 0 hsl(30,90%,80%) inset;
+  top: 0.25em;
+  left: 2em;
+  width: 4.5em;
+  height: 3em;
+  transform-origin: 17% 50%;
+  transform-style: preserve-3d;
+}
+
+#hamster .hamster__limb--fr,
+#hamster .hamster__limb--fl {
+  clip-path: polygon(0 0, 100% 0, 70% 80%, 60% 100%, 0% 100%, 40% 80%);
+  top: 2em;
+  left: 0.5em;
+  width: 1em;
+  height: 1.5em;
+  transform-origin: 50% 0;
+}
+
+#hamster .hamster__limb--fr {
+  animation: hamsterFRLimb var(--dur) linear infinite;
+  background: linear-gradient(hsl(30,90%,80%) 80%, hsl(0,90%,75%) 80%);
+  transform: rotate(15deg) translateZ(-1px);
+}
+
+#hamster .hamster__limb--fl {
+  animation: hamsterFLLimb var(--dur) linear infinite;
+  background: linear-gradient(hsl(30,90%,90%) 80%, hsl(0,90%,85%) 80%);
+  transform: rotate(15deg);
+}
+
+#hamster .hamster__limb--br,
+#hamster .hamster__limb--bl {
+  border-radius: 0.75em 0.75em 0 0;
+  clip-path: polygon(0 0, 100% 0, 100% 30%, 70% 90%, 70% 100%, 30% 100%, 40% 90%, 0% 30%);
+  top: 1em;
+  left: 2.8em;
+  width: 1.5em;
+  height: 2.5em;
+  transform-origin: 50% 30%;
+}
+
+#hamster .hamster__limb--br {
+  animation: hamsterBRLimb var(--dur) linear infinite;
+  background: linear-gradient(hsl(30,90%,80%) 90%, hsl(0,90%,75%) 90%);
+  transform: rotate(-25deg) translateZ(-1px);
+}
+
+#hamster .hamster__limb--bl {
+  animation: hamsterBLLimb var(--dur) linear infinite;
+  background: linear-gradient(hsl(30,90%,90%) 90%, hsl(0,90%,85%) 90%);
+  transform: rotate(-25deg);
+}
+
+#hamster .hamster__tail {
+  animation: hamsterTail var(--dur) linear infinite;
+  background: hsl(0,90%,85%);
+  border-radius: 0.25em 50% 50% 0.25em;
+  box-shadow: 0 -0.2em 0 hsl(0,90%,75%) inset;
+  top: 1.5em;
+  right: -0.5em;
+  width: 1em;
+  height: 0.5em;
+  transform: rotate(30deg) translateZ(-1px);
+  transform-origin: 0.25em 0.25em;
+}
+
+#hamster .spoke {
+  animation: spoke var(--dur) linear infinite;
+  background: radial-gradient(100% 100% at center, hsl(0,0%,60%) 4.8%, hsla(0,0%,60%,0) 5%),
+    linear-gradient(hsla(0,0%,55%,0) 46.9%, hsl(0,0%,65%) 47% 52.9%, hsla(0,0%,65%,0) 53%) 50% 50% / 99% 99% no-repeat;
+}
+
+@keyframes hamster {
+  from, to { transform: rotate(4deg) translate(-0.8em, 1.85em); }
+  50% { transform: rotate(0) translate(-0.8em, 1.85em); }
+}
+@keyframes hamsterHead {
+  from, 25%, 50%, 75%, to { transform: rotate(0); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(8deg); }
+}
+@keyframes hamsterEye {
+  from, 90%, to { transform: scaleY(1); }
+  95% { transform: scaleY(0); }
+}
+@keyframes hamsterEar {
+  from, 25%, 50%, 75%, to { transform: rotate(0); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(12deg); }
+}
+@keyframes hamsterBody {
+  from, 25%, 50%, 75%, to { transform: rotate(0); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(-2deg); }
+}
+@keyframes hamsterFRLimb {
+  from, 25%, 50%, 75%, to { transform: rotate(50deg) translateZ(-1px); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(-30deg) translateZ(-1px); }
+}
+@keyframes hamsterFLLimb {
+  from, 25%, 50%, 75%, to { transform: rotate(-30deg); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(50deg); }
+}
+@keyframes hamsterBRLimb {
+  from, 25%, 50%, 75%, to { transform: rotate(-60deg) translateZ(-1px); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(20deg) translateZ(-1px); }
+}
+@keyframes hamsterBLLimb {
+  from, 25%, 50%, 75%, to { transform: rotate(20deg); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(-60deg); }
+}
+@keyframes hamsterTail {
+  from, 25%, 50%, 75%, to { transform: rotate(30deg) translateZ(-1px); }
+  12.5%, 37.5%, 62.5%, 87.5% { transform: rotate(10deg) translateZ(-1px); }
+}
+@keyframes spoke {
+  from { transform: rotate(0); }
+  to { transform: rotate(-1turn); }
+}
+
+/* ---- 休憩（回し車の中で止まる） ---- */
+/*
+ * 走るのをやめ、車の中に座り込んで休む。車から出ることはない。
+ * 位置は走っているときとほぼ同じで、少しだけ沈ませて座った感じにする。
+ * 切り替えが瞬間的だと不自然なので transition で受ける。
+ */
+#hamster .hamster { transition: transform 0.8s ease-in-out; }
+#hamster.is-resting .spoke { animation-play-state: paused; }
+#hamster.is-resting .hamster {
+  animation: none;
+  /* 走行時と同じ車の中。座り込むぶんだけ沈める。 */
+  transform: rotate(0deg) translate(-0.8em, 2.15em);
+}
+#hamster.is-resting .hamster__head,
+#hamster.is-resting .hamster__ear,
+#hamster.is-resting .hamster__tail { animation: none; }
+#hamster.is-resting .hamster__tail { transform: rotate(18deg) translateZ(-1px); }
+/* 手足は動きを止めて畳む */
+#hamster.is-resting .hamster__limb--fr { animation: none; transform: rotate(18deg) translateZ(-1px); }
+#hamster.is-resting .hamster__limb--fl { animation: none; transform: rotate(22deg); }
+#hamster.is-resting .hamster__limb--br { animation: none; transform: rotate(-18deg) translateZ(-1px); }
+#hamster.is-resting .hamster__limb--bl { animation: none; transform: rotate(-14deg); }
+/* 止まっているのが分かるよう、呼吸ぶんだけ上下させる */
+#hamster.is-resting .hamster__body { animation: hamsterBreathe 2.8s ease-in-out infinite; }
+@keyframes hamsterBreathe {
+  from, to { transform: rotate(0) scale(1, 1); }
+  50% { transform: rotate(0) scale(1.02, 1.05); }
+}
+
+/* ---- 車の外を歩く / 立ち止まる ---- */
+/*
+ * 外にいる間は車を止め、ハムスターの位置は JS が transform で直接決める。
+ * CSS アニメーションはインラインの style より強いので、
+ * 位置を JS で動かす状態では .hamster 自身のアニメーションを必ず切る。
+ *
+ * 手足の動きは走行時と同じものを使い、--dur を伸ばして遅くするだけにする。
+ * こうすると「走り」がそのまま「歩き」になり、別の指定を増やさずに済む。
+ */
+#hamster.is-walking .spoke,
+#hamster.is-standing .spoke { animation-play-state: paused; }
+
+#hamster.is-walking .wheel-and-hamster { --dur: 1.7s; }
+
+#hamster.is-walking .hamster,
+#hamster.is-standing .hamster {
+  animation: none;
+  /* 外に出たら車の枠より手前に置く */
+  z-index: 3;
+  transition: none;
+}
+
+/* 立ち止まり。手足を止めて真下へ下ろし、呼吸ぶんだけ体を動かす。 */
+#hamster.is-standing .hamster__head,
+#hamster.is-standing .hamster__ear,
+#hamster.is-standing .hamster__tail { animation: none; }
+#hamster.is-standing .hamster__limb--fr { animation: none; transform: rotate(10deg) translateZ(-1px); }
+#hamster.is-standing .hamster__limb--fl { animation: none; transform: rotate(14deg); }
+#hamster.is-standing .hamster__limb--br { animation: none; transform: rotate(-12deg) translateZ(-1px); }
+#hamster.is-standing .hamster__limb--bl { animation: none; transform: rotate(-8deg); }
+#hamster.is-standing .hamster__body { animation: hamsterBreathe 2.8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  #hamster .hamster, #hamster .hamster div, #hamster .spoke { animation: none; }
+}
+
+/* ---- レイアウトのプリセット ---- */
+body.layout-clock .c-clock { grid-column: span 12; }
+body.layout-clock .c-weather { grid-column: span 10; }
+body.layout-clock .c-memo { grid-column: span 14; }
+
+body.layout-weather .c-clock { grid-column: span 6; }
+body.layout-weather .c-weather { grid-column: span 10; }
+/* この配置でも時間別予報は同じ割合で縮める（元は 8/12 ぶん） */
+body.layout-weather .c-hourly { grid-column: span 10; }
+
+/* ---- 縦向き ---- */
+@media (orientation: portrait) {
+  main { grid-auto-rows: minmax(0, auto); }
+  .s3, .s4, .s5, .s6, .c-spotify { grid-column: span 12; }
+  .s7, .s8, .c-hourly { grid-column: span 24; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #shift, .meter-fill, #offline { transition: none; }
+  .globe-spin { animation: none; }
+}
+
+
+#panel button:focus { outline: none; }
+
+/* ---- 明るさ調整パネル ---- */
+#panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(4, 6, 9, 0.72);
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+#panel.hidden { display: none; }
+
+/* 設定画面をそのまま入れるので、簡易パネルだった頃より大きく取る。 */
+.panel-card {
+  width: 96vw;
+  height: 94vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+#panelFrame {
+  width: 100%; height: 100%;
+  border: 0; border-radius: 12px;
+  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+}
+.panel-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+button.ghost {
+  background: transparent; color: var(--text-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; font-size: 13px; font-family: inherit; cursor: pointer;
+}
+

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppCompat に依存せず、プラットフォームのダークテーマを使う -->
+    <style name="Theme.Walldash" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/wd_background</item>
+        <item name="android:colorBackground">@color/wd_background</item>
+        <item name="android:statusBarColor">@color/wd_background</item>
+        <item name="android:navigationBarColor">@color/wd_background</item>
+    </style>
+</resources>

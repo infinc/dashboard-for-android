@@ -1,0 +1,22 @@
+# Gradle / Android
+.gradle/
+build/
+.kotlin/
+local.properties
+keystore.properties
+*.keystore
+*.jks
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# 端末調査の生ログ（Phase 0.5）。端末の型番・メモリ・温度がそのまま出る。
+docs/device-probe-*.txt
+
+# 実機のスクリーンショット。
+# 壁に出ている内容がそのまま写るため（SSID・IP アドレス・LINE メモの本文・
+# 地点名・再生中の曲）、中身を確認せずにコミットしないこと。
+docs/shots/

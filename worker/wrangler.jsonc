@@ -1,0 +1,26 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "walldash-line-relay",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-15",
+	// id を書かないと deploy 時に自動で作成・紐付けされる。
+	// 既存の namespace を使う場合は `wrangler kv namespace create MEMOS` で作り、
+	// 表示された id を "id" として書き足す（id は自分の Cloudflare アカウントの
+	// 資源を指すので、公開リポジトリには置かない）。
+	"kv_namespaces": [
+		{
+			"binding": "MEMOS"
+		}
+	],
+	// workers.dev の URL は使うので明示的に有効化する。
+	"workers_dev": true,
+
+	// プレビュー URL は無効化する。
+	// 全エンドポイントが署名かトークンで保護されているとはいえ、
+	// 家族のメモを扱う以上、到達可能な入口をバージョンごとに増やす理由がない。
+	"preview_urls": false,
+
+	"observability": {
+		"enabled": true
+	}
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      WebView は内蔵サーバー(127.0.0.1:8080)を平文 HTTP で読む必要があるため、
+      loopback に限って cleartext を許可する。
+      usesCleartextTraffic="true" のような全体許可はしない（Open-Meteo は HTTPS のまま）。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!--
+      強震モニタ（防災科研）は HTTPS を提供しておらず、443 は応答しない。
+      公開の地図画像を表示するためだけに、このホストに限って平文を許可する。
+      取得するのは誰でも見られる観測画像で、こちらからは何も送らない。
+      経路上で差し替えられ得る点は承知のうえで、判断材料ではなく参考表示として扱う。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">www.kmoni.bosai.go.jp</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
