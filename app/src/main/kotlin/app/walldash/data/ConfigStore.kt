@@ -2,6 +2,8 @@ package app.walldash.data
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -38,6 +40,11 @@ class ConfigStore(context: Context) {
         loaded
     }
 
+    private val state by lazy { MutableStateFlow(get()) }
+
+    /** アプリの画面が設定の変化を受け取るための流れ。値は [get] と常に同じ。 */
+    val flow: StateFlow<Config> get() = state
+
     /**
      * 設定を書き換える。[mutate] の戻り値がそのまま新しい設定になる。
      * configVersion は呼び出し側では触らず、ここで必ず +1 する。
@@ -47,25 +54,26 @@ class ConfigStore(context: Context) {
         val next = mutate(current).copy(configVersion = current.configVersion + 1)
         writeAtomically(next)
         cached = next
+        state.value = next
         next
     }
 
-    /** 公開設定の差分を適用する。PIN 等の機微な値はこの経路からは変更できない。 */
-    fun applyPatch(patch: ConfigPatch): Config = update { c ->
-        c.copy(
-            location = patch.location ?: c.location,
-            units = patch.units ?: c.units,
-            display = patch.display?.let(::sanitizeDisplay) ?: c.display,
-            refresh = patch.refresh?.let(::sanitizeRefresh) ?: c.refresh,
-            disaster = patch.disaster ?: c.disaster,
-            feed = patch.feed?.let(::sanitizeFeed) ?: c.feed,
-            notifications = patch.notifications?.let(::sanitizeNotifications) ?: c.notifications,
-        )
-    }
+    /** 公開設定の差分を当てた設定を返す（保存はしない）。PIN 等の機微な値はこの経路では変わらない。 */
+    fun patched(c: Config, patch: ConfigPatch): Config = c.copy(
+        location = patch.location ?: c.location,
+        units = patch.units ?: c.units,
+        display = patch.display?.let(::sanitizeDisplay) ?: c.display,
+        refresh = patch.refresh?.let(::sanitizeRefresh) ?: c.refresh,
+        disaster = patch.disaster ?: c.disaster,
+        feed = patch.feed?.let(::sanitizeFeed) ?: c.feed,
+        notifications = patch.notifications?.let(::sanitizeNotifications) ?: c.notifications,
+    )
 
-    /** 音量は 0..1 に収める。0 は「鳴らさない」として有効な値なので下限を切らない。 */
     private fun sanitizeNotifications(n: NotificationConfig) = n.copy(
         volume = n.volume.coerceIn(0.0, 1.0),
+        disasterTone = n.disasterTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_DISASTER,
+        chargingTone = n.chargingTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_CHARGING,
+        timerTone = n.timerTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_TIMER,
     )
 
     /** フィードは数と件数に上限を設ける。壁掛けで読める量と、取得にかかる時間の両方のため。 */
@@ -78,12 +86,11 @@ class ConfigStore(context: Context) {
     )
 
     private fun sanitizeDisplay(d: DisplayConfig) = d.copy(
-        layout = if (d.layout in ALLOWED_LAYOUTS) d.layout else "balanced",
         // 0 にすると画面が完全に消えて操作不能に見えるため、下限を設ける
         normalBrightness = d.normalBrightness.coerceIn(0.05, 1.0),
         idleDimAfterSeconds = d.idleDimAfterSeconds.coerceIn(30, 3600),
         idleDimBrightness = d.idleDimBrightness.coerceIn(0.05, 1.0),
-        accent = if (ACCENT_PATTERN.matches(d.accent)) d.accent else "#4DD4FF",
+        accent = if (Accents.isKnown(d.accent)) d.accent.uppercase() else Accents.DEFAULT,
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
         clockDateFormat = if (d.clockDateFormat in ALLOWED_DATE_FORMATS) d.clockDateFormat else "ja",
         hourlyMode = if (d.hourlyMode in ALLOWED_HOURLY_MODES) d.hourlyMode else "both",
@@ -96,16 +103,7 @@ class ConfigStore(context: Context) {
     )
 
     /**
-     * お気に入り。
-     *
-     * 追加は端末の前でボタンを押すだけなので、うっかり増え続けやすい。
-     * 同じ URL は 1 件にまとめ、件数と名前の長さに上限を設ける
-     * （帯に並べて横スクロールで選ぶ UI なので、増えすぎると探せなくなる）。
-     */
-    /**
-     * ブラウズのお気に入りを書き換える。
-     *
-     * 呼び出し側が整形を忘れても上限と重複が効くよう、入口をこれ 1 つにしている。
+     * ブラウズのお気に入りを書き換える。整形（重複・件数・名前の長さ）が必ず効くよう、入口はこれ 1 つ。
      */
     fun updateFavorites(mutate: (List<Favorite>) -> List<Favorite>): Config = update { c ->
         c.copy(browser = sanitizeBrowser(c.browser.copy(favorites = mutate(c.browser.favorites))))
@@ -155,10 +153,8 @@ class ConfigStore(context: Context) {
         const val MAX_FAVORITES = 30
         private const val MAX_FAVORITE_TITLE = 80
 
-        private val ALLOWED_LAYOUTS = setOf("balanced", "clock", "weather")
         private val ALLOWED_ALIGNS = setOf("left", "center", "right")
         private val ALLOWED_DATE_FORMATS = setOf("ja", "slash")
         private val ALLOWED_HOURLY_MODES = setOf("both", "temp", "precip")
-        private val ACCENT_PATTERN = Regex("^#[0-9a-fA-F]{6}$")
     }
 }

@@ -19,5 +19,17 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">www.kmoni.bosai.go.jp</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <!--
+      Android 7.1.1 未満は Let's Encrypt のルート（ISRG Root X1/X2）を持っておらず、
+      天気の取得先（Open-Meteo）に TLS で繋がらない。OS の証明書に加えて同梱のルートも信頼する。
+      新しい端末では OS がすでに持っているので挙動は変わらない。
+      同梱のファイルは macOS 標準のルート証明書から取り出し、crt.sh の SHA-256 と照合したもの。
+    -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/isrg_root_x1" />
+            <certificates src="@raw/isrg_root_x2" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

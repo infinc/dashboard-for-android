@@ -160,6 +160,9 @@ button[disabled] { opacity: 0.45; cursor: default; }
 .status { font-size: 12.5px; color: var(--text-2); min-height: 18px; line-height: 1.5; }
 .status.err { color: var(--red); }
 .status.ok { color: var(--green); }
+.status.warn { color: var(--amber); }
+.row select.tone { flex: 1; }
+#refreshNow { margin-top: 8px; }
 
 .results { display: grid; grid-gap: 6px; gap: 6px; margin-top: 8px; }
 .results button { background: transparent; border: 1px solid var(--border); color: var(--text); text-align: left; font-weight: 400; }

@@ -11,16 +11,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import app.walldash.data.ConfigStore
-import app.walldash.data.DeviceStatsMonitor
-import app.walldash.data.DisasterRepository
-import app.walldash.data.FeedRepository
-import app.walldash.data.Http
-import app.walldash.data.MemoRepository
-import app.walldash.data.SpotifyRepository
-import app.walldash.data.WeatherRepository
-import app.walldash.data.WifiMonitor
-import app.walldash.server.Auth
 import app.walldash.server.DashboardServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,85 +18,42 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * ダッシュボードの常駐サービス。
- *
- * フォアグラウンドサービスにしている理由は、アプリが背面に回っても
- * LAN / USB からの設定アクセスと天気の定期取得を生かし続けるため。
- * foregroundServiceType は specialUse（マニフェストで用途説明の <property> も宣言済み）。
+ * 常駐サービス。定期取得と、PC・他端末向けの設定サーバーを生かし続ける。
+ * 画面が背面に回っても止めないために前面サービスにしている（種別は specialUse）。
  */
 class DashboardService : LifecycleService() {
-
-    @Volatile private var wifiMonitor: WifiMonitor? = null
-    @Volatile private var server: DashboardServer? = null
-    @Volatile private var httpClient: io.ktor.client.HttpClient? = null
 
     override fun onCreate() {
         super.onCreate()
 
-        // 何よりも先にフォアグラウンド化する。
-        // startForegroundService() から 5 秒以内に startForeground() を呼ばないと
-        // RemoteServiceException でプロセスごと落とされる。WebView の初期化が重い端末では、
-        // 先に重い初期化を置くとこの 5 秒を簡単に超える（実機で実際に落ちた）。
+        // startForegroundService() から 5 秒以内に startForeground() を呼ばないとプロセスごと落とされる。
+        // 重い初期化より必ず先に置く（実機で実際に落ちた）。
         runCatching { startForegroundCompat() }
             .onFailure { Log.e(TAG, "startForeground に失敗", it) }
 
-        // 残りの初期化はメインスレッドを塞がないよう別スレッドで行う。
         lifecycleScope.launch(Dispatchers.IO) {
-            val app = applicationContext
-            val config = ConfigStore.getInstance(app)
-            val client = Http.newClient().also { httpClient = it }
-
-            val wifi = WifiMonitor(app).also { it.start() }
-            val weather = WeatherRepository(app, client, config)
-            val disaster = DisasterRepository(app, client, config)
-            val feed = FeedRepository(client, config)
-            val memo = MemoRepository(client, config)
-            val spotify = SpotifyRepository(client, config)
-            val deviceStats = DeviceStatsMonitor(app)
-
-            val dashboardServer = DashboardServer(
-                context = app,
-                configStore = config,
-                wifiMonitor = wifi,
-                weatherRepository = weather,
-                deviceStatsMonitor = deviceStats,
-                disasterRepository = disaster,
-                feedRepository = feed,
-                memoRepository = memo,
-                spotifyRepository = spotify,
-                auth = Auth(config),
-                launcherMode = LauncherMode(app),
-            )
-            wifiMonitor = wifi
-            server = dashboardServer
-
-            runCatching { dashboardServer.start() }
-                .onSuccess { Log.i(TAG, "サーバー起動完了") }
+            val graph = AppGraph.get(applicationContext)
+            runCatching { graph.server.start() }
                 .onFailure { Log.e(TAG, "サーバーの起動に失敗", it) }
 
-            /*
-             * 再生中の曲は数分で変わるので、他より短い間隔で見に行く。
-             * 15 秒間隔の輪に混ぜると、曲が変わってから壁に出るまでが目に見えて遅れる。
-             * 未連携のときは即座に戻るので、回しても負荷にはならない。
-             */
+            // 曲は数分で変わるので、他より短い間隔で見に行く
             launch {
                 while (isActive) {
-                    runCatching { spotify.refreshIfDue() }
+                    runCatching { graph.spotify.refreshIfDue() }
                         .onFailure { Log.w(TAG, "Spotify の定期取得でエラー", it) }
                     delay(SPOTIFY_TICK_MS)
                 }
             }
 
-            // 各取得先は自分の間隔を持っているので、ここは一定間隔で声をかけるだけ。
-            // 1 つが失敗しても他を止めない。
+            // 各取得先が自分の間隔を持っているので、ここは声をかけるだけ。1 つの失敗で他を止めない。
             while (isActive) {
-                runCatching { weather.refreshIfDue() }
+                runCatching { graph.weather.refreshIfDue() }
                     .onFailure { Log.w(TAG, "天気の定期取得でエラー", it) }
-                runCatching { disaster.refreshIfDue() }
+                runCatching { graph.disaster.refreshIfDue() }
                     .onFailure { Log.w(TAG, "防災情報の定期取得でエラー", it) }
-                runCatching { feed.refreshIfDue() }
+                runCatching { graph.feed.refreshIfDue() }
                     .onFailure { Log.w(TAG, "フィードの定期取得でエラー", it) }
-                runCatching { memo.refreshIfDue() }
+                runCatching { graph.memo.refreshIfDue() }
                     .onFailure { Log.w(TAG, "メモの定期取得でエラー", it) }
                 delay(TICK_MS)
             }
@@ -115,14 +62,11 @@ class DashboardService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        // 端末が何らかの理由でサービスを落としても復帰させる
         return START_STICKY
     }
 
     override fun onDestroy() {
-        runCatching { server?.stop() }
-        runCatching { wifiMonitor?.stop() }
-        runCatching { httpClient?.close() }
+        runCatching { AppGraph.get(applicationContext).server.stop() }
         super.onDestroy()
     }
 
@@ -151,7 +95,7 @@ class DashboardService : LifecycleService() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notif_title))
-            .setContentText("http://127.0.0.1:${DashboardServer.PORT}")
+            .setContentText("設定: http://127.0.0.1:${DashboardServer.PORT}/settings")
             .setSmallIcon(R.drawable.ic_stat_walldash)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -159,11 +103,7 @@ class DashboardService : LifecycleService() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }

@@ -313,8 +313,6 @@ data class UnitsConfig(
 
 @Serializable
 data class DisplayConfig(
-    /** "balanced" | "clock" | "weather" — v1 は固定レイアウト3種から選ぶ（並び替えは持たない） */
-    val layout: String = "balanced",
     val showClock: Boolean = true,
     val showWifi: Boolean = true,
     val showWeather: Boolean = true,
@@ -373,7 +371,7 @@ data class DisplayConfig(
 )
 
 /**
- * 天気カードに出せる項目。値は dashboard.js の WX_FIELDS のキーと一致させること。
+ * 天気カードに出せる項目。値は ui/dashboard/SimpleCards.kt の wxCell() のキーと一致させること。
  * 既定はこの順で 9 項目すべて（3 列 3 行にちょうど収まる）。
  */
 val DEFAULT_WEATHER_FIELDS: List<String> = listOf(
@@ -381,21 +379,18 @@ val DEFAULT_WEATHER_FIELDS: List<String> = listOf(
 )
 
 /**
- * 通知音。
- *
- * 音はすべてブラウザ内で合成している（音源ファイルは持たない）。
- * [volume] は端末の主音量とは別で、その中でさらに絞るための割合。
- * 壁掛けだと端末の主音量は他の用途とも共有されるため、
- * 通知だけを小さくしたい／大きくしたいという要求がここに来る。
+ * 通知音。音はアプリ内で合成する（音源ファイルは持たない）。
+ * 音色の id は [Tones] の一覧のどれか。[volume] は鳴らす間だけ当てる端末のメディア音量。
  */
 @Serializable
 data class NotificationConfig(
-    /** 警報・注意報・地震・津波・台風・噴火が切り替わったときの音。 */
     val disasterSound: Boolean = true,
-    /** 充電ケーブルの抜き差しの音。 */
     val chargingSound: Boolean = true,
     /** 0.0..1.0。0 にすると鳴らない。 */
     val volume: Double = 0.7,
+    val disasterTone: String = Tones.DEFAULT_DISASTER,
+    val chargingTone: String = Tones.DEFAULT_CHARGING,
+    val timerTone: String = Tones.DEFAULT_TIMER,
 )
 
 /**
@@ -531,7 +526,22 @@ data class PublicConfig(
     val memo: MemoPublic,
     val spotify: SpotifyPublic = SpotifyPublic(),
     val notifications: NotificationConfig = NotificationConfig(),
+    /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
+    val choices: SettingChoices = SettingChoices.ALL,
 )
+
+@Serializable
+data class Choice(val value: String, val label: String)
+
+@Serializable
+data class SettingChoices(val accents: List<Choice>, val tones: List<Choice>) {
+    companion object {
+        val ALL = SettingChoices(
+            accents = Accents.ALL.map { Choice(it.hex, it.label) },
+            tones = Tones.ALL.map { Choice(it.id, it.label) },
+        )
+    }
+}
 
 fun Config.toPublic() = PublicConfig(
     configVersion = configVersion,
@@ -554,6 +564,17 @@ fun Config.toPublic() = PublicConfig(
         connected = !spotify.refreshToken.isNullOrBlank(),
     ),
     notifications = notifications,
+)
+
+/**
+ * 設定画面の「全て保存」。公開設定・LINE メモ・Spotify を 1 回で保存する。
+ * トークン類は書き込み専用で、この経路からも読み出せない。
+ */
+@Serializable
+data class SaveAllRequest(
+    val settings: ConfigPatch = ConfigPatch(),
+    val memo: MemoPatch? = null,
+    val spotify: SpotifyPatch? = null,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -599,8 +620,6 @@ data class DeviceState(
     val memo: MemoState = MemoState(),
     val spotify: SpotifyState = SpotifyState(),
     val config: PublicConfig,
-    /** この応答が機微情報をマスクしたものかどうか（LAN 未認証時 true）。 */
-    val masked: Boolean = false,
 )
 
 @Serializable
