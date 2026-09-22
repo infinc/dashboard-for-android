@@ -25,7 +25,7 @@
     <div class="nav-list" id="navList">
       <div class="nav-group">全体</div>
       <button class="nav-item" type="button" data-pane="general">
-        <i class="dot dot-off"></i><span>レイアウト・配色</span>
+        <i class="dot dot-off"></i><span>配色</span>
       </button>
       <button class="nav-item" type="button" data-pane="screen">
         <i class="dot dot-off"></i><span>画面の明るさ</span>
@@ -88,6 +88,8 @@
     </div>
 
     <div class="nav-foot">
+      <button id="saveAll" class="wide" type="button" disabled>変更はありません</button>
+      <div class="status" id="saveStatus"></div>
       <button id="refreshNow" class="ghost wide" type="button">今すぐ全データを取得し直す</button>
       <div class="status" id="refreshStatus"></div>
     </div>
@@ -97,36 +99,18 @@
 
     <!-- ============================================================ 全体 -->
     <section class="pane" data-pane="general">
-      <h1>レイアウト・配色</h1>
-      <p class="lead">ダッシュボード全体の並びと色を決めます。カードごとの表示・非表示は左のメニューの各カードにあります。</p>
+      <h1>配色</h1>
+      <p class="lead">ダッシュボード全体の色を決めます。グラフの線や強調の色がこの色になります。カードごとの表示・非表示は左のメニューの各カードにあります。</p>
 
-      <div class="grid2">
-        <div class="field">
-          <label for="layout">レイアウト</label>
-          <select id="layout">
-            <option value="balanced">バランス</option>
-            <option value="clock">時計重視</option>
-            <option value="weather">天気重視</option>
-          </select>
-          <div class="hint">主要なカードの幅の配分が変わります。</div>
-        </div>
-        <div class="field">
-          <label for="accent">アクセント色</label>
-          <select id="accent">
-            <option value="#4DD4FF">シアン</option>
-            <option value="#8B7CFF">バイオレット</option>
-            <option value="#3DDC97">グリーン</option>
-            <option value="#FFB347">アンバー</option>
-          </select>
-        </div>
+      <div class="field" style="max-width:320px">
+        <label for="accent">アクセント色</label>
+        <select id="accent"></select>
       </div>
 
       <div class="notice info">
         カードを非表示にしても空白は残りません。空いた列は<strong>同じ行に残ったカードへ自動で配分</strong>され、
         1 行が常に画面幅いっぱいになります。
       </div>
-
-      <div class="save"><button id="saveGeneral" type="button">保存</button><span class="status" id="generalStatus"></span></div>
     </section>
 
     <!-- ============================================================ 画面 -->
@@ -166,14 +150,12 @@
           これを避けるため、5 分ごとに画面全体を上下左右へ最大 2 ピクセルだけゆっくり動かします。
         </div>
       </div>
-
-      <div class="save"><button id="saveScreen" type="button">保存</button><span class="status" id="screenStatus"></span></div>
     </section>
 
     <!-- ============================================================ 場所 -->
     <section class="pane" data-pane="place">
       <h1>場所</h1>
-      <p class="lead">天気・時間別予報・週間予報・日の出入りが、ここで決めた地点のものになります。</p>
+      <p class="lead">天気・時間別予報・週間予報・日の出入り、そして防災の警報・注意報が、ここで決めた地点のものになります。選んだ地点は「全て保存」で反映されます。</p>
 
       <div class="field">
         <label for="q">都市名で検索</label>
@@ -188,42 +170,39 @@
     <!-- ============================================================ 通知 -->
     <section class="pane" data-pane="notify">
       <h1>通知</h1>
-      <p class="lead">ダッシュボードが鳴らす音の設定です。音を切っても、画面のバナー表示は出ます。</p>
+      <p class="lead">ダッシュボードが鳴らす音の設定です。音を切っても、画面のバナー表示は出ます。「試聴」を押すと<strong>タブレットから</strong>鳴ります。</p>
 
       <div class="field">
-        <label>鳴らすもの</label>
-        <div class="toggles">
-          <label class="toggle"><input type="checkbox" id="disasterSound"> 警報・注意報などの防災情報</label>
-          <label class="toggle"><input type="checkbox" id="chargingSound"> 充電ケーブルの抜き差し</label>
-        </div>
-        <div class="hint">
-          防災情報は、警報・注意報・地震・津波・台風・噴火のいずれかが<strong>切り替わったとき</strong>に
-          1 回だけ鳴ります（同じ内容が続いている間は鳴りません）。<br>
-          充電は、壁掛けで挿しっぱなしにしていたケーブルが抜けたことに気づけるようにするためのものです。
-          挿したときと抜いたときで音が上下逆になります。
-        </div>
+        <label class="toggle"><input type="checkbox" id="disasterSound"> 防災情報の音を鳴らす</label>
+        <div class="row"><select id="disasterTone" class="tone"></select><button id="previewDisaster" class="ghost" type="button">試聴</button></div>
+        <div class="hint">警報・注意報・地震・津波・台風・噴火のいずれかが<strong>切り替わったとき</strong>に 1 回だけ鳴ります。</div>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="chargingSound"> 充電ケーブルの抜き差しの音を鳴らす</label>
+        <div class="row"><select id="chargingTone" class="tone"></select><button id="previewCharging" class="ghost" type="button">試聴</button></div>
+        <div class="hint">挿したときはそのまま、抜いたときは音の高さを逆にして鳴らします。</div>
+      </div>
+
+      <div class="field">
+        <label for="timerTone">タイマーの音</label>
+        <div class="row"><select id="timerTone" class="tone"></select><button id="previewTimer" class="ghost" type="button">試聴</button></div>
+        <div class="hint">タイマーの鳴動は切れません（自分で時間を決めて鳴らすもののため）。</div>
       </div>
 
       <div class="field">
         <label for="noticeVolume">通知音の音量 <b id="noticeVolumeValue" class="val"></b></label>
         <input id="noticeVolume" type="range" min="0" max="100" step="5">
         <div class="hint">
-          通知音を鳴らす直前に、<strong>端末のメディア音量をここで決めた大きさまで自動で動かし</strong>、
-          鳴り終わったらすぐ元の音量に戻します。<br>
-          端末の音量を小さくしていても、通知だけはこの大きさで鳴ります。
-          0% にすると鳴りません。タイマーの鳴動にも同じ音量が適用されます。
+          鳴らす直前に<strong>端末のメディア音量をこの大きさまで動かし</strong>、鳴り終わったら元に戻します。
+          0% にすると鳴りません。試聴は保存前の音量で鳴ります。
         </div>
       </div>
 
       <div class="notice info">
-        音はすべて画面内で合成していて、音源ファイルは持ちません。<br>
-        <strong>タイマーの鳴動だけは切る設定を用意していません。</strong>
-        自分で時間を決めて鳴らすものなので、鳴らないと用をなさないためです。音量は上の設定に従います。<br>
         ブラウズで動画を見ている最中に通知が鳴ると、<strong>その 1〜2 秒だけ動画の音量も一緒に変わります</strong>
         （端末の音量そのものを動かしているため）。鳴り終われば元に戻ります。
       </div>
-
-      <div class="save"><button id="saveNotify" type="button">保存</button><span class="status" id="notifyStatus"></span></div>
     </section>
 
     <!-- ============================================================ 時刻 -->
@@ -261,8 +240,6 @@
       <div class="field">
         <label class="toggle"><input type="checkbox" id="showSeconds"> 秒を表示</label>
       </div>
-
-      <div class="save"><button id="saveClock" type="button">保存</button><span class="status" id="clockStatus"></span></div>
     </section>
 
     <!-- ============================================================ 天気 -->
@@ -278,6 +255,11 @@
         <label for="tempUnit">気温の単位</label>
         <select id="tempUnit"><option value="c">摂氏 ℃</option><option value="f">華氏 ℉</option></select>
         <div class="hint">時間別予報・週間予報の気温にも同じ単位が使われます。</div>
+      </div>
+
+      <div class="field" style="max-width:280px">
+        <label for="windUnit">風速の単位</label>
+        <select id="windUnit"><option value="kmh">km/h</option><option value="ms">m/s</option></select>
       </div>
 
       <div class="field">
@@ -304,8 +286,6 @@
         観測地点は「場所」で設定します（現在: <b id="weatherPlace">—</b>）。
         データは <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> から取得しており、API キーは不要です。
       </div>
-
-      <div class="save"><button id="saveWeather" type="button">保存</button><span class="status" id="weatherStatus"></span></div>
     </section>
 
     <!-- ============================================================ 防災 -->
@@ -358,8 +338,6 @@
         市町村は、気象庁のページの「現在地」と同じ方法で、天気の地点の緯度経度から決めています。<br>
         カード右側の<strong>強震モニタ</strong>（防災科研・いま揺れている観測点）は 3 秒ごとに更新され、設定は不要です。
       </div>
-
-      <div class="save"><button id="saveDisaster" type="button">保存</button><span class="status" id="disasterStatus"></span></div>
     </section>
 
     <!-- ======================================================== LINE メモ -->
@@ -402,8 +380,6 @@
         タブレットは中継先に外向きにポーリングするだけで、<strong>インターネットからの着信は一切受けません</strong>。
         セットアップ手順は <code>worker/README.md</code> を参照してください。
       </div>
-
-      <div class="save"><button id="saveMemo" type="button">保存</button><span class="status" id="memoStatus"></span></div>
     </section>
 
     <!-- ==================================================== 時間別予報 -->
@@ -428,8 +404,6 @@
       <div class="notice info">
         地点は「場所」、気温の単位は「天気」の設定に従います。
       </div>
-
-      <div class="save"><button id="saveHourly" type="button">保存</button><span class="status" id="hourlyStatus"></span></div>
     </section>
 
     <!-- ========================================================= Spotify -->
@@ -459,7 +433,7 @@
       <div class="field">
         <label for="spotifyClientId">Client ID</label>
         <input id="spotifyClientId" placeholder="例: 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c">
-        <div class="hint">秘密の値ではありません。保存してから「Spotify と連携」を押してください。</div>
+        <div class="hint">秘密の値ではありません。入力して「全て保存」してから「Spotify と連携」を押してください。連携はタブレット本体か、USB でつないだ PC のブラウザから行えます。</div>
       </div>
 
       <div class="row">
@@ -477,8 +451,6 @@
         <code>http://127.0.0.1:8080/api/spotify/callback</code> を追加 → API は「Web API」を選択。
         できた <strong>Client ID</strong> を上に貼ってください（Client Secret は使いません）。
       </div>
-
-      <div class="save"><button id="saveSpotify" type="button">保存</button><span class="status" id="spotifyStatus"></span></div>
     </section>
 
     <!-- =========================================================== Wi-Fi -->
@@ -499,8 +471,6 @@
         表示している速度は Wi-Fi の<strong>物理リンクレート</strong>で、インターネットの実効速度ではありません。
         SSID が出ない場合はカード内にその理由が表示されます（位置情報の権限など）。
       </div>
-
-      <div class="save"><button id="saveWifi" type="button">保存</button><span class="status" id="wifiStatus"></span></div>
     </section>
 
     <!-- ======================================================== 端末状態 -->
@@ -515,8 +485,6 @@
       <div class="notice info">
         値はすべて端末内から読んでいます。CPU 使用率は <code>cpuidle</code> を読めない端末では表示されません。
       </div>
-
-      <div class="save"><button id="saveStats" type="button">保存</button><span class="status" id="statsStatus"></span></div>
     </section>
 
     <!-- ======================================================== ニュース -->
@@ -549,8 +517,6 @@
         <label for="feedMax">表示件数</label>
         <input id="feedMax" type="number" min="1" max="40">
       </div>
-
-      <div class="save"><button id="saveFeed" type="button">保存</button><span class="status" id="feedStatus"></span></div>
     </section>
 
     <!-- ======================================================== 週間予報 -->
@@ -565,8 +531,6 @@
       <div class="notice info">
         地点は「場所」、気温の単位は「天気」の設定に従います。このカード固有の設定はありません。
       </div>
-
-      <div class="save"><button id="saveDaily" type="button">保存</button><span class="status" id="dailyStatus"></span></div>
     </section>
 
     <!-- ========================================================= タイマー -->
@@ -581,8 +545,6 @@
       <div class="notice info">
         鳴動音はブラウザ内で合成しています。音量は端末のメディア音量に従います。
       </div>
-
-      <div class="save"><button id="saveTimer" type="button">保存</button><span class="status" id="timerStatus"></span></div>
     </section>
 
     <!-- ===================================================== 今日の単語 -->
@@ -597,8 +559,6 @@
       <div class="notice info">
         辞書はアプリに同梱しているため、通信が切れても空欄になりません。
       </div>
-
-      <div class="save"><button id="saveWord" type="button">保存</button><span class="status" id="wordStatus"></span></div>
     </section>
 
     <!-- ===================================================== ハムスター -->
@@ -615,8 +575,6 @@
         非表示にすると動きの処理も止まるため、わずかですが消費電力が下がります。<br>
         意匠は Uiverse.io の Nawsome 作「Loader」(MIT License) によります。
       </div>
-
-      <div class="save"><button id="saveHamster" type="button">保存</button><span class="status" id="hamsterStatus"></span></div>
     </section>
 
     <!-- =========================================================== 端末 -->
@@ -640,7 +598,7 @@
     <!-- ===================================================== ネットワーク -->
     <section class="pane" data-pane="network">
       <h1>ネットワーク（LAN 公開）</h1>
-      <p class="lead">既定ではこの端末の中（127.0.0.1）からしか設定画面を開けません。LAN の他の端末からも開けるようにします。</p>
+      <p class="lead">既定ではタブレット本体と USB でつないだ PC からしか設定画面を開けません。LAN の他の端末からも開けるようにします。</p>
 
       <div class="notice">
         LAN 公開は<strong>家庭内の信頼できる LAN 限定</strong>の機能です。通信は平文 HTTP のため、

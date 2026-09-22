@@ -1,14 +1,10 @@
 /*
- * 設定画面。USB(adb forward)経由の localhost からは認証なしで開ける。
+ * PC・LAN の他端末から開く設定画面。USB(adb forward)経由の localhost からは認証なしで開ける。
  * LAN から開いた場合は先に PIN でログインしている必要がある。
  *
- * 画面は「左のメニューで項目を選び、右にその項目の設定だけを出す」構造。
- * ダッシュボードのカードは 1 枚 1 項目として並べ、そのカードに効く設定を同じ面に置く。
- *
- * カードの表示・非表示は config.display の show* に入っており、保存は /api/settings の
- * display をまるごと置き換える形になる。そのため、どの面の「保存」を押しても
- * 画面上のすべての [data-w] チェックボックスから display を組み立て直す
- * （面ごとに部分更新すると、別の面で変えたチェックが保存のたびに巻き戻る）。
+ * 各面の変更は画面上に溜めておき、左下の「全て保存」で 1 回にまとめて送る（POST /api/settings）。
+ * 送る中身は collect() が画面上の全入力から組み立てる。読み込み直後の collect() と比べて、
+ * 違えば「未保存の変更あり」とみなす。
  */
 (function () {
   "use strict";
@@ -16,6 +12,9 @@
   var $ = function (id) { return document.getElementById(id); };
   var config = null;
   var device = null;
+  var baseline = "";
+  var pendingLocation = null;
+  var saving = false;
 
   function api(path, options) {
     options = options || {};
@@ -40,31 +39,39 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
 
+  function copy(o) {
+    var out = {};
+    for (var k in (o || {})) out[k] = o[k];
+    return out;
+  }
+
+  function fillSelect(id, choices) {
+    var el = $(id);
+    el.innerHTML = "";
+    for (var i = 0; i < choices.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = choices[i].value;
+      opt.textContent = choices[i].label;
+      el.appendChild(opt);
+    }
+  }
+
   // ---------------------------------------------------------------- メニュー
 
-  /*
-   * 選んだ面だけを出す。選択は location.hash に残す。
-   * 歯車から開く iframe は閉じるたびに読み直されるので、
-   * hash が無ければ常に先頭の面から始まる。
-   */
   function showPane(name) {
     var items = document.querySelectorAll(".nav-item");
     var panes = document.querySelectorAll(".pane");
     var found = false;
     var i;
-
     for (i = 0; i < panes.length; i++) {
       var on = panes[i].getAttribute("data-pane") === name;
       if (on) found = true;
-      if (on) panes[i].classList.add("active"); else panes[i].classList.remove("active");
+      panes[i].classList.toggle("active", on);
     }
     if (!found) return showPane("general");
-
     for (i = 0; i < items.length; i++) {
-      var sel = items[i].getAttribute("data-pane") === name;
-      if (sel) items[i].classList.add("active"); else items[i].classList.remove("active");
+      items[i].classList.toggle("active", items[i].getAttribute("data-pane") === name);
     }
-    // 面を切り替えたら先頭から読ませる（前の面のスクロール位置が残ると迷う）
     $("panes").scrollTop = 0;
     if (location.hash !== "#" + name) location.hash = name;
   }
@@ -72,167 +79,194 @@
   (function bindNav() {
     var items = document.querySelectorAll(".nav-item");
     for (var i = 0; i < items.length; i++) {
-      items[i].addEventListener("click", function () {
-        showPane(this.getAttribute("data-pane"));
-      });
+      items[i].addEventListener("click", function () { showPane(this.getAttribute("data-pane")); });
     }
-    window.addEventListener("hashchange", function () {
-      showPane(location.hash.replace("#", "") || "general");
-    });
+    window.addEventListener("hashchange", function () { showPane(location.hash.replace("#", "") || "general"); });
   })();
 
-  // ---------------------------------------------------------------- 描画
+  // ---------------------------------------------------------------- 保存する中身
 
-  /** 画面上のすべての表示トグルを集めて display を組み立て直す。 */
-  function displayPatch() {
-    var display = {};
-    for (var k in config.display) display[k] = config.display[k];
-
-    display.layout = $("layout").value;
+  /** 画面上のすべての入力から、保存する中身を組み立てる。 */
+  function collect() {
+    var display = copy(config.display);
     display.accent = $("accent").value;
     display.burnInShiftEnabled = $("burnIn").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
     display.idleDimAfterSeconds = Number($("idleDimAfter").value);
     display.idleDimBrightness = Number($("idleDimBrightness").value) / 100;
-
     display.clockAlign = $("clockAlign").value;
     display.clockDateFormat = $("clockDateFormat").value;
     display.hourlyMode = $("hourlyMode").value;
-
-    /*
-     * data-w の付いたチェックボックスはすべて display の真偽値。
-     * カードの表示トグルのほか、台風・噴火・強震モニタ・地球・Spotify の
-     * 各スイッチもこれで拾うので、項目を足すときは HTML 側に data-w を書くだけでよい。
-     * メニュー横の点も data-w を持つため、入力要素に絞ってから読む。
-     */
+    // data-w の付いたチェックボックスはすべて display の真偽値
     var boxes = document.querySelectorAll("input[data-w]");
-    for (var i = 0; i < boxes.length; i++) {
-      display[boxes[i].getAttribute("data-w")] = boxes[i].checked;
-    }
-
-    // 天気の項目は並び順も意味を持つ（3 列で左上から詰まる）ので、
-    // チェックボックスが置かれている順のまま配列にする。
+    for (var i = 0; i < boxes.length; i++) display[boxes[i].getAttribute("data-w")] = boxes[i].checked;
+    // 天気の項目は並び順も意味を持つので、チェックボックスが置かれている順のまま配列にする
     var wx = document.querySelectorAll("input[data-wx]");
-    var fields = [];
-    for (var j = 0; j < wx.length; j++) {
-      if (wx[j].checked) fields.push(wx[j].getAttribute("data-wx"));
-    }
-    display.weatherFields = fields;
+    display.weatherFields = [];
+    for (var j = 0; j < wx.length; j++) if (wx[j].checked) display.weatherFields.push(wx[j].getAttribute("data-wx"));
 
-    return display;
-  }
-
-  /** 通知は display とは別の入れ物なので、ここで組み立てる。 */
-  function notificationsPatch() {
-    var n = {};
-    for (var k in (config.notifications || {})) n[k] = config.notifications[k];
-    n.disasterSound = $("disasterSound").checked;
-    n.chargingSound = $("chargingSound").checked;
-    n.volume = Number($("noticeVolume").value) / 100;
-    return n;
-  }
-
-  function unitsPatch() {
-    var units = {};
-    for (var u in config.units) units[u] = config.units[u];
+    var units = copy(config.units);
     units.clock24h = $("clock24").value === "true";
     units.temperature = $("tempUnit").value;
+    units.wind = $("windUnit").value;
     units.showSeconds = $("showSeconds").checked;
-    return units;
+
+    var notifications = copy(config.notifications);
+    notifications.disasterSound = $("disasterSound").checked;
+    notifications.chargingSound = $("chargingSound").checked;
+    notifications.disasterTone = $("disasterTone").value;
+    notifications.chargingTone = $("chargingTone").value;
+    notifications.timerTone = $("timerTone").value;
+    notifications.volume = Number($("noticeVolume").value) / 100;
+
+    var urls = [];
+    var lines = $("feedUrls").value.split("\n");
+    for (var k = 0; k < lines.length; k++) if (lines[k].trim()) urls.push(lines[k].trim());
+
+    var memo = {
+      enabled: $("memoEnabled").checked,
+      endpoint: $("memoEndpoint").value.trim(),
+      pollIntervalMs: Number($("memoInterval").value) * 1000
+    };
+    // 空のままなら既存のトークンを変えない
+    if ($("memoToken").value) memo.token = $("memoToken").value;
+
+    return {
+      settings: {
+        location: pendingLocation || config.location,
+        units: units,
+        display: display,
+        disaster: { enabled: $("disasterEnabled").checked, minIntensity: $("minIntensity").value },
+        feed: { enabled: $("feedEnabled").checked, urls: urls, maxItems: Number($("feedMax").value) },
+        notifications: notifications
+      },
+      memo: memo,
+      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim() }
+    };
   }
 
-  /** メニュー横の点を、いまの表示状態に合わせる。 */
+  function isDirty() {
+    return config !== null && JSON.stringify(collect()) !== baseline;
+  }
+
+  function updateDirty() {
+    var dirty = isDirty();
+    $("saveAll").disabled = !dirty || saving;
+    $("saveAll").textContent = dirty ? "全て保存" : "変更はありません";
+    if (dirty) setStatus("saveStatus", "未保存の変更があります", "warn");
+    else if ($("saveStatus").className.indexOf("warn") >= 0) setStatus("saveStatus", "");
+  }
+
+  document.addEventListener("input", updateDirty);
+  document.addEventListener("change", updateDirty);
+
+  // 未保存のままタブを閉じる・再読み込みする前に確かめる（文言はブラウザが決める）
+  window.addEventListener("beforeunload", function (e) {
+    if (!isDirty()) return;
+    e.preventDefault();
+    e.returnValue = "未保存の変更があります。";
+  });
+
+  // ---------------------------------------------------------------- 描画
+
   function renderDots() {
     var dots = document.querySelectorAll(".dot[data-w]");
     for (var i = 0; i < dots.length; i++) {
-      var on = config.display[dots[i].getAttribute("data-w")] !== false;
-      if (on) dots[i].classList.remove("off"); else dots[i].classList.add("off");
+      dots[i].classList.toggle("off", config.display[dots[i].getAttribute("data-w")] === false);
     }
   }
 
   function render() {
-    var d = config.display, u = config.units;
+    var d = config.display, u = config.units, n = config.notifications || {};
+    fillSelect("accent", config.choices.accents);
+    fillSelect("disasterTone", config.choices.tones);
+    fillSelect("chargingTone", config.choices.tones);
+    fillSelect("timerTone", config.choices.tones);
 
-    // 全体・画面
-    $("layout").value = d.layout;
     $("accent").value = d.accent;
     $("burnIn").checked = d.burnInShiftEnabled;
-    $("normalBrightness").value = Math.round((d.normalBrightness == null ? 1 : d.normalBrightness) * 100);
+    $("normalBrightness").value = Math.round(d.normalBrightness * 100);
     $("idleDimEnabled").checked = d.idleDimEnabled !== false;
     $("idleDimAfter").value = d.idleDimAfterSeconds;
     $("idleDimBrightness").value = Math.round(d.idleDimBrightness * 100);
 
-    // 場所
-    $("locNow").textContent = "現在の設定地点: " + config.location.name + "（" + config.location.timezone + "）";
-    $("weatherPlace").textContent = config.location.name;
+    pendingLocation = null;
+    renderPlace();
 
-    // 時刻・天気
     $("clock24").value = String(u.clock24h);
     $("showSeconds").checked = u.showSeconds;
     $("tempUnit").value = u.temperature;
+    $("windUnit").value = u.wind;
     $("clockAlign").value = d.clockAlign || "left";
     $("clockDateFormat").value = d.clockDateFormat || "ja";
     $("hourlyMode").value = d.hourlyMode || "both";
 
-    // 天気の項目。未設定の古い config では全項目が選ばれている扱いにする。
-    var want = d.weatherFields || null;
     var wx = document.querySelectorAll("input[data-wx]");
-    for (var w = 0; w < wx.length; w++) {
-      var key = wx[w].getAttribute("data-wx");
-      wx[w].checked = want ? want.indexOf(key) >= 0 : true;
-    }
-
-    // 各カードの表示トグル
+    for (var w = 0; w < wx.length; w++) wx[w].checked = d.weatherFields.indexOf(wx[w].getAttribute("data-wx")) >= 0;
     var boxes = document.querySelectorAll("input[data-w]");
-    for (var i = 0; i < boxes.length; i++) {
-      boxes[i].checked = d[boxes[i].getAttribute("data-w")] !== false;
-    }
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = d[boxes[i].getAttribute("data-w")] !== false;
     renderDots();
 
-    // 防災
     $("disasterEnabled").checked = config.disaster.enabled;
     $("minIntensity").value = config.disaster.minIntensity;
 
-    // ニュース
     $("feedEnabled").checked = config.feed.enabled;
     $("feedUrls").value = (config.feed.urls || []).join("\n");
     $("feedMax").value = config.feed.maxItems;
 
-    // LINE メモ
     $("memoEnabled").checked = config.memo.enabled;
     $("memoEndpoint").value = config.memo.endpoint;
     $("memoInterval").value = Math.round(config.memo.pollIntervalMs / 1000);
-    $("memoToken").placeholder = config.memo.tokenSet
-      ? "設定済み（変更する場合のみ入力）"
-      : "未設定 — Worker の DEVICE_TOKEN と同じ値";
+    $("memoToken").value = "";
+    $("memoToken").placeholder = config.memo.tokenSet ? "設定済み（変更する場合のみ入力）" : "未設定 — Worker の DEVICE_TOKEN と同じ値";
 
-    // Spotify
     var sp = config.spotify || {};
     $("spotifyEnabled").checked = !!sp.enabled;
     $("spotifyClientId").value = sp.clientId || "";
-    $("spotifyConnect").disabled = !sp.clientId;
+    renderSpotify();
+
+    $("disasterSound").checked = n.disasterSound !== false;
+    $("chargingSound").checked = n.chargingSound !== false;
+    $("disasterTone").value = n.disasterTone;
+    $("chargingTone").value = n.chargingTone;
+    $("timerTone").value = n.timerTone;
+    $("noticeVolume").value = Math.round((n.volume == null ? 0.7 : n.volume) * 100);
+
+    renderLan();
+    updateRangeLabels();
+    baseline = JSON.stringify(collect());
+    updateDirty();
+  }
+
+  function renderPlace() {
+    var loc = config.location;
+    $("locNow").textContent = "現在の設定地点: " + loc.name + "（" + loc.timezone + "）";
+    setStatus("placeStatus", pendingLocation ? "選択中: " + pendingLocation.name + " — 「全て保存」で反映されます" : "", pendingLocation ? "warn" : "");
+    $("weatherPlace").textContent = loc.name;
+  }
+
+  /** 連携はタブレット本体か USB の PC から（Spotify の折り返し先が 127.0.0.1 固定のため）。 */
+  function renderSpotify() {
+    var sp = config.spotify || {};
+    var local = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+    var saved = !!sp.clientId && $("spotifyClientId").value.trim() === sp.clientId;
+    $("spotifyConnect").disabled = !saved || !local;
     $("spotifyDisconnect").disabled = !sp.connected;
     setStatus("spotifyLink", sp.connected
       ? "連携済み"
-      : (sp.clientId ? "未連携 —「Spotify と連携」を押してください" : "Client ID を保存すると連携できます"));
+      : !local ? "連携はタブレット本体か、USB でつないだ PC のブラウザから行ってください"
+        : saved ? "未連携 —「Spotify と連携」を押してください" : "Client ID を入力して「全て保存」すると連携できます");
+  }
 
-    // 通知。古い config には無いので既定値で補う。
-    var n = config.notifications || {};
-    $("disasterSound").checked = n.disasterSound !== false;
-    $("chargingSound").checked = n.chargingSound !== false;
-    $("noticeVolume").value = Math.round((n.volume == null ? 0.7 : n.volume) * 100);
-
-    // ネットワーク
-    var lanOn = config.lan.enabled;
-    $("lanToggle").textContent = lanOn ? "LAN 公開を無効にする" : "LAN 公開を有効にする";
-    setStatus("lanStatus", lanOn
-      ? "公開中 — 他端末から http://<この端末のIP>:8080/settings で PIN ログイン"
-      : (config.lan.pinSet ? "loopback のみ待受（PIN 設定済み）" : "loopback のみ待受（PIN 未設定）"));
-
-    // つまみの数値は最後にまとめて書く。
-    // 値を入れる前に呼ぶと、その時点で未設定のつまみが HTML の初期値のまま表示される。
-    updateRangeLabels();
+  function renderLan() {
+    var on = config.lan.enabled;
+    $("lanToggle").textContent = on ? "LAN 公開を無効にする" : "LAN 公開を有効にする";
+    var url = device && device.lanUrl;
+    setStatus("lanStatus", on
+      ? (url ? "公開中 — 他の端末のブラウザで " + url + " を開き、PIN でログインしてください" : "公開中 — Wi-Fi の IP アドレスを取得できません")
+      : (config.lan.pinSet ? "この端末と USB の PC からだけ開けます（PIN 設定済み）" : "この端末と USB の PC からだけ開けます（PIN 未設定）"),
+      on ? "ok" : "");
   }
 
   function updateRangeLabels() {
@@ -243,6 +277,7 @@
   $("normalBrightness").addEventListener("input", updateRangeLabels);
   $("idleDimBrightness").addEventListener("input", updateRangeLabels);
   $("noticeVolume").addEventListener("input", updateRangeLabels);
+  $("spotifyClientId").addEventListener("input", renderSpotify);
 
   function renderDevice() {
     var on = device.launcherHomeEnabled;
@@ -250,14 +285,15 @@
     setStatus("launcherStatus", on
       ? "登録済み — 端末の既定ホームアプリに Walldash を選べます"
       : "未登録 — 再起動後は手動でアプリを開く必要があります");
-    $("access").textContent =
-      "待受 " + device.boundHost + ":" + device.port + " ／ 有効セッション " + device.activeSessions;
+    $("access").textContent = "待受 " + device.boundHost + ":" + device.port + " ／ 有効セッション " + device.activeSessions;
+    renderLan();
   }
 
-  /**
-   * 警報・注意報の地域は天気の地点から端末が自動で決めるので、選ばせずに表示だけする。
-   * 決まった結果は /api/state の disaster に載っている。
-   */
+  function loadDevice() {
+    return api("/api/device").then(function (d) { device = d; renderDevice(); });
+  }
+
+  /** 警報・注意報の地域は、天気の地点から端末が自動で決める。 */
   function loadDisasterArea() {
     return api("/api/state").then(function (s) {
       var d = (s && s.disaster) || {};
@@ -267,157 +303,40 @@
       else if (!d.areaName) text = "天気の地点から市町村を決められません。「場所」で国内の地点を選んでください";
       else text = [d.officeName, d.areaName].filter(Boolean).join(" ");
       $("disasterArea").textContent = text;
-    }).catch(function () {
-      $("disasterArea").textContent = "取得できません";
+    }).catch(function () { $("disasterArea").textContent = "取得できません"; });
+  }
+
+  // ---------------------------------------------------------------- 全て保存
+
+  $("saveAll").addEventListener("click", function () {
+    if (!isDirty()) return;
+    saving = true;
+    updateDirty();
+    setStatus("saveStatus", "保存中…");
+    api("/api/settings", { method: "POST", body: JSON.stringify(collect()) })
+      .then(function (updated) {
+        config = updated;
+        render();
+        setStatus("saveStatus", "保存しました", "ok");
+        // 地点を変えたときは、端末が市町村を決め直すまで少し待ってから表示し直す
+        setTimeout(loadDisasterArea, 3000);
+      })
+      .catch(function (e) { setStatus("saveStatus", "エラー: " + e.message, "err"); })
+      .then(function () { saving = false; updateDirty(); });
+  });
+
+  // ---------------------------------------------------------------- 試聴（タブレットから鳴る）
+
+  function bindPreview(buttonId, selectId) {
+    $(buttonId).addEventListener("click", function () {
+      var volume = Number($("noticeVolume").value) / 100;
+      api("/api/sound/preview?tone=" + encodeURIComponent($(selectId).value) + "&volume=" + volume, { method: "POST" })
+        .catch(function (e) { setStatus("saveStatus", "エラー: " + e.message, "err"); });
     });
   }
-
-  /** 地点や取得の有無を変えた直後は、定期取得を待たずに決め直させてから表示する。 */
-  function refreshDisasterArea() {
-    $("disasterArea").textContent = "確認中…";
-    return api("/api/refresh", { method: "POST" })
-      .catch(function () { /* 取得に失敗しても、いま決まっている地域は出せる */ })
-      .then(loadDisasterArea);
-  }
-
-  // ---------------------------------------------------------------- 保存
-
-  function patch(body, statusId, okMessage) {
-    setStatus(statusId, "保存中…");
-    return api("/api/settings", { method: "POST", body: JSON.stringify(body) })
-      .then(function (updated) {
-        config = updated;
-        render();
-        setStatus(statusId, okMessage || "保存しました", "ok");
-      })
-      .catch(function (e) { setStatus(statusId, "エラー: " + e.message, "err"); });
-  }
-
-  /**
-   * 表示まわりだけを保存する。
-   * カードの面はどれも「表示するかどうか」を持つので、固有の設定が無い面でもこれを使う。
-   * [extra] を渡すと disaster / feed などを同じ 1 回の POST に混ぜられる。
-   */
-  function saveDisplay(statusId, extra) {
-    var body = { display: displayPatch(), units: unitsPatch() };
-    for (var k in (extra || {})) body[k] = extra[k];
-    return patch(body, statusId);
-  }
-
-  /** 固有の設定を持たない面（表示トグルだけの面）の保存ボタン。 */
-  function bindSimpleSave(buttonId, statusId) {
-    $(buttonId).addEventListener("click", function () { saveDisplay(statusId); });
-  }
-
-  bindSimpleSave("saveGeneral", "generalStatus");
-  bindSimpleSave("saveScreen", "screenStatus");
-  bindSimpleSave("saveClock", "clockStatus");
-  bindSimpleSave("saveWeather", "weatherStatus");
-  bindSimpleSave("saveHourly", "hourlyStatus");
-  bindSimpleSave("saveDaily", "dailyStatus");
-  bindSimpleSave("saveWifi", "wifiStatus");
-  bindSimpleSave("saveStats", "statsStatus");
-  bindSimpleSave("saveTimer", "timerStatus");
-  bindSimpleSave("saveWord", "wordStatus");
-  bindSimpleSave("saveHamster", "hamsterStatus");
-
-  $("saveNotify").addEventListener("click", function () {
-    patch({ notifications: notificationsPatch() }, "notifyStatus");
-  });
-
-  $("saveDisaster").addEventListener("click", function () {
-    saveDisplay("disasterStatus", {
-      disaster: {
-        enabled: $("disasterEnabled").checked,
-        minIntensity: $("minIntensity").value
-      }
-    }).then(refreshDisasterArea);
-  });
-
-  $("saveFeed").addEventListener("click", function () {
-    var urls = $("feedUrls").value.split("\n");
-    var clean = [];
-    for (var i = 0; i < urls.length; i++) {
-      var u = urls[i].trim();
-      if (u) clean.push(u);
-    }
-    saveDisplay("feedStatus", {
-      feed: { enabled: $("feedEnabled").checked, urls: clean, maxItems: Number($("feedMax").value) }
-    });
-  });
-
-  /*
-   * メモと Spotify は専用の入口を持つ（トークンと更新用トークンを /api/settings の
-   * 経路に通さないため）。表示トグルは display 側なので、2 本の POST が要る。
-   * 表示を先に保存してから固有の設定を送り、最後の応答で画面を描き直す。
-   */
-  $("saveMemo").addEventListener("click", function () {
-    var body = {
-      enabled: $("memoEnabled").checked,
-      endpoint: $("memoEndpoint").value.trim(),
-      pollIntervalMs: Number($("memoInterval").value) * 1000
-    };
-    // 空のままなら既存のトークンを変更しない
-    var token = $("memoToken").value;
-    if (token) body.token = token;
-
-    setStatus("memoStatus", "保存中…");
-    api("/api/settings", { method: "POST", body: JSON.stringify({ display: displayPatch(), units: unitsPatch() }) })
-      .then(function () { return api("/api/memo", { method: "POST", body: JSON.stringify(body) }); })
-      .then(function (updated) {
-        config = updated;
-        $("memoToken").value = "";
-        render();
-        setStatus("memoStatus", "保存しました", "ok");
-      })
-      .catch(function (e) { setStatus("memoStatus", "エラー: " + e.message, "err"); });
-  });
-
-  $("saveSpotify").addEventListener("click", function () {
-    setStatus("spotifyStatus", "保存中…");
-    api("/api/settings", { method: "POST", body: JSON.stringify({ display: displayPatch(), units: unitsPatch() }) })
-      .then(function () {
-        return api("/api/spotify", {
-          method: "POST",
-          body: JSON.stringify({
-            enabled: $("spotifyEnabled").checked,
-            clientId: $("spotifyClientId").value.trim()
-          })
-        });
-      })
-      .then(function (updated) {
-        config = updated;
-        render();
-        setStatus("spotifyStatus", "保存しました", "ok");
-      })
-      .catch(function (e) { setStatus("spotifyStatus", "エラー: " + e.message, "err"); });
-  });
-
-  /*
-   * 認可画面は枠内には出せない（Spotify が frame-ancestors で拒む）。
-   * タブレットの歯車から開いているときは iframe の中なので、アプリ内ブラウザに投げる。
-   * PC のブラウザから開いているときはこのタブをそのまま移動させる。
-   */
-  $("spotifyConnect").addEventListener("click", function () {
-    var start = "/api/spotify/start";
-    if (window.top !== window.self) {
-      window.top.location.href =
-        "walldash://browser?url=" + encodeURIComponent("http://127.0.0.1:8080" + start);
-    } else {
-      window.location.href = start;
-    }
-  });
-
-  $("spotifyDisconnect").addEventListener("click", function () {
-    setStatus("spotifyLink", "解除中…");
-    api("/api/spotify/disconnect", { method: "POST" })
-      .then(function (updated) {
-        config = updated;
-        render();
-        setStatus("spotifyLink", "連携を解除しました", "ok");
-      })
-      .catch(function (e) { setStatus("spotifyLink", "エラー: " + e.message, "err"); });
-  });
+  bindPreview("previewDisaster", "disasterTone");
+  bindPreview("previewCharging", "chargingTone");
+  bindPreview("previewTimer", "timerTone");
 
   // ---------------------------------------------------------------- 場所
 
@@ -437,14 +356,11 @@
           b.type = "button";
           b.textContent = r.name + (r.admin ? " / " + r.admin : "") + (r.country ? " / " + r.country : "");
           b.addEventListener("click", function () {
-            patch({
-              location: {
-                configured: true, name: r.name, latitude: r.latitude,
-                longitude: r.longitude, timezone: r.timezone
-              }
-            }, "placeStatus", "地点を " + r.name + " に変更しました").then(refreshDisasterArea);
+            pendingLocation = { configured: true, name: r.name, latitude: r.latitude, longitude: r.longitude, timezone: r.timezone };
             $("results").innerHTML = "";
             $("q").value = "";
+            renderPlace();
+            updateDirty();
           });
           $("results").appendChild(b);
         })(list[i]);
@@ -452,13 +368,24 @@
     }).catch(function (e) { $("results").textContent = "エラー: " + e.message; });
   });
 
-  // ---------------------------------------------------------------- 端末
+  // ---------------------------------------------------------------- その場で効く操作
+
+  $("spotifyConnect").addEventListener("click", function () { window.location.href = "/api/spotify/start"; });
+
+  $("spotifyDisconnect").addEventListener("click", function () {
+    setStatus("spotifyLink", "解除中…");
+    api("/api/spotify/disconnect", { method: "POST" })
+      .then(function (updated) { config.spotify = updated.spotify; renderSpotify(); setStatus("spotifyLink", "連携を解除しました", "ok"); })
+      .catch(function (e) { setStatus("spotifyLink", "エラー: " + e.message, "err"); });
+  });
 
   $("savePin").addEventListener("click", function () {
     setStatus("lanStatus", "設定中…");
     api("/api/lan", { method: "POST", body: JSON.stringify({ pin: $("pin").value }) })
       .then(function (updated) {
-        config = updated; $("pin").value = ""; render();
+        config.lan = updated.lan;
+        $("pin").value = "";
+        renderLan();
         setStatus("lanStatus", "PIN を設定しました（既存のログインは無効化されます）", "ok");
       })
       .catch(function (e) { setStatus("lanStatus", "エラー: " + e.message, "err"); });
@@ -469,8 +396,10 @@
     if (next && !confirm("LAN 公開を有効にします。信頼できる家庭内 LAN でのみ使用してください。続けますか？")) return;
     api("/api/lan", { method: "POST", body: JSON.stringify({ enabled: next }) })
       .then(function (updated) {
-        config = updated; render();
-        setStatus("lanStatus", $("lanStatus").textContent + "（待受を切り替えるためサーバーを再起動しました）");
+        config.lan = updated.lan;
+        renderLan();
+        // 待受の張り替え（約 0.3 秒後）が終わってから、待受アドレスを読み直す
+        setTimeout(function () { loadDevice().catch(function () {}); }, 1500);
       })
       .catch(function (e) { setStatus("lanStatus", "エラー: " + e.message, "err"); });
   });
@@ -484,7 +413,7 @@
   $("refreshNow").addEventListener("click", function () {
     setStatus("refreshStatus", "取得中…");
     api("/api/refresh", { method: "POST", body: "{}" })
-      .then(function () { setStatus("refreshStatus", "取得しました", "ok"); })
+      .then(function () { setStatus("refreshStatus", "取得しました", "ok"); loadDisasterArea(); })
       .catch(function (e) { setStatus("refreshStatus", "エラー: " + e.message, "err"); });
   });
 
@@ -496,10 +425,7 @@
     .then(function (c) {
       config = c;
       render();
-      return Promise.all([
-        api("/api/device").then(function (d) { device = d; renderDevice(); }),
-        loadDisasterArea()
-      ]);
+      return Promise.all([loadDevice(), loadDisasterArea()]);
     })
     .catch(function (e) { $("access").textContent = "読み込みエラー: " + e.message; });
 })();

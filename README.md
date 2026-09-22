@@ -28,7 +28,7 @@ USB ケーブルでタブレットに入れます。Android アプリを作っ�
 
 | もの | 条件 |
 |---|---|
-| Android タブレット | Android 7.0 以上。動作を確認しているのは Lenovo TB-X306F（Android 10）のみ |
+| Android タブレット | Android 7.0 以上。動作を確認しているのは Lenovo TB-X306F（Android 10）のみ。画面の横幅が狭い端末（スマホなど）ではカードを 2 列にして縦にスクロールします |
 | PC | Windows / Mac / Linux のどれでも |
 | USB ケーブル | **データ通信に対応したもの**。充電専用のケーブルだと PC がタブレットを認識しません |
 | Wi-Fi | タブレットがインターネットにつながること（天気やニュースの取得に使います） |
@@ -128,7 +128,7 @@ adb devices
 | 通知（Android 13 以降） | アプリが動き続けていることを示す通知を出すため |
 | 付近のデバイス（Android 13 以降）／位置情報（Android 12 以前） | Wi-Fi カードにネットワーク名（SSID）を出すため。Android はこの権限がないとネットワーク名を教えてくれません。**タブレットの現在地を取得することはありません**（天気の地点は設定画面で自分で選びます） |
 
-次に、画面下の**歯車ボタン**で設定画面を開き、最低限この 3 つを設定します。
+次に、画面下の**歯車ボタン**で設定画面を開き、最低限この 3 つを設定します。変更したら、左側のメニューの下にある **「全て保存」** を押します（保存しないまま閉じようとすると確認が出ます）。
 
 | 設定画面の項目 | 設定すること |
 |---|---|
@@ -176,16 +176,19 @@ PC のブラウザで <http://localhost:8080/settings> を開きます。USB で
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 上の「アプリを更新する」を参照 |
 | Wi-Fi カードに「権限が必要」と出る | タブレットの「設定」→「アプリ」→「Walldash」→「権限」で「付近のデバイス」または「位置情報」を許可する |
 | Wi-Fi カードに「位置情報サービスを ON に」と出る | タブレットの位置情報を ON にする（Android の仕様で、ネットワーク名の取得に必要です） |
-| 表示が崩れる・真っ白になる | Play ストアで「Android System WebView」を最新にする |
+| ブラウズが開かない | Play ストアで「Android System WebView」を有効にして最新にする（ブラウズだけが WebView を使います） |
+| 再起動したり、しばらく置いたりするとアプリが止まっている | 設定画面の「端末 → ホームアプリ」で「電池の最適化から除外する」を押す。下の「[メーカー独自の省電力制御](#メーカー独自の省電力制御)」も確認する |
 
 ---
 
 ## 仕組み
 
-- ダッシュボード UI は WebView + アプリ内蔵の Ktor サーバー（`assets/web` の HTML/CSS/JS）
-- 設定画面も同じサーバーが配信する。タブレットの歯車からも、USB でつないだ PC のブラウザからも開ける
-  （LAN 公開は明示的なオプトイン）
-- 天気は [Open-Meteo](https://open-meteo.com/)（API キー不要）
+- タブレットの画面（カード・設定・ブラウズ）は **Jetpack Compose** で描くネイティブアプリ（`app/src/main/kotlin/app/walldash/ui/`）
+- データは常駐サービス（`DashboardService`）が各取得先から定期的に集め、画面は同じプロセスの中からそれを読む
+- PC や他の端末のブラウザから開く **Web の設定画面**（`assets/web`）は、アプリ内蔵の Ktor サーバーが配信する。
+  既定では USB でつないだ PC からだけ開け、LAN の他の端末から開くには「LAN 公開」を有効にする
+- 天気は [Open-Meteo](https://open-meteo.com/)（API キー不要）。Android 7.0 でも繋がるよう、Let's Encrypt のルート証明書を同梱している
+- コード同士の関係の詳しい説明は [docs/architecture.md](docs/architecture.md)
 - Gradle は不要（`./gradlew` が自動取得する。Wrapper は Gradle 8.14.5 で固定）。
   足りない SDK の部品（Platform 36・Build-Tools 35 など）も、ライセンスに同意済みならビルド時に自動で入る
 
@@ -205,16 +208,15 @@ PC のブラウザで <http://localhost:8080/settings> を開きます。USB で
 - セッションは 24 時間で失効。PIN 変更時に全セッションを無効化
 - Cookie は `HttpOnly` + `SameSite=Strict`、全 POST で `Origin` と `Host` の一致を検証
 - `X-Forwarded-For` による loopback 偽装を防ぐため、Ktor の XForwardedHeaders は意図的に使わない
-- LAN からの未認証 `/api/state` は **SSID・IP アドレス・正確な緯度経度をマスク**する
-  （返すのは時刻・天気概況・都市名のみ）
+- ログインしていない LAN の端末には、ログイン画面以外を返さない（`/api/*` はすべて認証が必要）
 
 > **適用範囲**: LAN 公開は**家庭内の信頼できる LAN 限定**の機能です。通信は平文 HTTP のため、
 > ログイン PIN やセッションは同一ネットワーク上で盗聴され得ます。
 > ゲスト Wi-Fi、社内共有 LAN、不特定多数が接続するネットワークでは有効にせず、
 > USB 経由の設定のみを使ってください。
 
-待受ポートは **8080 固定**。設定項目にしていないのは、変更すると WebView の参照先・`adb forward`・
-ブラウザの URL が同時に壊れるため。
+待受ポートは **8080 固定**。設定項目にしていないのは、変更すると `adb forward`・ブラウザの URL・
+Spotify の Redirect URI が同時に壊れるため。
 
 ---
 
@@ -242,7 +244,8 @@ adb shell settings put system screen_off_timeout 2147483647
 ### メーカー独自の省電力制御
 
 端末のバッテリー設定が「制限」になっていると、**サービスの常駐も `BOOT_COMPLETED` の受信も阻害され得る**。
-以下を端末の設定から手動で許可すること（項目名はメーカーによって異なる）。
+まず設定画面の「端末 → ホームアプリ」にある **「電池の最適化から除外する」** を押す。
+そのうえで、以下を端末の設定から手動で許可すること（項目名はメーカーによって異なる）。
 
 | メーカー | 確認する項目 |
 |---|---|
@@ -255,15 +258,17 @@ adb shell settings put system screen_off_timeout 2147483647
 
 ---
 
-## UI の開発（端末に入れ直さずに進める）
+## UI の開発
+
+タブレットの画面（Compose）は、実機に入れて確かめる（手順 4）。Android Studio なら ▶ を押すたびに入れ直せる。
+
+Web の設定画面だけは、タブレットなしで PC のブラウザで作れる:
 
 ```bash
 node tools/mock-server.mjs
 ```
 
-→ <http://localhost:8080> で `assets/web` をそのまま配信する。
-`/api/*` は Android 側と同じ形の JSON を返し、Wi-Fi の電波強度はゆらぎ、天気は実 Open-Meteo を叩く
-（オフライン時は合成データにフォールバック）。ここで UI を完成させてから APK に入れる。
+→ <http://localhost:8080/settings>。`/api/*` は実機と同じ形の JSON を返す（保存しても実機には何も起きない）。
 
 ---
 
@@ -327,7 +332,7 @@ Spotify で再生中の曲のジャケットと曲名を出し、再生・一時
 
 1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) で「Create app」を押す
 2. **Redirect URI** に `http://127.0.0.1:8080/api/spotify/callback` を追加し、API は「Web API」を選ぶ
-3. できた **Client ID** を、設定画面の「カード → Spotify」に貼って保存し、「Spotify と連携」を押す
+3. できた **Client ID** を、設定画面の「カード → Spotify」に入力して「全て保存」し、「Spotify と連携」を押す
    （Client Secret は使わない）
 
 ## 個人に紐づく値の置き場所
@@ -359,9 +364,8 @@ Spotify で再生中の曲のジャケットと曲名を出し、再生・一時
 
 画面下で回し車を走るハムスターの意匠は、[Uiverse.io](https://uiverse.io/) の
 **Nawsome** 作「Loader」によります（MIT License）。
-本プロジェクトでは、走る・休む・外を歩く・立ち止まるの状態遷移を
-`app/src/main/assets/web/js/hamster.js` として追加し、見た目の CSS は
-`app/src/main/assets/web/css/dashboard.css` の `#hamster` 配下に取り込んでいます。
+元の CSS の形・色・動きを Jetpack Compose の描画に移し、走る・休む・外を歩く・立ち止まるの状態遷移を加えて
+`app/src/main/kotlin/app/walldash/ui/dashboard/Hamster.kt` に収めています。
 
 以下は MIT License の全文です。
 

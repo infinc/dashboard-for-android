@@ -1,22 +1,11 @@
 package app.walldash.server
 
-import android.content.Context
 import android.util.Log
-import app.walldash.LauncherMode
+import app.walldash.AppGraph
+import app.walldash.SettingsController
 import app.walldash.data.ApiError
-import app.walldash.data.ConfigPatch
-import app.walldash.data.ConfigStore
-import app.walldash.data.DeviceState
-import app.walldash.data.DeviceStatsMonitor
-import app.walldash.data.DisasterRepository
-import app.walldash.data.FeedRepository
-import app.walldash.data.MemoPatch
-import app.walldash.data.MemoRepository
-import app.walldash.data.SpotifyPatch
-import app.walldash.data.SpotifyRepository
-import app.walldash.data.SpotifyState
-import app.walldash.data.WeatherRepository
-import app.walldash.data.WifiMonitor
+import app.walldash.data.SaveAllRequest
+import app.walldash.data.Tones
 import app.walldash.data.toPublic
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
@@ -41,41 +30,27 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.util.TimeZone
 
 /**
- * 内蔵 HTTP サーバー。ダッシュボード表示と設定画面の両方を配信する。
+ * 内蔵 HTTP サーバー。PC や他の端末のブラウザから開く設定画面と、その API を配信する。
+ * タブレット自身の画面はアプリ（Compose）が描くので、ここは使わない。
  *
- * 待受は 8080 固定（v1 では設定項目にしない）。WebView の参照先・adb forward・ブラウザ URL が
- * 同時に壊れるため、変更可能にするのは専用の再起動導線を設計してからにする。
- *
- * 待受アドレスは設定に従う:
- *  - 既定           : 127.0.0.1 のみ（USB / adb forward 経由だけで設定できる）
- *  - LAN 公開 ON 時 : 0.0.0.0（PIN 必須。設定画面から明示的に有効化したときだけ）
+ * 待受は既定で 127.0.0.1（USB の adb forward 経由だけ）、LAN 公開 ON のときだけ 0.0.0.0。
+ * ポートは 8080 固定（adb forward・ブラウザの URL・Spotify の Redirect URI が同時に壊れるため）。
  */
-class DashboardServer(
-    private val context: Context,
-    private val configStore: ConfigStore,
-    private val wifiMonitor: WifiMonitor,
-    private val weatherRepository: WeatherRepository,
-    private val deviceStatsMonitor: DeviceStatsMonitor,
-    private val disasterRepository: DisasterRepository,
-    private val feedRepository: FeedRepository,
-    private val memoRepository: MemoRepository,
-    private val spotifyRepository: SpotifyRepository,
-    private val auth: Auth,
-    private val launcherMode: LauncherMode,
-) {
+class DashboardServer(private val graph: AppGraph) {
 
     private var engine: EmbeddedServer<*, *>? = null
+    private val auth get() = graph.auth
 
     @Volatile
     var boundHost: String = LOOPBACK
         private set
 
+    @Synchronized
     fun start() {
         stop()
-        val host = if (configStore.get().lan.enabled) ANY else LOOPBACK
+        val host = if (graph.config.get().lan.enabled) ANY else LOOPBACK
         boundHost = host
         engine = embeddedServer(CIO, host = host, port = PORT) { module() }.also {
             it.start(wait = false)
@@ -83,30 +58,34 @@ class DashboardServer(
         Log.i(TAG, "サーバー起動: http://$host:$PORT")
     }
 
+    @Synchronized
     fun stop() {
         engine?.let { runCatching { it.stop(500, 1500) } }
         engine = null
     }
 
-    /** LAN 公開の切り替え後など、待受アドレスを変える必要があるときに呼ぶ。 */
-    fun restart() = start()
-
-    // ------------------------------------------------------------- routing
+    /** 応答を返し終えてから待受を張り替える（LAN 公開の切り替え後）。 */
+    fun restartLater() {
+        Thread {
+            Thread.sleep(300)
+            runCatching { start() }.onFailure { Log.e(TAG, "サーバー再起動に失敗", it) }
+        }.start()
+    }
 
     private fun Application.module() {
         install(ContentNegotiation) { json(apiJson) }
         install(StatusPages) {
+            exception<SettingsController.SettingsException> { call, cause ->
+                call.respond(HttpStatusCode.BadRequest, ApiError(cause.code, cause.message))
+            }
             exception<Throwable> { call, cause ->
                 Log.e(TAG, "リクエスト処理で例外", cause)
-                call.respond(
-                    HttpStatusCode.InternalServerError,
-                    ApiError("internal_error", cause.message)
-                )
+                call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", cause.message))
             }
         }
 
         routing {
-            get("/") { serveAsset(call, "web/index.html") }
+            get("/") { call.respondRedirect("/settings") }
             get("/healthz") { call.respondText("ok", ContentType.Text.Plain) }
 
             get("/static/{path...}") {
@@ -118,14 +97,14 @@ class DashboardServer(
             }
 
             get("/settings") {
-                if (!authorized(call)) {
-                    serveAsset(call, "web/login.html", HttpStatusCode.Unauthorized)
-                } else {
-                    serveAsset(call, "web/settings.html")
-                }
+                if (authorized(call)) serveAsset(call, "web/settings.html")
+                else serveAsset(call, "web/login.html", HttpStatusCode.Unauthorized)
             }
 
-            get("/api/state") { call.respond(buildState(call)) }
+            get("/api/state") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.snapshot())
+            }
 
             post("/api/login") {
                 if (!csrfOk(call)) {
@@ -142,155 +121,75 @@ class DashboardServer(
                                 path = "/",
                                 maxAge = ((result.expiresAt - System.currentTimeMillis()) / 1000).toInt(),
                                 extensions = mapOf("SameSite" to "Strict"),
-                            )
+                            ),
                         )
                         call.respond(LoginResponse(ok = true))
                     }
-
                     is Auth.LoginResult.Failed -> call.respond(
                         HttpStatusCode.Unauthorized,
-                        LoginResponse(ok = false, remaining = result.remaining, message = "PIN が違います")
+                        LoginResponse(ok = false, remaining = result.remaining, message = "PIN が違います"),
                     )
-
                     is Auth.LoginResult.Locked -> call.respond(
                         HttpStatusCode.TooManyRequests,
                         LoginResponse(
                             ok = false,
                             retryAfterSeconds = result.retryAfterSeconds,
-                            message = "試行回数の上限に達しました。しばらく待ってから再試行してください"
-                        )
+                            message = "試行回数の上限に達しました。しばらく待ってから再試行してください",
+                        ),
                     )
-
                     Auth.LoginResult.NoPinConfigured -> call.respond(
                         HttpStatusCode.Conflict,
-                        LoginResponse(ok = false, message = "PIN が未設定です。USB 接続から設定してください")
+                        LoginResponse(ok = false, message = "PIN が未設定です。タブレットの設定画面から設定してください"),
                     )
                 }
             }
 
             post("/api/logout") {
                 auth.logout(call.request.cookies[Auth.SESSION_COOKIE])
-                call.response.cookies.append(
-                    Cookie(Auth.SESSION_COOKIE, "", path = "/", maxAge = 0)
-                )
+                call.response.cookies.append(Cookie(Auth.SESSION_COOKIE, "", path = "/", maxAge = 0))
                 call.respond(LoginResponse(ok = true))
             }
 
             get("/api/settings") {
                 if (!authorized(call)) { unauthorized(call); return@get }
-                call.respond(configStore.get().toPublic())
+                call.respond(graph.config.get().toPublic())
             }
 
             post("/api/settings") {
                 if (!guardWrite(call)) return@post
-                val patch = call.receive<ConfigPatch>()
-                call.respond(configStore.applyPatch(patch).toPublic())
+                call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
             }
 
             post("/api/lan") {
                 if (!guardWrite(call)) return@post
                 val body = call.receive<LanRequest>()
-                body.pin?.let { pin ->
-                    if (pin.length < Auth.MIN_PIN_LENGTH) {
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            ApiError("pin_too_short", "PIN は ${Auth.MIN_PIN_LENGTH} 桁以上必要です")
-                        )
-                        return@post
-                    }
-                    auth.setPin(pin)
-                }
-                if (body.enabled == true && !auth.hasPin()) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ApiError("pin_required", "LAN 公開を有効にする前に PIN を設定してください")
-                    )
-                    return@post
-                }
-                body.enabled?.let { enabled ->
-                    configStore.update { c -> c.copy(lan = c.lan.copy(enabled = enabled)) }
-                    // 待受アドレスが変わるため、応答を返した後にサーバーを張り替える
-                    restartLater()
-                }
-                call.respond(configStore.get().toPublic())
+                body.pin?.let(graph.settings::setPin)
+                body.enabled?.let(graph.settings::setLanEnabled)
+                call.respond(graph.config.get().toPublic())
             }
 
             get("/api/device") {
                 if (!authorized(call)) { unauthorized(call); return@get }
-                call.respond(
-                    DeviceInfo(
-                        launcherHomeEnabled = launcherMode.isEnabled(),
-                        boundHost = boundHost,
-                        port = PORT,
-                        activeSessions = auth.activeSessionCount(),
-                        pinSet = auth.hasPin(),
-                    )
-                )
+                call.respond(deviceInfo())
             }
 
             post("/api/device") {
                 if (!guardWrite(call)) return@post
-                val body = call.receive<DeviceRequest>()
-                body.launcherHomeEnabled?.let(launcherMode::setEnabled)
-                call.respond(
-                    DeviceInfo(
-                        launcherHomeEnabled = launcherMode.isEnabled(),
-                        boundHost = boundHost,
-                        port = PORT,
-                        activeSessions = auth.activeSessionCount(),
-                        pinSet = auth.hasPin(),
-                    )
-                )
-            }
-
-            post("/api/memo") {
-                if (!guardWrite(call)) return@post
-                val patch = call.receive<MemoPatch>()
-                val updated = configStore.update { c ->
-                    c.copy(
-                        memo = c.memo.copy(
-                            enabled = patch.enabled ?: c.memo.enabled,
-                            endpoint = patch.endpoint?.let(::normalizeMemoEndpoint) ?: c.memo.endpoint,
-                            // 空文字が来たらトークンを消す意図とみなす
-                            token = when {
-                                patch.token == null -> c.memo.token
-                                patch.token.isBlank() -> null
-                                else -> patch.token
-                            },
-                            pollIntervalMs = patch.pollIntervalMs ?: c.memo.pollIntervalMs,
-                        )
-                    )
-                }
-                call.respond(updated.toPublic())
+                call.receive<DeviceRequest>().launcherHomeEnabled?.let(graph.settings::setLauncherEnabled)
+                call.respond(deviceInfo())
             }
 
             /*
-             * Spotify 連携。
-             *
-             * 認可画面へは「開始」→「折り返し」の 2 本で足りる。折り返し先を
-             * 127.0.0.1 の自分自身にしているので、端末の外に認可コードが出ない。
+             * Spotify の認可。折り返し先を 127.0.0.1 の自分自身にしているので、端末の外に認可コードが出ない。
+             * 開始は GET の画面遷移なので Origin が付かず、実質 loopback（タブレット自身と USB の PC）からだけ通る。
              */
-            post("/api/spotify") {
-                if (!guardWrite(call)) return@post
-                val patch = call.receive<SpotifyPatch>()
-                val updated = configStore.update { c ->
-                    c.copy(
-                        spotify = c.spotify.copy(
-                            enabled = patch.enabled ?: c.spotify.enabled,
-                            clientId = patch.clientId?.trim() ?: c.spotify.clientId,
-                        )
-                    )
-                }
-                call.respond(updated.toPublic())
-            }
-
             get("/api/spotify/start") {
                 if (!guardWrite(call)) return@get
-                val url = spotifyRepository.authorizeUrl(spotifyRedirectUri())
+                val url = graph.spotify.authorizeUrl(SPOTIFY_REDIRECT_URI)
                 if (url == null) {
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        ApiError("client_id_missing", "クライアント ID を保存してから連携してください"),
+                        ApiError("client_id_missing", "Client ID を保存してから連携してください"),
                     )
                     return@get
                 }
@@ -298,74 +197,34 @@ class DashboardServer(
             }
 
             get("/api/spotify/callback") {
-                // 認可画面からの折り返し。Spotify 側は Cookie を持たないため
-                // 認証の壁は置けないが、ループバックにしか戻ってこない。
                 val error = call.request.queryParameters["error"]
-                if (error != null) {
-                    call.respondText(
-                        spotifyResultHtml("連携できませんでした", error),
-                        ContentType.Text.Html,
-                    )
-                    return@get
-                }
                 val code = call.request.queryParameters["code"]
-                if (code.isNullOrBlank()) {
-                    call.respondText(
-                        spotifyResultHtml("連携できませんでした", "認可コードがありません"),
-                        ContentType.Text.Html,
-                    )
-                    return@get
+                val (title, detail) = when {
+                    error != null -> "連携できませんでした" to error
+                    code.isNullOrBlank() -> "連携できませんでした" to "認可コードがありません"
+                    else -> {
+                        val result = graph.spotify.exchangeCode(code, SPOTIFY_REDIRECT_URI)
+                        if (result.isSuccess) {
+                            runCatching { graph.spotify.refreshNow() }
+                            "Spotify と連携しました" to "この画面は閉じて構いません。"
+                        } else {
+                            "連携できませんでした" to (result.exceptionOrNull()?.message ?: "不明なエラー")
+                        }
+                    }
                 }
-                val result = spotifyRepository.exchangeCode(code, spotifyRedirectUri())
-                if (result.isSuccess) {
-                    runCatching { spotifyRepository.refreshNow() }
-                    call.respondText(
-                        spotifyResultHtml("Spotify と連携しました", "この画面は閉じて構いません。"),
-                        ContentType.Text.Html,
-                    )
-                } else {
-                    call.respondText(
-                        spotifyResultHtml(
-                            "連携できませんでした",
-                            result.exceptionOrNull()?.message ?: "不明なエラー",
-                        ),
-                        ContentType.Text.Html,
-                    )
-                }
-            }
-
-            post("/api/spotify/control") {
-                if (!guardWrite(call)) return@post
-                val action = call.request.queryParameters["action"].orEmpty()
-                val result = spotifyRepository.control(action)
-                if (result.isSuccess) {
-                    call.respond(spotifyRepository.state)
-                } else {
-                    call.respond(
-                        HttpStatusCode.BadGateway,
-                        ApiError(
-                            "spotify_control_failed",
-                            result.exceptionOrNull()?.message ?: "操作できません",
-                        ),
-                    )
-                }
+                call.respondText(resultHtml(title, detail), ContentType.Text.Html)
             }
 
             post("/api/spotify/disconnect") {
                 if (!guardWrite(call)) return@post
-                spotifyRepository.disconnect()
-                call.respond(configStore.get().toPublic())
+                graph.spotify.disconnect()
+                call.respond(graph.config.get().toPublic())
             }
 
             post("/api/refresh") {
                 if (!guardWrite(call)) return@post
-                // 設定を変えた直後に反映を待たせないための即時取得
-                runCatching { weatherRepository.refreshNow() }
-                runCatching { disasterRepository.refreshNow() }
-                runCatching { feedRepository.refreshNow() }
-                runCatching { memoRepository.refreshNow() }
-                runCatching { spotifyRepository.refreshNow() }
-                call.respond(buildState(call))
+                graph.settings.refreshAll()
+                call.respond(graph.snapshot())
             }
 
             get("/api/geocode") {
@@ -374,16 +233,27 @@ class DashboardServer(
                 if (query.isEmpty()) {
                     call.respond(HttpStatusCode.BadRequest, ApiError("missing_query")); return@get
                 }
-                call.respond(weatherRepository.geocode(query))
+                call.respond(graph.weather.geocode(query))
+            }
+
+            /** 設定画面の「試聴」。音はタブレットから出る。 */
+            post("/api/sound/preview") {
+                if (!guardWrite(call)) return@post
+                val tone = call.request.queryParameters["tone"].orEmpty()
+                if (!Tones.isKnown(tone)) {
+                    call.respond(HttpStatusCode.BadRequest, ApiError("unknown_tone")); return@post
+                }
+                val volume = call.request.queryParameters["volume"]?.toDoubleOrNull()?.coerceIn(0.0, 1.0)
+                if (volume == null) graph.notices.play(tone, tone) else graph.notices.play(tone, tone, volume = volume)
+                call.respond(LoginResponse(ok = true))
             }
         }
     }
 
     // ------------------------------------------------------------- helpers
 
-    private fun remoteAddress(call: ApplicationCall): String =
-        // XForwardedHeaders プラグインは入れていないので、ここは実ソケットのアドレスになる。
-        call.request.origin.remoteAddress
+    /** XForwardedHeaders は入れていないので、ここは実ソケットのアドレス（偽装できない）。 */
+    private fun remoteAddress(call: ApplicationCall): String = call.request.origin.remoteAddress
 
     private fun authorized(call: ApplicationCall): Boolean =
         auth.isAuthorized(remoteAddress(call), call.request.cookies[Auth.SESSION_COOKIE])
@@ -391,7 +261,6 @@ class DashboardServer(
     private suspend fun unauthorized(call: ApplicationCall) =
         call.respond(HttpStatusCode.Unauthorized, ApiError("unauthorized"))
 
-    /** 書き込み系の共通ガード: 認証 + CSRF。通れば true。 */
     private suspend fun guardWrite(call: ApplicationCall): Boolean {
         if (!csrfOk(call)) {
             call.respond(HttpStatusCode.Forbidden, ApiError("bad_origin")); return false
@@ -401,99 +270,41 @@ class DashboardServer(
     }
 
     /**
-     * CSRF 対策。ブラウザは GET/HEAD 以外で必ず Origin を送るため、
-     * Origin があれば Host と一致することを要求する。
-     * Origin が無いのは curl 等の非ブラウザなので、loopback からのみ許可する。
+     * CSRF 対策。ブラウザは GET/HEAD 以外で必ず Origin を送るので、あれば Host と一致を求める。
+     * Origin が無いのは curl 等の非ブラウザなので、loopback からだけ許す。
      */
     private fun csrfOk(call: ApplicationCall): Boolean {
-        val origin = call.request.headers["Origin"]
-            ?: return auth.isLoopback(remoteAddress(call))
+        val origin = call.request.headers["Origin"] ?: return auth.isLoopback(remoteAddress(call))
         val host = call.request.headers["Host"] ?: return false
         return origin == "http://$host" || origin == "https://$host"
     }
 
-    /**
-     * Spotify に登録する折り返し先。
-     *
-     * ループバック固定にしているのは、Spotify が平文 HTTP を 127.0.0.1 にしか認めないため。
-     * PC から `adb forward` 越しに設定している場合も、PC の 127.0.0.1:8080 が
-     * そのまま端末へ転送されるので同じ URL で成立する。
-     */
-    private fun spotifyRedirectUri(): String = "http://127.0.0.1:$PORT/api/spotify/callback"
+    private fun deviceInfo() = DeviceInfo(
+        launcherHomeEnabled = graph.launcher.isEnabled(),
+        boundHost = boundHost,
+        port = PORT,
+        activeSessions = auth.activeSessionCount(),
+        pinSet = auth.hasPin(),
+        lanUrl = graph.settings.lanSettingsUrl(),
+    )
 
-    private fun spotifyResultHtml(title: String, detail: String): String = """
+    private fun resultHtml(title: String, detail: String): String = """
         <!doctype html><html lang="ja"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Spotify 連携</title></head>
         <body style="background:#0A0C10;color:#E8EEF5;font-family:system-ui,sans-serif;
         display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center;padding:24px">
-        <p style="font-size:20px;margin:0 0 8px">${'$'}{escapeHtml(title)}</p>
-        <p style="color:#93A1B1;font-size:14px;margin:0">${'$'}{escapeHtml(detail)}</p>
+        <p style="font-size:20px;margin:0 0 8px">${escapeHtml(title)}</p>
+        <p style="color:#93A1B1;font-size:14px;margin:0">${escapeHtml(detail)}</p>
         </div></body></html>
     """.trimIndent()
 
-    /** 認可の失敗理由は外部由来の文字列なので、HTML に混ぜる前に無害化する。 */
     private fun escapeHtml(value: String): String = value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
+        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun buildState(call: ApplicationCall): DeviceState {
-        val full = authorized(call)
-        val wifi = wifiMonitor.snapshot()
-        val config = configStore.get().toPublic()
-        val now = System.currentTimeMillis()
-        val timezone = TimeZone.getDefault().id
-
-        if (full) {
-            return DeviceState(
-                serverTime = now,
-                deviceTimezone = timezone,
-                wifi = wifi,
-                weather = weatherRepository.state,
-                deviceStats = deviceStatsMonitor.snapshot(),
-                disaster = disasterRepository.state,
-                feed = feedRepository.state,
-                memo = memoRepository.state,
-                spotify = spotifyRepository.state,
-                config = config,
-                masked = false,
-            )
-        }
-
-        // LAN からの未認証アクセスには機微な値を返さない。
-        // 伏せるもの: SSID / IP アドレス / 正確な緯度経度 / LINE メモの本文。
-        //   メモは家族のやり取りが載るため、防災・天気より秘匿性が高い。
-        // 返すもの  : 時刻・天気概況・都市名・防災情報（公開情報）。
-        return DeviceState(
-            serverTime = now,
-            deviceTimezone = timezone,
-            wifi = wifi.copy(ssid = null, ipAddress = null),
-            weather = weatherRepository.state,
-            deviceStats = deviceStatsMonitor.snapshot(),
-            disaster = disasterRepository.state,
-            feed = feedRepository.state,
-            memo = memoRepository.state.copy(items = emptyList(), text = null, senderName = null),
-            // 何を聴いているかは生活の様子が出るので、LAN の未認証には返さない。
-            spotify = SpotifyState(),
-            config = config.copy(
-                location = config.location.copy(latitude = 0.0, longitude = 0.0)
-            ),
-            masked = true,
-        )
-    }
-
-    private suspend fun serveAsset(
-        call: ApplicationCall,
-        path: String,
-        status: HttpStatusCode = HttpStatusCode.OK,
-    ) {
-        val bytes = runCatching {
-            context.assets.open(path).use { it.readBytes() }
-        }.getOrNull()
-
+    private suspend fun serveAsset(call: ApplicationCall, path: String, status: HttpStatusCode = HttpStatusCode.OK) {
+        val bytes = runCatching { graph.context.assets.open(path).use { it.readBytes() } }.getOrNull()
         if (bytes == null) {
             call.respond(HttpStatusCode.NotFound, ApiError("not_found", path))
             return
@@ -508,37 +319,8 @@ class DashboardServer(
         "json" -> ContentType.Application.Json
         "svg" -> ContentType.Image.SVG
         "png" -> ContentType.Image.PNG
-        "woff2" -> ContentType("font", "woff2")
-        "woff" -> ContentType("font", "woff")
         else -> ContentType.Application.OctetStream
     }
-
-    /**
-     * メモ取得先の URL を正規化する。
-     *
-     * 利用者は Worker のベース URL や、LINE 用の /line/webhook を貼りがちで、実際そうなった。
-     * /line/webhook は POST 専用なので GET すると 404 になり、原因が分かりにくい。
-     * タブレットが読むのは常に /memo なので、ホストだけ受け取ってパスはこちらで固定する。
-     */
-    private fun normalizeMemoEndpoint(raw: String): String {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return ""
-        return runCatching {
-            val uri = java.net.URI(trimmed)
-            if (uri.scheme == null || uri.authority == null) return@runCatching trimmed
-            java.net.URI(uri.scheme, uri.authority, "/memo", null, null).toString()
-        }.getOrElse { trimmed }
-    }
-
-    /** 応答を返し終えてから待受を張り替えるための遅延再起動。 */
-    private fun restartLater() {
-        Thread {
-            Thread.sleep(300)
-            runCatching { restart() }.onFailure { Log.e(TAG, "サーバー再起動に失敗", it) }
-        }.start()
-    }
-
-    // ------------------------------------------------------------- 入出力
 
     @Serializable
     private data class LoginRequest(val pin: String)
@@ -561,6 +343,7 @@ class DashboardServer(
         val port: Int,
         val activeSessions: Int,
         val pinSet: Boolean,
+        val lanUrl: String? = null,
     )
 
     @Serializable
@@ -568,6 +351,8 @@ class DashboardServer(
 
     companion object {
         const val PORT = 8080
+        /** Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めない。USB の PC からも同じ URL で成立する。 */
+        const val SPOTIFY_REDIRECT_URI = "http://127.0.0.1:$PORT/api/spotify/callback"
         private const val TAG = "DashboardServer"
         private const val LOOPBACK = "127.0.0.1"
         private const val ANY = "0.0.0.0"
