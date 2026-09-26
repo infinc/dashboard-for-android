@@ -12,15 +12,17 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.PathParser
+import app.walldash.ui.theme.Wd
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 private val SUN = Color(0xFFFFB347)
-private val MOON = Color(0xFFC7D2E0)
+// 月と雪は白に近いので、ホワイトのテーマでは面に溶けないよう濃くする
+private val MOON get() = if (Wd.palette.light) Color(0xFF8E9CB0) else Color(0xFFC7D2E0)
 private val CLOUD = Color(0xFF8FA0B3)
 private val RAIN = Color(0xFF4DD4FF)
-private val SNOW = Color(0xFFDDEBF7)
+private val SNOW get() = if (Wd.palette.light) Color(0xFF93B2CF) else Color(0xFFDDEBF7)
 private val BOLT = Color(0xFFFFD166)
 
 private val CLOUD_PATH: Path =

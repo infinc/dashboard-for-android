@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,8 +33,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,27 +49,24 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.walldash.data.CardLayout
 import app.walldash.ui.common.WdIcons
 import app.walldash.ui.theme.Wd
 import app.walldash.ui.theme.tu
 import kotlinx.coroutines.delay
-import kotlin.math.floor
 import kotlin.math.max
 
-private enum class Slot(val span: Int) {
-    CLOCK(8), WEATHER(8), DISASTER(8), MEMO(10), HOURLY(9), SPOTIFY(5),
-    WIFI(6), STATS(10), NEWS(8), DAILY(12), TIMER(6), WORD(6),
-}
+private typealias Slot = CardLayout.Card
 
-private const val COLUMNS = 24
-private const val COMPACT_WIDTH_DP = 840
-private val GAP = 12.dp
+private val GAP = CardLayout.GAP_DP.dp
 
 @Composable
 fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBrowser: () -> Unit) {
@@ -82,24 +82,11 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val album by vm.album.collectAsStateWithLifecycle()
     val timer by vm.timer.collectAsStateWithLifecycle()
 
+    val wallpaper by vm.wallpaper.collectAsStateWithLifecycle()
+    val radar by vm.radar.collectAsStateWithLifecycle()
+
     val d = config.display
     val s = state
-    val shown = Slot.entries.filter {
-        when (it) {
-            Slot.CLOCK -> d.showClock
-            Slot.WEATHER -> d.showWeather
-            Slot.DISASTER -> d.showDisaster
-            Slot.MEMO -> d.showMemo
-            Slot.HOURLY -> d.showHourly
-            Slot.SPOTIFY -> d.showSpotify
-            Slot.WIFI -> d.showWifi
-            Slot.STATS -> d.showDeviceStats
-            Slot.NEWS -> d.showFeed
-            Slot.DAILY -> d.showDaily
-            Slot.TIMER -> d.showTimer
-            Slot.WORD -> d.showWord
-        }
-    }
 
     @Composable
     fun Card(slot: Slot, modifier: Modifier) {
@@ -119,19 +106,42 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.DAILY -> DailyCard(s?.weather, modifier)
             Slot.TIMER -> TimerCard(timer, now, vm::pickTimer, vm::startTimer, vm::resetTimer, modifier)
             Slot.WORD -> WordCard(now, modifier)
+            Slot.ANALOG_CLOCK -> AnalogClockCard(now, d.analogSweep, d.analogNumerals, modifier)
+            Slot.CALENDAR -> CalendarCard(s?.calendar, config.calendar.enabled, calendarConfigured(config), now, modifier)
+            Slot.TRAIN -> TrainCard(s?.train, config.train.enabled, !config.train.token.isNullOrBlank() || !config.train.challengeToken.isNullOrBlank(), now, modifier)
+            Slot.RADAR -> RadarCard(radar, config.location.name, modifier)
+            Slot.SUN_MOON -> SunMoonCard(s?.weather, now, modifier)
+            Slot.COUNTDOWN -> CountdownCard(config.countdown, s?.holidays.orEmpty(), now, modifier)
+            Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
+            Slot.STOCKS -> StocksCard(s?.stocks, config.stocks.range, now, modifier)
         }
     }
 
     val shift = burnInShift(d.burnInShiftEnabled)
+    val screen = LocalConfiguration.current
     // 縦向きと、横でも幅の狭い端末（スマホなど）は 2 列にして縦にスクロールさせる
-    val compact = LocalConfiguration.current.let { it.screenHeightDp > it.screenWidthDp || it.screenWidthDp < COMPACT_WIDTH_DP }
+    val compact = CardLayout.isCompact(screen.screenWidthDp, screen.screenHeightDp)
+    var overflow by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(Wd.Bg).drawBehind { glow() }) {
+    Box(Modifier.fillMaxSize().background(Wd.Bg).drawBehind { if (wallpaper == null) glow() }) {
+        wallpaper?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         Column(Modifier.fillMaxSize().offset { shift }) {
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(GAP)) {
-                val rows = pack(shown.map { it to if (compact) compactSpan(it) else it.span })
+                val area = CardLayout.Area(maxHeight.value.toInt(), screen.screenWidthDp, screen.screenHeightDp)
+                // 設定画面が「カードを増やしても収まるか」を判定するときに、この実測の高さを使う
+                SideEffect { CardLayout.measured = area }
+                // 横向きで行が溢れるときは、週間予報を半分の幅まで縮めて空いた列に後ろのカードを並べる
+                val rows = CardLayout.rows(d, area)
                 val fit = (maxHeight - GAP * max(0, rows.size - 1)) / max(1, rows.size)
-                val rowHeight = if (compact) maxOf(fit, 190.dp) else fit
+                // それでも収まらないとき（設定で止める前の古い設定や、画面の小さい端末への持ち込み）は、
+                // 詰め込んで文字を重ねるより、1 行の高さを保って縦にスクロールさせる
+                val fits = compact || rows.size <= CardLayout.maxRows(area)
+                SideEffect { overflow = !fits }
+                val rowHeight = when {
+                    compact -> maxOf(fit, 190.dp)
+                    !fits -> CardLayout.minRowDp(screen.screenHeightDp).dp
+                    else -> fit
+                }
                 val body: @Composable () -> Unit = {
                     Column(verticalArrangement = Arrangement.spacedBy(GAP)) {
                         rows.forEach { row ->
@@ -143,7 +153,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                 }
                 if (rowHeight > fit) Box(Modifier.verticalScroll(rememberScrollState())) { body() } else body()
             }
-            Footer(now, s?.serverTime ?: 0L, refreshing, vm::refreshAll, onOpenSettings, onOpenBrowser)
+            Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser)
         }
 
         AnimatedVisibility(
@@ -156,35 +166,6 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         }
 
         if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
-    }
-}
-
-private fun compactSpan(slot: Slot) = if (slot == Slot.HOURLY) COLUMNS else COLUMNS / 2
-
-/**
- * 行に詰め、行ごとの合計を 24 列ちょうどにする。
- * 非表示のカードが空けた列は、同じ行に残ったカードへ元の幅に比例して配る（端数は最大剰余法）。
- */
-private fun <T> pack(items: List<Pair<T, Int>>): List<List<Pair<T, Int>>> {
-    val rows = mutableListOf<MutableList<Pair<T, Int>>>()
-    var used = 0
-    items.forEach { item ->
-        if (rows.isEmpty() || used + item.second > COLUMNS) {
-            rows += mutableListOf<Pair<T, Int>>()
-            used = 0
-        }
-        rows.last() += item
-        used += item.second
-    }
-    return rows.map { row ->
-        val total = row.sumOf { it.second }
-        val extra = COLUMNS - total
-        if (extra <= 0) return@map row
-        val exact = row.map { extra.toDouble() * it.second / total }
-        val spans = row.mapIndexed { i, it -> it.second + floor(exact[i]).toInt() }.toMutableList()
-        val left = extra - exact.sumOf { floor(it).toInt() }
-        exact.indices.sortedByDescending { exact[it] - floor(exact[it]) }.take(left).forEach { spans[it] += 1 }
-        row.mapIndexed { i, it -> it.first to spans[i] }
     }
 }
 
@@ -221,11 +202,29 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.glow() {
     }
 }
 
+private fun calendarConfigured(c: app.walldash.data.Config) = c.calendar.let {
+    if (it.mode == "ics") !it.icsUrl.isNullOrBlank() else it.appleId.isNotBlank() && !it.password.isNullOrBlank()
+}
+
+/** フッターに出す出典。表示しているカードの分だけ並べる（全部並べると 1 行に収まらない）。 */
+private fun credits(d: app.walldash.data.DisplayConfig): String = buildList {
+    add("Weather data by Open-Meteo.com (CC BY 4.0)")
+    if (d.showDisaster || d.showRadar) add("防災情報・雨雲: 気象庁")
+    if (d.showDisaster && d.disasterShowKmoni) add("強震モニタ: 防災科学技術研究所")
+    if (d.showRadar) add("地図: 地理院タイル")
+    if (d.showTrain) add("運行情報: 公共交通オープンデータ協議会")
+    if (d.showToday) add("今日は何の日: Wikipedia (CC BY-SA)")
+    if (d.showStocks) add("株価: Yahoo Finance")
+    if (d.showCountdown) add("祝日: 内閣府")
+}.joinToString(" ・ ")
+
 @Composable
 private fun Footer(
+    credits: String,
     now: Long,
     updatedAt: Long,
     refreshing: Boolean,
+    overflow: Boolean,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
     onBrowse: () -> Unit,
@@ -239,10 +238,11 @@ private fun Footer(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            "Weather data by Open-Meteo.com (CC BY 4.0) ・ 防災情報: 気象庁 ・ 強震モニタ: 防災科学技術研究所",
+            credits,
             color = Wd.Text3,
             fontSize = 11.tu,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -250,6 +250,7 @@ private fun Footer(
             FooterButton(WdIcons.Gear, "設定", onSettings)
             FooterButton(WdIcons.Browse, "ブラウズ", onBrowse)
         }
+        if (overflow) Text("カードが画面に収まりません（設定でカードを減らしてください）", color = Wd.Amber, fontSize = 11.tu, maxLines = 1)
         Text("更新 " + relative(updatedAt, now), color = Wd.Text3, fontSize = 11.tu)
     }
 }
@@ -260,7 +261,7 @@ private fun FooterButton(icon: ImageVector, label: String, onClick: () -> Unit, 
         Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = Color.White, modifier = modifier.size(20.dp))
+        Icon(icon, label, tint = Wd.Text, modifier = modifier.size(20.dp))
     }
 }
 

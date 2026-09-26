@@ -4,8 +4,11 @@ import android.util.Log
 import app.walldash.AppGraph
 import app.walldash.SettingsController
 import app.walldash.data.ApiError
+import app.walldash.data.CardLayout
+import app.walldash.data.DisplayConfig
 import app.walldash.data.SaveAllRequest
 import app.walldash.data.Tones
+import app.walldash.data.WallpaperStore
 import app.walldash.data.toPublic
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
@@ -20,6 +23,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.contentLength
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
@@ -158,6 +162,49 @@ class DashboardServer(private val graph: AppGraph) {
             post("/api/settings") {
                 if (!guardWrite(call)) return@post
                 call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
+            }
+
+            /** カードを表示に切り替える前の確認。判定はアプリの設定画面・saveAll と同じ CardLayout で行う。 */
+            post("/api/layout/check") {
+                if (!guardWrite(call)) return@post
+                val body = call.receive<LayoutCheckRequest>()
+                val message = CardLayout.overflowMessage(body.before, body.after, CardLayout.area(graph.context))
+                call.respond(LayoutCheckResponse(ok = message == null, message = message))
+            }
+
+            /** 背景画像。本文は画像ファイルそのもの（縮小と向きの補正はここで行う）。 */
+            post("/api/wallpaper") {
+                if (!guardWrite(call)) return@post
+                val declared = call.request.contentLength()
+                if (declared != null && declared > WallpaperStore.MAX_UPLOAD_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", "画像が大きすぎます（25 MB まで）"))
+                    return@post
+                }
+                val bytes = call.receive<ByteArray>()
+                if (bytes.size > WallpaperStore.MAX_UPLOAD_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", "画像が大きすぎます（25 MB まで）"))
+                    return@post
+                }
+                call.respond(graph.settings.setWallpaper { bytes.inputStream() }.toPublic())
+            }
+
+            post("/api/wallpaper/clear") {
+                if (!guardWrite(call)) return@post
+                call.respond(graph.settings.clearWallpaper().toPublic())
+            }
+
+            /** 運行情報の路線の一覧（設定画面で表示する路線を選ぶ）。 */
+            get("/api/train/railways") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.train.railwayChoices())
+            }
+
+            post("/api/train/railways/reload") {
+                if (!guardWrite(call)) return@post
+                runCatching { graph.train.reloadCatalog() }.onFailure {
+                    call.respond(HttpStatusCode.BadRequest, ApiError("train_catalog", it.message)); return@post
+                }
+                call.respond(graph.train.railwayChoices())
             }
 
             post("/api/lan") {
@@ -332,6 +379,12 @@ class DashboardServer(private val graph: AppGraph) {
         val remaining: Int? = null,
         val retryAfterSeconds: Long? = null,
     )
+
+    @Serializable
+    private data class LayoutCheckRequest(val before: DisplayConfig, val after: DisplayConfig)
+
+    @Serializable
+    private data class LayoutCheckResponse(val ok: Boolean, val message: String? = null)
 
     @Serializable
     private data class LanRequest(val enabled: Boolean? = null, val pin: String? = null)

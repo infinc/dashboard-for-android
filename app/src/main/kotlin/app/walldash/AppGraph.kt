@@ -1,14 +1,20 @@
 package app.walldash
 
 import android.content.Context
+import app.walldash.data.CalendarRepository
 import app.walldash.data.ConfigStore
 import app.walldash.data.DeviceState
 import app.walldash.data.DeviceStatsMonitor
 import app.walldash.data.DisasterRepository
 import app.walldash.data.FeedRepository
+import app.walldash.data.HolidayRepository
 import app.walldash.data.Http
 import app.walldash.data.MemoRepository
 import app.walldash.data.SpotifyRepository
+import app.walldash.data.StocksRepository
+import app.walldash.data.TodayRepository
+import app.walldash.data.TrainRepository
+import app.walldash.data.WallpaperStore
 import app.walldash.data.WeatherRepository
 import app.walldash.data.WifiMonitor
 import app.walldash.data.toPublic
@@ -39,6 +45,12 @@ class AppGraph private constructor(context: Context) {
     val memo = MemoRepository(http, config)
     val spotify = SpotifyRepository(http, config)
     val deviceStats = DeviceStatsMonitor(this.context)
+    val wallpaper = WallpaperStore(this.context)
+    val train = TrainRepository(this.context, http, config)
+    val today = TodayRepository(this.context, http)
+    val calendar = CalendarRepository(http, config)
+    val stocks = StocksRepository(http, config)
+    val holidays = HolidayRepository(this.context, http)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
@@ -57,6 +69,11 @@ class AppGraph private constructor(context: Context) {
         feed = feed.state,
         memo = memo.state,
         spotify = spotify.state,
+        train = train.state,
+        today = today.state,
+        calendar = calendar.state,
+        stocks = stocks.state,
+        holidays = holidays.upcoming(),
         config = config.get().toPublic(),
     )
 

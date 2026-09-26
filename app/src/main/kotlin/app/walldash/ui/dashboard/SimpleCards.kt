@@ -86,6 +86,11 @@ fun relative(ts: Long, now: Long): String {
 fun hhmm(iso: String?): String = iso?.let { Regex("T(\\d{2}):(\\d{2})").find(it) }
     ?.let { "${it.groupValues[1]}:${it.groupValues[2]}" }.orEmpty()
 
+/** 同じ形の文字列から「9/19 21:26」（月/日 時:分）を取り出す。日付が読めなければ時刻だけ。 */
+fun dateTime(iso: String?): String = iso?.let { Regex("\\d{4}-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})").find(it) }
+    ?.let { "${it.groupValues[1].toInt()}/${it.groupValues[2].toInt()} ${it.groupValues[3]}:${it.groupValues[4]}" }
+    ?: hhmm(iso)
+
 // ---------------------------------------------------------------- 時刻
 
 @Composable

@@ -111,6 +111,9 @@ dependencies {
     implementation(libs.ktor.serialization.json)
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.content.negotiation)
+    // CalDAV（iCloud カレンダー）の PROPFIND / REPORT 用。Ktor の Android エンジン（HttpURLConnection）は
+    // 標準外のメソッドを送れないため、ここだけ OkHttp を使う
+    implementation(libs.okhttp)
 
     implementation(libs.kotlinx.serialization.json)
 }

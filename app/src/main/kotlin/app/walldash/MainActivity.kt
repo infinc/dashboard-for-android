@@ -79,7 +79,12 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(toast != null) { if (toast != null) wakeForNotice() else restoreAfterNotice() }
             LaunchedEffect(browserUrl) { vm.setActive(browserUrl == null && resumed) }
 
-            WalldashTheme(colorOf(config.display.accent)) {
+            val hasWallpaper = config.wallpaper.imageSetAt > 0
+            WalldashTheme(
+                colorOf(config.display.accent),
+                light = config.display.theme == "light",
+                cardAlpha = if (hasWallpaper) config.display.cardOpacity.toFloat() else 1f,
+            ) {
                 Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
                     DashboardScreen(vm, onOpenSettings = { settingsOpen = true }, onOpenBrowser = { browserUrl = "" })
                     if (settingsOpen) SettingsPanel(graph, onClose = { settingsOpen = false }, onOpenBrowser = { browserUrl = it })
