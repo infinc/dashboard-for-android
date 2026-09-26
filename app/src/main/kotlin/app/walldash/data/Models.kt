@@ -321,6 +321,13 @@ data class DisplayConfig(
     val showSun: Boolean = true,
     /** アクセント色（CSS の色文字列） */
     val accent: String = "#4DD4FF",
+    /** 全体の色の基調。"dark" | "light" */
+    val theme: String = "dark",
+    /**
+     * 背景画像を設定しているときのカードの不透明度 0.2..1.0。小さいほど背景が透けて見える。
+     * 背景画像が無いときは使わない（カードは常に不透明）。
+     */
+    val cardOpacity: Double = 0.6,
     /**
      * 操作があるときの画面の明るさ 0.05..1.0。
      * CSS で暗く見せるのではなく、ウィンドウのバックライト輝度として適用する。
@@ -368,6 +375,28 @@ data class DisplayConfig(
 
     /** Wi-Fi カードの回る地球。 */
     val wifiShowGlobe: Boolean = true,
+
+    // ------------------------------------------------ 後から足したカード
+    // 既定はすべて非表示。既定の 12 枚で横向きの画面がちょうど 4 行埋まっているため、
+    // 既定で出すと更新しただけで画面に収まらなくなる。
+
+    val showTrain: Boolean = false,
+    val showToday: Boolean = false,
+    val showRadar: Boolean = false,
+    val showCalendar: Boolean = false,
+    val showStocks: Boolean = false,
+    val showSunMoon: Boolean = false,
+    val showCountdown: Boolean = false,
+    val showAnalogClock: Boolean = false,
+
+    /** 雨雲レーダーの範囲（地図タイルのズーム）。6 = 広域 / 8 = 地方 / 10 = 周辺。気象庁の雨雲は偶数のズームだけある。 */
+    val radarZoom: Int = 8,
+    /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
+    val todayShowEvent: Boolean = true,
+    /** アナログ時計の秒針をなめらかに動かす（切ると 1 秒ごとに刻む。描き直しが減るので古い端末に優しい）。 */
+    val analogSweep: Boolean = true,
+    /** アナログ時計の文字盤に数字を入れる。 */
+    val analogNumerals: Boolean = true,
 )
 
 /**
@@ -464,6 +493,214 @@ data class BrowserConfig(
     val favorites: List<Favorite> = emptyList(),
 )
 
+// ---------------------------------------------------------------- 電車の運行情報（ODPT）
+
+/**
+ * 公共交通オープンデータセンター（ODPT）の運行情報。
+ * [token] は api.odpt.org 用、[challengeToken] は JR 東日本などが載っている api-challenge.odpt.org 用（どちらも秘密）。
+ * [railways] は表示する路線（odpt.Railway:TokyoMetro.Ginza など）。空なら「平常でない路線だけ」を出す。
+ */
+@Serializable
+data class TrainConfig(
+    val enabled: Boolean = false,
+    val token: String? = null,
+    val challengeToken: String? = null,
+    val railways: List<String> = emptyList(),
+)
+
+@Serializable
+data class TrainPublic(
+    val enabled: Boolean = false,
+    val tokenSet: Boolean = false,
+    val challengeTokenSet: Boolean = false,
+    val railways: List<String> = emptyList(),
+)
+
+/** トークンは書き込み専用。null は変更しない、空文字は消す。 */
+@Serializable
+data class TrainPatch(
+    val enabled: Boolean? = null,
+    val token: String? = null,
+    val challengeToken: String? = null,
+    val railways: List<String>? = null,
+)
+
+@Serializable
+data class TrainLine(
+    val railway: String,
+    val title: String,
+    val operator: String? = null,
+    /** 路線の色（"#F39700" など）。事業者が出していなければ null。 */
+    val color: String? = null,
+    /** 例: 平常運転 / 遅延 / 運転見合わせ */
+    val status: String,
+    val text: String? = null,
+    /** 平常運転ではない。 */
+    val trouble: Boolean = false,
+)
+
+@Serializable
+data class TrainState(
+    val lines: List<TrainLine> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+/** 設定画面で路線を選ぶための一覧。 */
+@Serializable
+data class RailwayChoice(val id: String, val title: String, val operator: String)
+
+// ---------------------------------------------------------------- 今日は何の日（Wikipedia）
+
+@Serializable
+data class TodayItem(
+    val name: String,
+    /** 国・地域（{{JPN}} → 日本 など）。分からなければ null。 */
+    val region: String? = null,
+    val note: String? = null,
+)
+
+@Serializable
+data class TodayState(
+    /** "2026-09-26"。日付が変わったら取り直す。 */
+    val date: String = "",
+    val days: List<TodayItem> = emptyList(),
+    /** 過去の今日のできごと（"1978年 - …" の形）。 */
+    val events: List<String> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- カレンダー（iCloud）
+
+/**
+ * 予定表。[mode] が "caldav" なら iCloud の CalDAV に Apple ID と App 用パスワードで、
+ * "ics" なら共有カレンダーの公開 URL（webcal://〜）から読む。
+ * [password] と [icsUrl] は秘密（公開 URL は知っている人なら誰でも予定を読めるため）。
+ */
+@Serializable
+data class CalendarConfig(
+    val enabled: Boolean = false,
+    val mode: String = "caldav",
+    val appleId: String = "",
+    val password: String? = null,
+    val icsUrl: String? = null,
+    /** 今日から何日先までの予定を出すか。 */
+    val daysAhead: Int = 7,
+)
+
+@Serializable
+data class CalendarPublic(
+    val enabled: Boolean = false,
+    val mode: String = "caldav",
+    val appleId: String = "",
+    val passwordSet: Boolean = false,
+    val icsUrlSet: Boolean = false,
+    val daysAhead: Int = 7,
+)
+
+@Serializable
+data class CalendarPatch(
+    val enabled: Boolean? = null,
+    val mode: String? = null,
+    val appleId: String? = null,
+    val password: String? = null,
+    val icsUrl: String? = null,
+    val daysAhead: Int? = null,
+)
+
+@Serializable
+data class CalendarEvent(
+    val title: String,
+    /** 開始(epoch ms)。終日の予定はその日の 0 時（端末の時間帯）。 */
+    val start: Long,
+    val end: Long,
+    val allDay: Boolean = false,
+    val calendar: String? = null,
+    /** カレンダーの色（"#FF2968" など）。 */
+    val color: String? = null,
+)
+
+@Serializable
+data class CalendarState(
+    val events: List<CalendarEvent> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- 株価
+
+@Serializable
+data class StockSymbol(val symbol: String, val label: String)
+
+val DEFAULT_STOCKS: List<StockSymbol> = listOf(
+    StockSymbol("^N225", "日経平均"),
+    StockSymbol("^DJI", "NY ダウ"),
+    StockSymbol("^IXIC", "ナスダック"),
+    StockSymbol("USDJPY=X", "ドル円"),
+)
+
+/** [range] はチャートの期間。"1d" | "5d" | "1mo" | "6mo" | "1y" */
+@Serializable
+data class StocksConfig(
+    val symbols: List<StockSymbol> = DEFAULT_STOCKS,
+    val range: String = "1d",
+)
+
+@Serializable
+data class StockQuote(
+    val symbol: String,
+    val label: String,
+    val price: Double? = null,
+    /** 前日（期間の始まりの前）の終値からの変化率 %。 */
+    val changePercent: Double? = null,
+    val currency: String? = null,
+    /** チャート用の終値の並び（古い順）。 */
+    val points: List<Double> = emptyList(),
+    /** 比べる基準の値（前日終値）。チャートに横線で引く。 */
+    val base: Double? = null,
+)
+
+@Serializable
+data class StocksState(
+    val quotes: List<StockQuote> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- カウントダウン
+
+@Serializable
+data class CountdownEvent(
+    val name: String,
+    /** "2027-03-18"（その日だけ）または "12-24"（毎年）。後ろに " 18:30" のように時刻を付けてもよい。 */
+    val date: String,
+)
+
+/**
+ * カウントダウンカード。[builtins] は組み込みの行事のうち出すもの:
+ * "newyear"（新年）/ "christmas" / "holiday"（次の祝日）/ "dayoff"（次の休日＝土日・祝日）/ "fullmoon"（次の満月）/ "newmoon"
+ */
+@Serializable
+data class CountdownConfig(
+    val builtins: List<String> = listOf("newyear", "christmas", "holiday", "fullmoon"),
+    val custom: List<CountdownEvent> = emptyList(),
+)
+
+/** 国民の祝日（内閣府の CSV）。 */
+@Serializable
+data class Holiday(val date: String, val name: String)
+
+/**
+ * ダッシュボードの背景画像。画像そのものは filesDir/wallpaper.jpg に置き、ここには設定した時刻だけを持つ。
+ * 「全て保存」の差分（[ConfigPatch]）には含めない。選んだ・外したその場で保存する操作のため。
+ */
+@Serializable
+data class WallpaperConfig(
+    /** 画像を設定した時刻(epoch ms)。0 なら背景画像なし。画面はこの値の変化で画像を読み直す。 */
+    val imageSetAt: Long = 0,
+)
+
 @Serializable
 data class RefreshConfig(
     val wifiIntervalMs: Long = 2000,
@@ -490,6 +727,11 @@ data class Config(
      * 端末の前で登録して端末の前で使うものなので、外に出す経路を作る理由がない。
      */
     val browser: BrowserConfig = BrowserConfig(),
+    val wallpaper: WallpaperConfig = WallpaperConfig(),
+    val train: TrainConfig = TrainConfig(),
+    val calendar: CalendarConfig = CalendarConfig(),
+    val stocks: StocksConfig = StocksConfig(),
+    val countdown: CountdownConfig = CountdownConfig(),
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -526,6 +768,11 @@ data class PublicConfig(
     val memo: MemoPublic,
     val spotify: SpotifyPublic = SpotifyPublic(),
     val notifications: NotificationConfig = NotificationConfig(),
+    val wallpaper: WallpaperConfig = WallpaperConfig(),
+    val train: TrainPublic = TrainPublic(),
+    val calendar: CalendarPublic = CalendarPublic(),
+    val stocks: StocksConfig = StocksConfig(),
+    val countdown: CountdownConfig = CountdownConfig(),
     /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
     val choices: SettingChoices = SettingChoices.ALL,
 )
@@ -564,6 +811,23 @@ fun Config.toPublic() = PublicConfig(
         connected = !spotify.refreshToken.isNullOrBlank(),
     ),
     notifications = notifications,
+    wallpaper = wallpaper,
+    train = TrainPublic(
+        enabled = train.enabled,
+        tokenSet = !train.token.isNullOrBlank(),
+        challengeTokenSet = !train.challengeToken.isNullOrBlank(),
+        railways = train.railways,
+    ),
+    calendar = CalendarPublic(
+        enabled = calendar.enabled,
+        mode = calendar.mode,
+        appleId = calendar.appleId,
+        passwordSet = !calendar.password.isNullOrBlank(),
+        icsUrlSet = !calendar.icsUrl.isNullOrBlank(),
+        daysAhead = calendar.daysAhead,
+    ),
+    stocks = stocks,
+    countdown = countdown,
 )
 
 /**
@@ -575,6 +839,8 @@ data class SaveAllRequest(
     val settings: ConfigPatch = ConfigPatch(),
     val memo: MemoPatch? = null,
     val spotify: SpotifyPatch? = null,
+    val train: TrainPatch? = null,
+    val calendar: CalendarPatch? = null,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -587,6 +853,8 @@ data class ConfigPatch(
     val disaster: DisasterConfig? = null,
     val feed: FeedConfig? = null,
     val notifications: NotificationConfig? = null,
+    val stocks: StocksConfig? = null,
+    val countdown: CountdownConfig? = null,
 )
 
 /** Spotify 設定の更新。refreshToken は認可の経路でしか入らない。 */
@@ -619,6 +887,11 @@ data class DeviceState(
     val feed: FeedState = FeedState(),
     val memo: MemoState = MemoState(),
     val spotify: SpotifyState = SpotifyState(),
+    val train: TrainState = TrainState(),
+    val today: TodayState = TodayState(),
+    val calendar: CalendarState = CalendarState(),
+    val stocks: StocksState = StocksState(),
+    val holidays: List<Holiday> = emptyList(),
     val config: PublicConfig,
 )
 

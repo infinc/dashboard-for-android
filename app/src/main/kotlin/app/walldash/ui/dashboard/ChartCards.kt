@@ -3,6 +3,7 @@ package app.walldash.ui.dashboard
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,16 +28,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -54,7 +59,7 @@ import app.walldash.ui.common.Tabular
 import app.walldash.ui.common.WdCard
 import app.walldash.ui.theme.LocalAccent
 import app.walldash.ui.theme.Wd
-import app.walldash.ui.theme.lighten
+import app.walldash.ui.theme.readable
 import app.walldash.ui.theme.tu
 import java.time.LocalDate
 import kotlin.math.max
@@ -78,7 +83,7 @@ fun HourlyCard(w: WeatherState?, mode: String, modifier: Modifier) {
         val measurer = rememberTextMeasurer()
         val labelTime = TextStyle(color = Wd.Axis, fontSize = 12.tu)
         val labelTemp = TextStyle(color = Wd.Text, fontSize = 12.5f.tu, fontWeight = FontWeight.SemiBold)
-        val labelPop = TextStyle(color = accent.lighten(), fontSize = 12.5f.tu, fontWeight = FontWeight.SemiBold)
+        val labelPop = TextStyle(color = accent.readable(), fontSize = 12.5f.tu, fontWeight = FontWeight.SemiBold)
         val labelAxis = TextStyle(color = Wd.Text3, fontSize = 11.tu)
         Canvas(Modifier.fillMaxSize()) {
             val u = density
@@ -94,7 +99,7 @@ fun HourlyCard(w: WeatherState?, mode: String, modifier: Modifier) {
             fun x(i: Int) = padX + step * i
             fun y(t: Double) = (padTop + plotH * (1 - (t - lo) / (hi - lo))).toFloat()
 
-            val guide = Color.White.copy(alpha = 0.055f)
+            val guide = Wd.Ink.copy(alpha = if (Wd.palette.light) 0.07f else 0.055f)
             drawLine(guide, Offset(padX, padTop), Offset(size.width - 6 * u, padTop), 1f)
             drawLine(guide, Offset(padX, size.height - padBottom), Offset(size.width - 6 * u, size.height - padBottom), 1f)
             label(measurer, if (wantTemp) "${hi.roundToInt()}°" else "100%", labelAxis, 2 * u, padTop + 4 * u, center = false)
@@ -168,15 +173,22 @@ private fun Legend(temp: Boolean, pop: Boolean) {
 private val RANGE = Brush.horizontalGradient(listOf(Color(0xFF4DD4FF), Color(0xFFFFB347)))
 
 @Composable
-fun DailyCard(w: WeatherState?, modifier: Modifier) {
+fun DailyCard(w: WeatherState?, modifier: Modifier) = BoxWithConstraints(modifier) {
     val accent = LocalAccent.current
+    // カードが多くて半分の幅まで縮めたとき（CardLayout.rows）は、凡例を短くする
+    val narrow = maxWidth < 440.dp
     WdCard(
         "週間予報",
-        modifier,
+        Modifier.fillMaxSize(),
         headerEnd = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(16.dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(RANGE))
-                Text(" 気温の範囲（最低→最高）  /  降水量 mm ・ 降水確率", color = Wd.Text3, fontSize = 12.tu, maxLines = 1)
+                Text(
+                    if (narrow) " 最低→最高 / mm・%" else " 気温の範囲（最低→最高）  /  降水量 mm ・ 降水確率",
+                    color = Wd.Text3,
+                    fontSize = 12.tu,
+                    maxLines = 1,
+                )
             }
         },
     ) {
@@ -190,8 +202,9 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) {
         val gmin = lows.minOrNull() ?: 0.0
         val gmax = (highs.maxOrNull() ?: 1.0).let { if (it - gmin < 1) gmin + 1 else it }
         Column(Modifier.fillMaxSize()) {
+            val scroll = rememberScrollState()
             Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                Modifier.weight(1f).fillMaxWidth().fadeEdges(scroll).horizontalScroll(scroll),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -248,6 +261,22 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) {
         }
     }
 }
+
+/** 左右にまだ続きがあるとき、その側の端を透明へぼかす（背景画像の上でも効くよう、塗らずに中身を消す）。 */
+private fun Modifier.fadeEdges(scroll: ScrollState): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.drawWithContent {
+        drawContent()
+        val fade = min(28.dp.toPx(), size.width / 4)
+        if (scroll.canScrollBackward) {
+            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), endX = fade), blendMode = BlendMode.DstIn)
+        }
+        if (scroll.canScrollForward) {
+            drawRect(
+                Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), startX = size.width - fade, endX = size.width),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+    }
 
 @Composable
 private fun RangeBar(lo: Double?, hi: Double?, gmin: Double, gmax: Double) {
@@ -353,7 +382,7 @@ private fun CpuChart(history: List<Int>) {
             val w = size.width
             val h = size.height
             fun yOf(v: Int) = h - (h - 2) * (v / 100f)
-            CPU_MARKS.forEach { m -> drawLine(Color.White.copy(alpha = 0.10f), Offset(0f, yOf(m)), Offset(w, yOf(m)), 1f) }
+            CPU_MARKS.forEach { m -> drawLine(Wd.Ink.copy(alpha = 0.10f), Offset(0f, yOf(m)), Offset(w, yOf(m)), 1f) }
             val step = w / (history.size - 1)
             val line = Path().apply {
                 history.forEachIndexed { i, v -> if (i == 0) moveTo(0f, yOf(v)) else lineTo(i * step, yOf(v)) }

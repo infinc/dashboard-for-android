@@ -14,6 +14,9 @@
   var device = null;
   var baseline = "";
   var pendingLocation = null;
+  // 運行情報で選んでいる路線。一覧を読み込めていなくても、保存済みの選択を消さないよう入力とは別に持つ
+  var trainSelected = [];
+  var railwayChoices = [];
   var saving = false;
 
   function api(path, options) {
@@ -90,6 +93,8 @@
   function collect() {
     var display = copy(config.display);
     display.accent = $("accent").value;
+    display.theme = $("theme").value;
+    display.cardOpacity = Number($("cardOpacity").value) / 100;
     display.burnInShiftEnabled = $("burnIn").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
@@ -98,6 +103,7 @@
     display.clockAlign = $("clockAlign").value;
     display.clockDateFormat = $("clockDateFormat").value;
     display.hourlyMode = $("hourlyMode").value;
+    display.radarZoom = Number($("radarZoom").value);
     // data-w の付いたチェックボックスはすべて display の真偽値
     var boxes = document.querySelectorAll("input[data-w]");
     for (var i = 0; i < boxes.length; i++) display[boxes[i].getAttribute("data-w")] = boxes[i].checked;
@@ -124,6 +130,39 @@
     var lines = $("feedUrls").value.split("\n");
     for (var k = 0; k < lines.length; k++) if (lines[k].trim()) urls.push(lines[k].trim());
 
+    var stocks = [];
+    var stockLines = $("stocksSymbols").value.split("\n");
+    for (var s = 0; s < stockLines.length; s++) {
+      var line = stockLines[s].trim();
+      if (!line) continue;
+      var symbol = line.split(/\s+/)[0];
+      stocks.push({ symbol: symbol, label: line.slice(symbol.length).trim() || symbol });
+    }
+
+    var builtins = [];
+    var cds = document.querySelectorAll("input[data-cd]");
+    for (var c = 0; c < cds.length; c++) if (cds[c].checked) builtins.push(cds[c].getAttribute("data-cd"));
+    var custom = [];
+    var cdLines = $("countdownCustom").value.split("\n");
+    for (var e = 0; e < cdLines.length; e++) {
+      // アプリの Countdown.parseLines と同じ形:「名前 日付（時刻）」
+      var m = /^(.+?)\s+(\d{1,4}[-/]\d{1,2}(?:[-/]\d{1,2})?(?:\s+\d{1,2}:\d{2})?)$/.exec(cdLines[e].trim());
+      if (m) custom.push({ name: m[1].trim(), date: m[2].trim() });
+    }
+
+    var train = { enabled: $("trainEnabled").checked, railways: trainSelected.slice() };
+    if ($("trainToken").value) train.token = $("trainToken").value;
+    if ($("trainChallengeToken").value) train.challengeToken = $("trainChallengeToken").value;
+
+    var calendar = {
+      enabled: $("calendarEnabled").checked,
+      mode: $("calendarMode").value,
+      appleId: $("calendarAppleId").value.trim(),
+      daysAhead: Number($("calendarDays").value) || 7
+    };
+    if ($("calendarPassword").value) calendar.password = $("calendarPassword").value;
+    if ($("calendarIcsUrl").value) calendar.icsUrl = $("calendarIcsUrl").value;
+
     var memo = {
       enabled: $("memoEnabled").checked,
       endpoint: $("memoEndpoint").value.trim(),
@@ -139,8 +178,12 @@
         display: display,
         disaster: { enabled: $("disasterEnabled").checked, minIntensity: $("minIntensity").value },
         feed: { enabled: $("feedEnabled").checked, urls: urls, maxItems: Number($("feedMax").value) },
-        notifications: notifications
+        notifications: notifications,
+        stocks: { symbols: stocks, range: $("stocksRange").value },
+        countdown: { builtins: builtins, custom: custom }
       },
+      train: train,
+      calendar: calendar,
       memo: memo,
       spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim() }
     };
@@ -185,6 +228,9 @@
     fillSelect("timerTone", config.choices.tones);
 
     $("accent").value = d.accent;
+    $("theme").value = d.theme || "dark";
+    $("cardOpacity").value = Math.round((d.cardOpacity == null ? 0.6 : d.cardOpacity) * 100);
+    renderWallpaper();
     $("burnIn").checked = d.burnInShiftEnabled;
     $("normalBrightness").value = Math.round(d.normalBrightness * 100);
     $("idleDimEnabled").checked = d.idleDimEnabled !== false;
@@ -201,6 +247,35 @@
     $("clockAlign").value = d.clockAlign || "left";
     $("clockDateFormat").value = d.clockDateFormat || "ja";
     $("hourlyMode").value = d.hourlyMode || "both";
+    $("radarZoom").value = String(d.radarZoom || 8);
+
+    var st = config.stocks || { symbols: [], range: "1d" };
+    $("stocksSymbols").value = st.symbols.map(function (x) { return x.symbol + " " + x.label; }).join("\n");
+    $("stocksRange").value = st.range;
+    var cd = config.countdown || { builtins: [], custom: [] };
+    var cds = document.querySelectorAll("input[data-cd]");
+    for (var c = 0; c < cds.length; c++) cds[c].checked = cd.builtins.indexOf(cds[c].getAttribute("data-cd")) >= 0;
+    $("countdownCustom").value = cd.custom.map(function (x) { return x.name + " " + x.date; }).join("\n");
+
+    var tr = config.train || {};
+    $("trainEnabled").checked = !!tr.enabled;
+    $("trainToken").value = "";
+    $("trainToken").placeholder = tr.tokenSet ? "設定済み（変更する場合のみ入力）" : "未設定";
+    $("trainChallengeToken").value = "";
+    $("trainChallengeToken").placeholder = tr.challengeTokenSet ? "設定済み（変更する場合のみ入力）" : "未設定";
+    trainSelected = (tr.railways || []).slice();
+    renderRailways();
+
+    var cal = config.calendar || {};
+    $("calendarEnabled").checked = !!cal.enabled;
+    $("calendarMode").value = cal.mode || "caldav";
+    $("calendarAppleId").value = cal.appleId || "";
+    $("calendarPassword").value = "";
+    $("calendarPassword").placeholder = cal.passwordSet ? "設定済み（変更する場合のみ入力）" : "xxxx-xxxx-xxxx-xxxx";
+    $("calendarIcsUrl").value = "";
+    $("calendarIcsUrl").placeholder = cal.icsUrlSet ? "設定済み（変更する場合のみ入力）" : "webcal://p00-caldav.icloud.com/published/2/…";
+    $("calendarDays").value = cal.daysAhead || 7;
+    renderCalendarMode();
 
     var wx = document.querySelectorAll("input[data-wx]");
     for (var w = 0; w < wx.length; w++) wx[w].checked = d.weatherFields.indexOf(wx[w].getAttribute("data-wx")) >= 0;
@@ -273,10 +348,12 @@
     $("normalBrightnessValue").textContent = $("normalBrightness").value + "%";
     $("idleDimBrightnessValue").textContent = $("idleDimBrightness").value + "%";
     $("noticeVolumeValue").textContent = $("noticeVolume").value + "%";
+    $("cardOpacityValue").textContent = $("cardOpacity").value + "%";
   }
   $("normalBrightness").addEventListener("input", updateRangeLabels);
   $("idleDimBrightness").addEventListener("input", updateRangeLabels);
   $("noticeVolume").addEventListener("input", updateRangeLabels);
+  $("cardOpacity").addEventListener("input", updateRangeLabels);
   $("spotifyClientId").addEventListener("input", renderSpotify);
 
   function renderDevice() {
@@ -303,8 +380,118 @@
       else if (!d.areaName) text = "天気の地点から市町村を決められません。「場所」で国内の地点を選んでください";
       else text = [d.officeName, d.areaName].filter(Boolean).join(" ");
       $("disasterArea").textContent = text;
+
+      var cal = (s && s.calendar) || {};
+      if (!config.calendar || !config.calendar.enabled) setStatus("calendarStatus", "取得は無効です");
+      else if (cal.lastError) setStatus("calendarStatus", "エラー: " + cal.lastError, "err");
+      else if (cal.fetchedAt > 0) setStatus("calendarStatus", "取得できています（" + (cal.events || []).length + " 件）", "ok");
+      else setStatus("calendarStatus", "まだ取得していません —「全て保存」のあと少し待ってください");
+
+      var tr = (s && s.train) || {};
+      if (!config.train || !config.train.enabled) setStatus("trainStatus", "取得は無効です");
+      else if (tr.fetchedAt > 0) setStatus("trainStatus", "取得できています" + (tr.lastError ? "（一部エラー: " + tr.lastError + "）" : ""), tr.lastError ? "warn" : "ok");
+      else if (tr.lastError) setStatus("trainStatus", "エラー: " + tr.lastError, "err");
+      else setStatus("trainStatus", "まだ取得していません —「全て保存」のあと少し待ってください");
     }).catch(function () { $("disasterArea").textContent = "取得できません"; });
   }
+
+  // ---------------------------------------------------------------- 予定表・運行情報
+
+  function renderCalendarMode() {
+    var ics = $("calendarMode").value === "ics";
+    $("calendarCaldav").style.display = ics ? "none" : "";
+    $("calendarIcs").style.display = ics ? "" : "none";
+  }
+  $("calendarMode").addEventListener("change", renderCalendarMode);
+
+  /** 路線の一覧（事業者ごと）。選んだ路線は trainSelected に持つ。 */
+  function renderRailways() {
+    var box = $("trainRailways");
+    box.innerHTML = "";
+    var group = "";
+    for (var i = 0; i < railwayChoices.length; i++) {
+      var r = railwayChoices[i];
+      if (r.operator !== group) {
+        group = r.operator;
+        var head = document.createElement("div");
+        head.className = "hint";
+        head.style.width = "100%";
+        head.textContent = group;
+        box.appendChild(head);
+      }
+      var label = document.createElement("label");
+      label.className = "toggle";
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = trainSelected.indexOf(r.id) >= 0;
+      input.setAttribute("data-rw", r.id);
+      input.addEventListener("change", function () {
+        var id = this.getAttribute("data-rw");
+        if (this.checked) {
+          if (trainSelected.length >= 12) { this.checked = false; setStatus("trainListStatus", "選べるのは 12 路線までです", "warn"); return; }
+          if (trainSelected.indexOf(id) < 0) trainSelected.push(id);
+        } else {
+          trainSelected = trainSelected.filter(function (x) { return x !== id; });
+        }
+        updateDirty();
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + r.title));
+      box.appendChild(label);
+    }
+    if (!railwayChoices.length && trainSelected.length) {
+      setStatus("trainListStatus", "選択中の路線: " + trainSelected.length + " 路線（一覧を読み込むと変更できます）");
+    }
+  }
+
+  function loadRailways() {
+    return api("/api/train/railways").then(function (list) { railwayChoices = list || []; renderRailways(); });
+  }
+
+  $("trainReload").addEventListener("click", function () {
+    setStatus("trainListStatus", "読み込み中…");
+    api("/api/train/railways/reload", { method: "POST", body: "{}" })
+      .then(function (list) {
+        railwayChoices = list || [];
+        renderRailways();
+        setStatus("trainListStatus", railwayChoices.length + " 路線を読み込みました", "ok");
+      })
+      .catch(function (e) { setStatus("trainListStatus", "エラー: " + e.message, "err"); });
+  });
+
+  $("trainClear").addEventListener("click", function () {
+    trainSelected = [];
+    renderRailways();
+    updateDirty();
+  });
+
+  // ---------------------------------------------------------------- カードの数
+
+  /*
+   * カードを表示に切り替えたら、タブレットに「画面に収まるか」を確かめる（判定はアプリと同じ計算）。
+   * 収まらないなら理由を出してチェックを戻す。確かめられないとき（通信の失敗）は止めず、保存時の検査に任せる。
+   */
+  (function bindCardChecks() {
+    var boxes = document.querySelectorAll("input[data-card]");
+    for (var i = 0; i < boxes.length; i++) {
+      boxes[i].addEventListener("change", function () {
+        var box = this;
+        if (!box.checked) return;
+        var after = collect().settings.display;
+        box.checked = false;
+        var before = collect().settings.display;
+        box.checked = true;
+        api("/api/layout/check", { method: "POST", body: JSON.stringify({ before: before, after: after }) })
+          .then(function (r) {
+            if (r.ok) return;
+            box.checked = false;
+            updateDirty();
+            alert("カードを増やせません\n\n" + r.message);
+          })
+          .catch(function () {});
+      });
+    }
+  })();
 
   // ---------------------------------------------------------------- 全て保存
 
@@ -370,6 +557,46 @@
 
   // ---------------------------------------------------------------- その場で効く操作
 
+  function renderWallpaper() {
+    var on = !!(config.wallpaper && config.wallpaper.imageSetAt > 0);
+    $("wallpaperClear").disabled = !on;
+    setStatus("wallpaperStatus", on ? "背景画像を表示中" : "背景画像なし");
+  }
+
+  /** 画像はそのまま送り、縮小と向きの補正はタブレット側で行う。 */
+  $("wallpaperFile").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    var input = this;
+    if (!file) return;
+    setStatus("wallpaperStatus", "送信中…");
+    fetch("/api/wallpaper", { method: "POST", cache: "no-store", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file })
+      .then(function (res) {
+        return res.text().then(function (t) {
+          var data = t ? JSON.parse(t) : null;
+          if (!res.ok) throw new Error((data && (data.detail || data.error)) || "HTTP " + res.status);
+          return data;
+        });
+      })
+      .then(function (updated) {
+        config.wallpaper = updated.wallpaper;
+        renderWallpaper();
+        setStatus("wallpaperStatus", "背景画像を設定しました", "ok");
+      })
+      .catch(function (e) { setStatus("wallpaperStatus", "エラー: " + e.message, "err"); })
+      .then(function () { input.value = ""; });
+  });
+
+  $("wallpaperClear").addEventListener("click", function () {
+    setStatus("wallpaperStatus", "処理中…");
+    api("/api/wallpaper/clear", { method: "POST", body: "{}" })
+      .then(function (updated) {
+        config.wallpaper = updated.wallpaper;
+        renderWallpaper();
+        setStatus("wallpaperStatus", "背景画像を外しました", "ok");
+      })
+      .catch(function (e) { setStatus("wallpaperStatus", "エラー: " + e.message, "err"); });
+  });
+
   $("spotifyConnect").addEventListener("click", function () { window.location.href = "/api/spotify/start"; });
 
   $("spotifyDisconnect").addEventListener("click", function () {
@@ -425,7 +652,7 @@
     .then(function (c) {
       config = c;
       render();
-      return Promise.all([loadDevice(), loadDisasterArea()]);
+      return Promise.all([loadDevice(), loadDisasterArea(), loadRailways().catch(function () {})]);
     })
     .catch(function (e) { $("access").textContent = "読み込みエラー: " + e.message; });
 })();

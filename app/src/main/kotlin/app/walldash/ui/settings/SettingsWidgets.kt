@@ -92,7 +92,7 @@ fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, enab
             checked = checked,
             onCheckedChange = onChange,
             enabled = enabled,
-            colors = SwitchDefaults.colors(checkedTrackColor = LocalAccent.current, checkedThumbColor = Wd.Bg),
+            colors = SwitchDefaults.colors(checkedTrackColor = LocalAccent.current, checkedThumbColor = Wd.OnAccent),
         )
     }
 }
@@ -103,7 +103,7 @@ fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, modif
         modifier.clip(RoundedCornerShape(8.dp)).clickable { onChange(!checked) }.padding(end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked, onChange, colors = CheckboxDefaults.colors(checkedColor = LocalAccent.current, checkmarkColor = Wd.Bg))
+        Checkbox(checked, onChange, colors = CheckboxDefaults.colors(checkedColor = LocalAccent.current, checkmarkColor = Wd.OnAccent))
         Text(label, fontSize = 14.tu)
     }
 }
@@ -199,7 +199,7 @@ fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifi
             label,
             color = when {
                 !enabled -> Wd.Text3
-                primary -> Wd.Bg
+                primary -> Wd.OnAccent
                 else -> color ?: Wd.Text
             },
             fontSize = 14.tu,

@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,8 +25,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.walldash.ui.theme.Wd
@@ -35,7 +36,7 @@ import app.walldash.ui.theme.tu
 
 private val CardShape = RoundedCornerShape(18.dp)
 
-/** カード 1 枚の枠。見出し（左）と注記（右）、残りの高さが本文。 */
+/** カード 1 枚の枠。見出し（左）と注記（右上の角）、残りの高さが本文。 */
 @Composable
 fun WdCard(
     title: String,
@@ -46,17 +47,19 @@ fun WdCard(
     headerEnd: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // 背景画像の上では面を透かす（枠線と文字はそのまま）
+    val alpha = Wd.cardAlpha
     Column(
         modifier
             .clip(CardShape)
-            .background(Brush.verticalGradient(listOf(Wd.Surface2, Wd.Surface)))
+            .background(Brush.verticalGradient(listOf(Wd.Surface2.copy(alpha = alpha), Wd.Surface.copy(alpha = alpha))))
             .border(1.dp, borderColor, CardShape)
             .drawWithContent {
                 drawContent()
                 val inset = 12.dp.toPx()
                 drawLine(
                     Brush.horizontalGradient(
-                        listOf(Color.Transparent, Color.White.copy(alpha = 0.13f), Color.Transparent),
+                        listOf(Color.Transparent, Wd.Ink.copy(alpha = if (Wd.palette.light) 0.05f else 0.13f), Color.Transparent),
                         startX = inset,
                         endX = size.width - inset,
                     ),
@@ -67,24 +70,67 @@ fun WdCard(
             }
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                color = titleColor,
-                fontSize = 12.5f.tu,
-                letterSpacing = 0.14.em,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.weight(1f))
-            when {
-                headerEnd != null -> headerEnd()
-                !note.isNullOrEmpty() -> Text(note, color = Wd.Text3, fontSize = 12.tu, maxLines = 1)
-            }
-        }
+        CardHeader(
+            title = {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 12.5f.tu,
+                    letterSpacing = 0.14.em,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            end = {
+                when {
+                    headerEnd != null -> headerEnd()
+                    !note.isNullOrEmpty() -> Text(note, color = Wd.Text3, fontSize = 12.tu, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+        )
         Spacer(Modifier.height(8.dp))
         Column(Modifier.weight(1f).fillMaxWidth(), content = content)
+    }
+}
+
+/**
+ * 見出しの行。見出しは左端、注記は必ず右端（カードの右上の角）に置く。
+ *
+ * Row と weight の組み合わせだと、見出しと注記の長さによって幅の配分が偏り、注記が右端に届かなかったり
+ * 見出しが途中で省略されたりする。ここでは両方の自然な幅を先に測り、
+ * 収まるならそのまま左右の端へ、収まらないときだけ見出しに幅の半分（見出しが短ければその分）を残して注記を縮める。
+ */
+@Composable
+private fun CardHeader(title: @Composable () -> Unit, end: @Composable () -> Unit) {
+    Layout(
+        content = {
+            Box { title() }
+            Box { end() }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val gap = 8.dp.roundToPx()
+        val (titleM, endM) = measurables
+        val titleFull = titleM.maxIntrinsicWidth(constraints.maxHeight)
+        val endFull = endM.maxIntrinsicWidth(constraints.maxHeight)
+        val room = (width - gap).coerceAtLeast(0)
+        val titleW: Int
+        val endW: Int
+        if (titleFull + endFull <= room) {
+            titleW = titleFull
+            endW = endFull
+        } else {
+            titleW = minOf(titleFull, maxOf(room / 2, room - endFull))
+            endW = room - titleW
+        }
+        val t = titleM.measure(Constraints(maxWidth = titleW))
+        val e = endM.measure(Constraints(maxWidth = endW.coerceAtLeast(0)))
+        val height = maxOf(t.height, e.height)
+        layout(width, height) {
+            t.placeRelative(0, (height - t.height) / 2)
+            e.placeRelative(width - e.width, (height - e.height) / 2)
+        }
     }
 }
 
@@ -120,14 +166,16 @@ object WdIcons {
         pathData = addPathNodes("M16.6 7.4 10.4 10.4 7.4 16.6 13.6 13.6z"),
         fill = SolidColor(Color.White),
     ).build()
-    val Previous = icon("M7 6h2v12H7zm10 0v12l-8-6z")
-    val Pause = icon("M7.5 6h3v12h-3zm6 0h3v12h-3z")
+    // 各アイコンは Android の PathParser が「z の後の相対 m」の基準点を取り違えるため、
+    // 2 つ目以降の subpath は必ず絶対座標の M で始めること（相対 m だと崩れて描画される）。
+    val Previous = icon("M7 6h2v12H7zM17 6v12l-8-6z")
+    val Pause = icon("M7.5 6h3v12h-3zM13.5 6h3v12h-3z")
     val Play = icon("M8 5l11 7-11 7z")
     val Next = icon("M15 6h2v12h-2zM7 6l8 6-8 6z")
     val Back = icon("M15.5 5l-7 7 7 7-1.4 1.4L5.7 12l8.4-8.4z")
     val Forward = icon("M8.5 5l7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4z")
-    val More = icon("M12 7.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zm0 6.3a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zm0 6.3a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z")
-    val Menu = icon("M4 6.5h16v1.8H4zm0 4.6h16v1.8H4zm0 4.6h16v1.8H4z")
+    val More = icon("M12 7.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 13.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 20.1a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z")
+    val Menu = icon("M4 6.5h16v1.8H4zM4 11.1h16v1.8H4zM4 15.7h16v1.8H4z")
     val Close = icon("M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z")
 
     private fun icon(d: String): ImageVector = ImageVector.Builder(

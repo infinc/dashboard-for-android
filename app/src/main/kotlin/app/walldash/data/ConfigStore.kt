@@ -67,6 +67,26 @@ class ConfigStore(context: Context) {
         disaster = patch.disaster ?: c.disaster,
         feed = patch.feed?.let(::sanitizeFeed) ?: c.feed,
         notifications = patch.notifications?.let(::sanitizeNotifications) ?: c.notifications,
+        stocks = patch.stocks?.let(::sanitizeStocks) ?: c.stocks,
+        countdown = patch.countdown?.let(::sanitizeCountdown) ?: c.countdown,
+    )
+
+    /** 銘柄は 6 つまで（カードに並べて読める数）。記号は Yahoo Finance の表記（^N225・USDJPY=X など）。 */
+    private fun sanitizeStocks(st: StocksConfig) = st.copy(
+        symbols = st.symbols
+            .map { StockSymbol(it.symbol.trim().uppercase(), it.label.trim().take(20).ifEmpty { it.symbol.trim() }) }
+            .filter { it.symbol.isNotEmpty() && it.symbol.all { ch -> ch.isLetterOrDigit() || ch in "^=.-" } }
+            .distinctBy { it.symbol }
+            .take(MAX_STOCKS),
+        range = if (st.range in ALLOWED_STOCK_RANGES) st.range else "1d",
+    )
+
+    private fun sanitizeCountdown(cd: CountdownConfig) = cd.copy(
+        builtins = cd.builtins.filter { it in ALLOWED_COUNTDOWNS }.distinct(),
+        custom = cd.custom
+            .map { CountdownEvent(it.name.trim().take(30), it.date.trim()) }
+            .filter { it.name.isNotEmpty() && Countdown.parseDate(it.date) != null }
+            .take(MAX_COUNTDOWNS),
     )
 
     private fun sanitizeNotifications(n: NotificationConfig) = n.copy(
@@ -91,6 +111,9 @@ class ConfigStore(context: Context) {
         idleDimAfterSeconds = d.idleDimAfterSeconds.coerceIn(30, 3600),
         idleDimBrightness = d.idleDimBrightness.coerceIn(0.05, 1.0),
         accent = if (Accents.isKnown(d.accent)) d.accent.uppercase() else Accents.DEFAULT,
+        theme = if (d.theme in ALLOWED_THEMES) d.theme else "dark",
+        cardOpacity = d.cardOpacity.coerceIn(0.2, 1.0),
+        radarZoom = if (d.radarZoom in ALLOWED_RADAR_ZOOMS) d.radarZoom else 8,
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
         clockDateFormat = if (d.clockDateFormat in ALLOWED_DATE_FORMATS) d.clockDateFormat else "ja",
         hourlyMode = if (d.hourlyMode in ALLOWED_HOURLY_MODES) d.hourlyMode else "both",
@@ -156,5 +179,11 @@ class ConfigStore(context: Context) {
         private val ALLOWED_ALIGNS = setOf("left", "center", "right")
         private val ALLOWED_DATE_FORMATS = setOf("ja", "slash")
         private val ALLOWED_HOURLY_MODES = setOf("both", "temp", "precip")
+        private val ALLOWED_THEMES = setOf("dark", "light")
+        private val ALLOWED_RADAR_ZOOMS = setOf(6, 8, 10)
+        private val ALLOWED_STOCK_RANGES = setOf("1d", "5d", "1mo", "6mo", "1y")
+        val ALLOWED_COUNTDOWNS = listOf("newyear", "christmas", "holiday", "dayoff", "fullmoon", "newmoon")
+        private const val MAX_STOCKS = 6
+        private const val MAX_COUNTDOWNS = 10
     }
 }

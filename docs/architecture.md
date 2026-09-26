@@ -54,23 +54,32 @@
 | ファイル | 役割 |
 |---|---|
 | `AppGraph.kt` | プロセスに 1 つだけ持つ部品の置き場。サービス・画面・サーバーが同じ実体を使う。`snapshot()` が画面と Web の設定画面が読む全データ |
-| `SettingsController.kt` | 設定の書き換え。アプリの設定画面と `/api/*` の両方がここを通る（全て保存・PIN・LAN 公開・ホームアプリ・再取得） |
+| `SettingsController.kt` | 設定の書き換え。アプリの設定画面と `/api/*` の両方がここを通る（全て保存・背景画像・PIN・LAN 公開・ホームアプリ・再取得） |
 | `MainActivity.kt` | Compose の画面の重ね方、全画面化、消灯防止、明るさ（通常時／無操作時／通知中）、権限の確認 |
 | `DashboardService.kt` | 前面サービス。サーバーを立て、15 秒（Spotify は 5 秒）ごとに各 Repository に声をかける |
 | `BootReceiver.kt` / `LauncherMode.kt` | 起動・更新時のサービス起動 / ホームアプリ登録（`HomeAlias` の有効化） |
 | `data/Models.kt` | **全データ構造**。`@Serializable` なので、変えると `config.json`・`/api/*`・Web の設定画面・モックが連動する |
 | `data/Choices.kt` | アクセント色と通知音の候補。アプリと Web の設定画面の両方がこの一覧を使う |
+| `data/CardLayout.kt` | カードの幅と並べ方（`Card`・`pack()`）、画面に収まるかの判定（3-2） |
+| `data/TrainRepository.kt` | 運行情報（ODPT の本番とチャレンジの 2 つの API）、路線の一覧（`train-railways.json`、1 日 1 回） |
+| `data/TodayRepository.kt` | 今日は何の日（Wikipedia の日付の記事の「記念日・年中行事」「できごと」をウィキ記法から地の文にする） |
+| `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
+| `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
+| `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
+| `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
+| `data/WallpaperStore.kt` | 背景画像（`filesDir/wallpaper.jpg`）。縮小と写真の向きの補正をしてから置く |
 | `data/ConfigStore.kt` | `config.json` の読み書き、`configVersion` の +1、`sanitize*`（値域の固定）、`flow`（StateFlow） |
 | `data/*Repository.kt` | 各データ源。自分の取得間隔とバックオフを持つ。1 つ失敗しても他は止まらない |
 | `data/JmaAreaLocator.kt` | 緯度経度 → 気象庁の市町村（3-8） |
 | `data/Words.kt` | 今日の単語の辞書（同梱） |
 | `server/DashboardServer.kt` / `server/Auth.kt` | Web の設定画面の配信、API、PIN・セッション・loopback 判定・CSRF |
 | `sound/NoticePlayer.kt` | 通知音の合成（AudioTrack）とメディア音量の一時変更（3-4） |
-| `ui/theme/Theme.kt` | 色・アクセント色（`LocalAccent`）・文字サイズ（`tu`・`vh`） |
+| `ui/theme/Theme.kt` | 色（ダーク・ホワイトの `Palette`、3-3）・アクセント色（`LocalAccent`）・文字サイズ（`tu`・`vh`） |
 | `ui/common/Common.kt` | カードの枠（`WdCard`）、アイコン（SVG パスから作る）、数字の桁揃え |
 | `ui/dashboard/DashboardViewModel.kt` | 2 秒ごとの取得、防災通知・充電の検知、タイマー、強震モニタとジャケット画像 |
 | `ui/dashboard/DashboardScreen.kt` | カードの並べ方（3-2）、フッター、通知バナー、焼き付き防止のずらし |
 | `ui/dashboard/SimpleCards.kt` / `ChartCards.kt` / `RichCards.kt` | 各カード |
+| `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
 | `ui/dashboard/WeatherIcon.kt` / `Hamster.kt` / `GlobeData.kt` | 天気アイコン、回し車のハムスター、Wi-Fi カードの地球儀の海岸線 |
 | `ui/settings/SettingsScreen.kt` / `SettingsWidgets.kt` | アプリの設定画面と部品 |
 | `ui/browser/BrowserScreen.kt` | ブラウズとお気に入り（3-9） |
@@ -90,17 +99,18 @@
 ### 3-1. 新しいカードを足すとき
 
 1. `Models.kt` … `DisplayConfig` に `showFoo: Boolean = true`
-2. `DashboardScreen.kt` … `Slot` に `FOO(幅)` を足し、`shown` と `Card()` の `when` に 1 行ずつ
+2. `CardLayout.kt` … `Card` に `FOO(幅, "名前", { it.showFoo })` を足す。`DashboardScreen.kt` の `Card()` の `when` に 1 行
 3. `SettingsScreen.kt` … `Pane` に項目を足し、`PaneContent()` に面を書く
-4. `settings.html` … メニュー（`<i class="dot" data-w="showFoo">`）と面、面の中に `<input type="checkbox" data-w="showFoo">`
-5. `tools/mock-server.mjs` … `config.display` に `showFoo`
+4. `settings.html` … メニュー（`<i class="dot" data-w="showFoo">`）と面、面の中に `<input type="checkbox" data-w="showFoo" data-card>`
+   （`data-card` を付けると、表示に切り替えたときに画面に収まるかを確かめる）
+5. `tools/mock-server.mjs` … `config.display` に `showFoo`、`CARDS` に幅と名前
 
 Web 側の真偽値は `data-w` を書くだけで保存対象になる（`settings.js` の `collect()` が全部拾う）。
 `select` と配列は `collect()` と `render()` の両方に 1 行ずつ足す。
 
 ### 3-2. カードの幅と並び
 
-幅は `DashboardScreen.kt` の `Slot` の数値（24 列中いくつ分か）だけで決まる。
+幅は `CardLayout.kt` の `Card` の数値（24 列中いくつ分か）だけで決まる。
 
 | 行 | カード（列数） |
 |---|---|
@@ -108,9 +118,34 @@ Web 側の真偽値は `data-w` を書くだけで保存対象になる（`setti
 | 2 | LINE メモ 10 ・ 時間別予報 9 ・ Spotify 5 |
 | 3 | Wi-Fi 6 ・ 端末 10 ・ ニュース 8 |
 | 4 | 週間予報 12 ・ タイマー 6 ・ 今日の単語 6 |
+| （追加） | アナログ時計 6 ・ 予定表 9 ・ 運行情報 9 ・ 雨雲レーダー 8 ・ 日の出と月 8 ・ カウントダウン 8 ・ 今日は何の日 8 ・ 株価 10 |
+
+追加のカードは既定で非表示（`DisplayConfig.show*` の既定が false）。既定の 12 枚で横向きの画面がちょうど 4 行埋まるため、
+既定で出すと更新しただけで画面に収まらなくなる。表示するには、先にほかのカードを非表示にする。
 
 非表示のカードが空けた列は `pack()` が同じ行に残ったカードへ比例配分する（端数は最大剰余法）。
 縦向きと、横でも幅が 840dp 未満の端末では 2 列（時間別予報だけ全幅）にして縦にスクロールさせる。
+
+**画面に収まるかの判定**（`CardLayout.fit()`）: 横向きでは 1 行に最低 `minRowDp()`（画面の高さの 20%、120〜160dp）を要り、
+カードを並べられる高さ（ダッシュボードが実測して `CardLayout.measured` に入れる）に入る行数を上限にする。
+カードの文字や図は画面の高さに比例させている（`vh`）ので、下限も高さに比例させた。
+高さ 800dp の横向きのタブレットで 4 行（既定の全カード）まで。縦向き・幅の狭い端末は元からスクロールするので判定しない。
+
+**週間予報を縮めて詰める**（`CardLayout.rows()`）: 横向きで上限の行数を超えるときは、週間予報の幅を 12 列から
+`DAILY_MIN_SPAN`（元の半分の 6 列）まで 1 列ずつ縮め、空いた列に後ろのカードを並べる。縮める幅はできるだけ小さくし、
+まず並び順のまま詰め、それでも入らなければ `pack(backfill = DAILY)` で、今の行に入らなかった後ろのカードを週間予報の行へ戻す。
+半分まで縮めても収まらないときだけ「収まらない」とし、設定画面が理由を出して止める（メッセージにもその旨を書く）。
+縮めた週間予報は中身（1 日 92dp の列）を横にスクロールさせ、続きのある側の端をぼかし、凡例を短くする。
+例: 既定の 12 枚にアナログ時計（6 列）を足すと、4 行目が「週間予報 6 ・ タイマー 6 ・ 今日の単語 6 ・ アナログ時計 6」になる。
+
+| どこで | 何をする |
+|---|---|
+| アプリの設定画面（`SettingsPanel.update()`） | カードを表示に切り替えて収まらなくなるなら、理由をダイアログで出して切り替えない |
+| Web の設定画面（`input[data-card]`） | 同じ判定を `POST /api/layout/check` で問い合わせ、収まらなければ理由を出してチェックを戻す |
+| `SettingsController.saveAll()` | 上の 2 つをすり抜けた保存を `cards_overflow` で断る |
+| `DashboardScreen` | それでも収まらない設定（画面の小さい端末へ持ち込んだ等）は、詰め込まずに 1 行の高さを保って縦にスクロールし、フッターに注意を出す |
+
+カードを増やさない変更（減らす・並びはそのまま）は、元から収まっていなくても止めない。
 
 ### 3-3. アクセント色
 
@@ -120,6 +155,16 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 
 アクセント色に追従しない色（意味が色に紐づくもの）: 週間予報の気温バー（寒色→暖色）、
 防災・Spotify・今日の単語・LINE メモの枠と見出し（琥珀／緑／赤／紫の役割色）。
+
+**テーマ**（`display.theme` = `dark` / `light`）: `Theme.kt` の `DarkPalette` / `LightPalette` を `Wd.palette` に入れ替える。
+`Wd.Text` などは毎回 `Wd.palette` から読む Compose の状態なので、テーマを変えると読んでいる所がすべて描き直される。
+色を画面の外（トップレベルの `val`）に写し取ると追従しなくなるので、関数か getter にすること。
+ホワイトでは強調色を少し濃くして配り（`LocalAccent`）、白に近い色（月・雪・地球儀の陸・強震モニタの地図の反転）は別の色にする。
+強調色で塗ったボタンの文字は、テーマによらず `Wd.OnAccent`（暗い色）。
+
+**背景画像**（`Config.wallpaper`）: 画像は `WallpaperStore` が `filesDir/wallpaper.jpg` に置き、設定には時刻（`imageSetAt`）だけを持つ。
+ダッシュボードは `imageSetAt` が変わったときだけ読み直し、`display.cardOpacity` の不透明度でカードの面を透かす（`Wd.cardAlpha`）。
+選ぶ・外すはその場で保存する操作で、「全て保存」の差分（`ConfigPatch`）には含めない。
 
 ### 3-4. 通知音
 
@@ -154,8 +199,10 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 
 - `display` などは差分ではなく**置き換え**。だから送る側は常に全項目を組み立てる
 - LINE メモのトークンは書き込み専用。入力されたときだけ送り、読み出す経路は無い
-- その場で効かせる操作（ホームアプリ登録・PIN・LAN 公開・Spotify の連携と解除・再取得）は「全て保存」に含めない
-- 取得先に関わる値（地点・単位・防災・ニュース・メモ・Spotify）が変わったら、`saveAll()` が待たずに取り直す
+- その場で効かせる操作（背景画像・ホームアプリ登録・PIN・LAN 公開・Spotify の連携と解除・再取得）は「全て保存」に含めない
+- 取得先に関わる値（地点・単位・防災・ニュース・メモ・Spotify・運行情報・予定表・株価）が変わったら、`saveAll()` が待たずに取り直す
+- 秘密の値（メモの端末トークン、ODPT のトークン、iCloud の App 用パスワードと公開 URL）は書き込み専用。`PublicConfig` には「設定済みか」だけを出す
+- アカウントの要らない取得先（今日は何の日・株価・祝日）は、そのカードを表示しているときだけ通信する
 - 値域は `ConfigStore.sanitize*` が固定する。許可リストに無い値は黙って既定に戻る
 
 ### 3-6. 設定の変化の伝わり方
@@ -285,9 +332,10 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 そのカードに効く設定を同じ面に置く。メニュー項目の左の点は、いまそのカードを表示しているかを表す。
 
 ```
-全体   … 配色 / 画面の明るさ / 場所 / 通知
+全体   … 配色 / テーマ（色の基調・背景画像・カードの不透明度）/ 画面の明るさ / 場所 / 通知
 カード … 時刻 天気 防災 LINE メモ 時間別予報 Spotify
-         Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語 ハムスター
+         Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語
+         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 ハムスター
 端末   … ホームアプリ（電池の最適化を含む）/ ネットワーク（LAN 公開）
 ```
 
@@ -297,6 +345,9 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 | Web の API | 扱うもの |
 |---|---|
 | `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify） |
+| `POST /api/layout/check` | カードを表示に切り替える前の「画面に収まるか」の確認（3-2） |
+| `POST /api/wallpaper` / `POST /api/wallpaper/clear` | 背景画像の設定（本文は画像ファイル、25 MB まで）・解除 |
+| `GET /api/train/railways` / `POST /api/train/railways/reload` | 運行情報の路線の一覧（設定画面で選ぶ）/ 読み直し |
 | `POST /api/lan` | PIN と LAN 公開（PIN は PBKDF2 + ソルト、平文は保持しない） |
 | `POST /api/device` | ホームアプリ登録 |
 | `POST /api/sound/preview` | 通知音の試聴（タブレットから鳴る） |

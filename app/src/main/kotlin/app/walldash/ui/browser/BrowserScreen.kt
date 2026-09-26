@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -183,12 +184,12 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
                 runCatching { WebView(ctx) }.getOrElse {
                     return@AndroidView android.widget.TextView(ctx).apply {
                         text = "この端末では WebView（Android System WebView）が使えないため、ブラウズを開けません。"
-                        setTextColor(android.graphics.Color.parseColor("#93A1B1"))
+                        setTextColor(Wd.Text2.toArgb())
                         textSize = 15f
                         setPadding(48, 48, 48, 48)
                     }
                 }.apply {
-                    setBackgroundColor(android.graphics.Color.parseColor("#0A0C10"))
+                    setBackgroundColor(Wd.Bg.toArgb())
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.setSupportZoom(true)

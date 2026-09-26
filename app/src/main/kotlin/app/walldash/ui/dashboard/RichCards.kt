@@ -174,7 +174,7 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig) {
                 Spacer(Modifier.width(7.dp))
                 Text(q.epicenter.orEmpty(), fontSize = 13.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(7.dp))
-                Text("M${q.magnitude ?: "—"} ・ ${hhmm(q.occurredAt)}", color = Wd.Text3, fontSize = 12.tu, style = Tabular)
+                Text("M${q.magnitude ?: "—"} ・ ${dateTime(q.occurredAt)}", color = Wd.Text3, fontSize = 12.tu, style = Tabular)
             }
         }
     }
@@ -231,7 +231,8 @@ private val KMONI_BASE_FILTER = ColorFilter.colorMatrix(
 @Composable
 private fun Kmoni(base: ImageBitmap?, frame: DashboardViewModel.KmoniFrame, modifier: Modifier) {
     Box(modifier) {
-        base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = 0.55f, colorFilter = KMONI_BASE_FILTER) }
+        // ホワイトのテーマでは白地のまま重ねる（反転すると明るい面の上で黒い塊になる）
+        base?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, alpha = 0.55f, colorFilter = if (Wd.palette.light) null else KMONI_BASE_FILTER) }
         frame.image?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
         Text(
             frame.label,
@@ -248,7 +249,7 @@ private fun Kmoni(base: ImageBitmap?, frame: DashboardViewModel.KmoniFrame, modi
 // ---------------------------------------------------------------- Wi-Fi
 
 private val LEVEL_LABEL = listOf("非常に弱い", "弱い", "普通", "強い", "非常に強い")
-private val LEVEL_COLOR = listOf(Wd.Red, Wd.Red, Wd.Amber, Wd.Green, Wd.Green)
+private fun levelColor(level: Int) = listOf(Wd.Red, Wd.Red, Wd.Amber, Wd.Green, Wd.Green)[level]
 private val SSID_MSG = mapOf(
     "permission_required" to "権限が必要",
     "location_services_off" to "位置情報サービスを ON に",
@@ -258,7 +259,7 @@ private val SSID_MSG = mapOf(
 @Composable
 fun WifiCard(wifi: WifiState?, stats: DeviceStats?, rssiHistory: List<Int?>, showGlobe: Boolean, modifier: Modifier) {
     val accent = LocalAccent.current
-    WdCard("Wi-Fi リンク速度", modifier, note = listOfNotNull(wifi?.ipAddress, wifi?.band).joinToString(" ・ ")) {
+    WdCard("Wi-Fi", modifier, note = listOfNotNull(wifi?.ipAddress, wifi?.band).joinToString(" ・ ")) {
         if (wifi == null) return@WdCard
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f)) {
@@ -288,7 +289,7 @@ fun WifiCard(wifi: WifiState?, stats: DeviceStats?, rssiHistory: List<Int?>, sho
                         Spacer(Modifier.weight(1f))
                         if (wifi.rssiDbm == null) Text("—", fontSize = 12.tu) else {
                             Text("${wifi.rssiDbm} dBm", fontSize = 12.tu, fontWeight = FontWeight.SemiBold, style = Tabular)
-                            Text(" (${LEVEL_LABEL[level]})", color = LEVEL_COLOR[level], fontSize = 11.tu, fontWeight = FontWeight.SemiBold)
+                            Text(" (${LEVEL_LABEL[level]})", color = levelColor(level), fontSize = 11.tu, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -315,18 +316,21 @@ private fun Speeds(wifi: WifiState, modifier: Modifier) {
 
 @Composable
 private fun SpeedRow(label: String, value: Int?, size: androidx.compose.ui.unit.TextUnit) {
-    Row(verticalAlignment = Alignment.Bottom) {
+    // value・Mbps は折り返すと数字が欠けて見えるので、1 行固定で自然幅のまま右詰めにする
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
         Text(label, color = Wd.Text3, fontSize = 11.tu, maxLines = 1)
+        Spacer(Modifier.weight(1f))
         Text(
             value?.toString() ?: "—",
             fontSize = size,
             fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.End,
             lineHeight = 1.1.em,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Visible,
             style = Tabular,
-            modifier = Modifier.weight(1f),
         )
-        Text(" Mbps", color = Wd.Text2, fontSize = 10.5f.tu, modifier = Modifier.padding(bottom = 2.dp))
+        Text(" Mbps", color = Wd.Text2, fontSize = 10.5f.tu, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
     }
 }
 
@@ -372,6 +376,9 @@ private fun Sparkline(history: List<Int?>, modifier: Modifier) {
     }
 }
 
+/** ホワイトのテーマで球に塗る海の色（白い面の上だと白い陸が見えなくなるため）。 */
+private val GLOBE_SEA_LIGHT = Color(0xFF26364A)
+
 /** 海岸線の帯を円でくり抜いた中で左へ流し、回っているように見せる（1 周 18 秒）。 */
 @Composable
 private fun Globe(modifier: Modifier) {
@@ -389,7 +396,7 @@ private fun Globe(modifier: Modifier) {
     Canvas(modifier) {
         scale(size.minDimension / 48f, pivot = Offset.Zero) {
             val center = Offset(24f, 24f)
-            drawCircle(Color.White.copy(alpha = 0.06f), 19f, center)
+            drawCircle(if (Wd.palette.light) GLOBE_SEA_LIGHT else Color.White.copy(alpha = 0.06f), 19f, center)
             clipPath(Path().apply { addOval(androidx.compose.ui.geometry.Rect(center, 19f)) }) {
                 for (copy in -1..1) {
                     translate(copy * GlobeData.STRIP_WIDTH - spin, 0f) {

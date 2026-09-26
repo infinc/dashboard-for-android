@@ -27,6 +27,9 @@
       <button class="nav-item" type="button" data-pane="general">
         <i class="dot dot-off"></i><span>配色</span>
       </button>
+      <button class="nav-item" type="button" data-pane="theme">
+        <i class="dot dot-off"></i><span>テーマ</span>
+      </button>
       <button class="nav-item" type="button" data-pane="screen">
         <i class="dot dot-off"></i><span>画面の明るさ</span>
       </button>
@@ -74,6 +77,30 @@
       <button class="nav-item" type="button" data-pane="word">
         <i class="dot" data-w="showWord"></i><span>今日の単語</span>
       </button>
+      <button class="nav-item" type="button" data-pane="analog">
+        <i class="dot" data-w="showAnalogClock"></i><span>アナログ時計</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="calendar">
+        <i class="dot" data-w="showCalendar"></i><span>予定表</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="train">
+        <i class="dot" data-w="showTrain"></i><span>運行情報</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="radar">
+        <i class="dot" data-w="showRadar"></i><span>雨雲レーダー</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="sunmoon">
+        <i class="dot" data-w="showSunMoon"></i><span>日の出・月</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="countdown">
+        <i class="dot" data-w="showCountdown"></i><span>カウントダウン</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="today">
+        <i class="dot" data-w="showToday"></i><span>今日は何の日</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="stocks">
+        <i class="dot" data-w="showStocks"></i><span>株価</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -110,6 +137,42 @@
       <div class="notice info">
         カードを非表示にしても空白は残りません。空いた列は<strong>同じ行に残ったカードへ自動で配分</strong>され、
         1 行が常に画面幅いっぱいになります。
+      </div>
+      <div class="notice info">
+        カードを表示しすぎて<strong>画面に収まらなくなるときは、そのカードは表示できません</strong>（理由をお知らせします）。
+        先にほかのカードを非表示にしてください。タブレットが縦向きのときは縦にスクロールするので、この制限はありません。
+      </div>
+    </section>
+
+    <!-- ============================================================ テーマ -->
+    <section class="pane" data-pane="theme">
+      <h1>テーマ</h1>
+      <p class="lead">ダッシュボード・設定・ブラウズの色の基調と、ダッシュボードの背景を決めます。</p>
+
+      <div class="field" style="max-width:320px">
+        <label for="theme">色の基調</label>
+        <select id="theme">
+          <option value="dark">ダーク</option>
+          <option value="light">ホワイト</option>
+        </select>
+        <div class="hint">ダークは暗い部屋で眩しくならない配色、ホワイトは明るい部屋で読みやすい配色です。</div>
+      </div>
+
+      <div class="field">
+        <label for="wallpaperFile">背景画像</label>
+        <input id="wallpaperFile" type="file" accept="image/*">
+        <div style="margin-top:10px"><button id="wallpaperClear" class="ghost" type="button">背景画像を外す</button></div>
+        <div class="hint">
+          選んだ画像はタブレットへ送り、画面の大きさに縮めて保存します。<strong>選んだその場で反映</strong>します（「全て保存」は要りません）。
+          タブレット本体の設定画面からは、端末の写真から選べます。
+        </div>
+        <div class="status" id="wallpaperStatus"></div>
+      </div>
+
+      <div class="field">
+        <label for="cardOpacity">カードの不透明度 <b id="cardOpacityValue" class="val"></b></label>
+        <input id="cardOpacity" type="range" min="20" max="100" step="5">
+        <div class="hint">背景画像があるときだけ効きます。小さいほどカードが透けて背景が見えます（100% で透けません）。</div>
       </div>
     </section>
 
@@ -211,7 +274,7 @@
       <p class="lead">大きな時計と日付を出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showClock"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showClock" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="grid2">
@@ -248,7 +311,7 @@
       <p class="lead">現在の気温・体感・降水確率・UV・AQI などを出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showWeather"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showWeather" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field" style="max-width:280px">
@@ -294,7 +357,7 @@
       <p class="lead">警報・注意報、地震、津波、台風、噴火を出すカードです。右側には強震モニタを重ねます。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showDisaster"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showDisaster" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field">
@@ -346,7 +409,7 @@
       <p class="lead">LINE に送った文章を壁に出すカードです。新しい順に並び、カード内をスクロールできます。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showMemo"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showMemo" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field">
@@ -388,7 +451,7 @@
       <p class="lead">これから 12 時間の気温と降水確率を折れ線と棒で出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showHourly"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showHourly" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field" style="max-width:320px">
@@ -412,7 +475,7 @@
       <p class="lead">再生中の曲のジャケットと曲名を出し、再生・一時停止・曲送りができるカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showSpotify"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showSpotify" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field">
@@ -459,7 +522,7 @@
       <p class="lead">リンク速度・SSID・電波強度・実際に流れている通信量を出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showWifi"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showWifi" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field">
@@ -479,7 +542,7 @@
       <p class="lead">CPU 使用率・バッテリー・温度・ストレージ・メモリを出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showDeviceStats"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showDeviceStats" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="notice info">
@@ -493,7 +556,7 @@
       <p class="lead">登録したフィードの見出しを出すカードです。カード内はスクロールできます。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showFeed"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showFeed" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="field">
@@ -525,7 +588,7 @@
       <p class="lead">向こう 1 週間の最低・最高気温、降水量、降水確率を出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showDaily"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showDaily" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="notice info">
@@ -539,7 +602,7 @@
       <p class="lead">時・分を指定して鳴らすカードです。設定した残り時間は端末内に保存され、再読込しても続きます。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showTimer"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showTimer" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="notice info">
@@ -553,7 +616,7 @@
       <p class="lead">英検準 1 級レベルの単語を 1 時間に 1 語出すカードです。</p>
 
       <div class="field card-switch">
-        <label class="toggle"><input type="checkbox" data-w="showWord"> このカードをダッシュボードに表示する</label>
+        <label class="toggle"><input type="checkbox" data-w="showWord" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
       <div class="notice info">
@@ -562,6 +625,203 @@
     </section>
 
     <!-- ===================================================== ハムスター -->
+    <!-- ===================================================== アナログ時計 -->
+    <section class="pane" data-pane="analog">
+      <h1>アナログ時計</h1>
+      <p class="lead">1/5 秒刻みの細かい目盛りと日付窓のある、アナログの時計です。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showAnalogClock" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" data-w="analogSweep"> 秒針をなめらかに動かす</label>
+        <div class="hint">切ると秒針が 1 秒ごとに刻みます。描き直しが 1 秒に 1 回になるので、古い端末で動きが重いときに切ってください。</div>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" data-w="analogNumerals"> 文字盤に数字を入れる</label>
+      </div>
+    </section>
+
+    <!-- ========================================================= 予定表 -->
+    <section class="pane" data-pane="calendar">
+      <h1>予定表（iCloud カレンダー）</h1>
+      <p class="lead">iCloud のカレンダーの予定を、今日から決めた日数ぶん並べるカードです。15 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showCalendar" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="calendarEnabled"> 予定を取得する</label>
+      </div>
+      <div class="field" style="max-width:420px">
+        <label for="calendarMode">つなぎ方</label>
+        <select id="calendarMode">
+          <option value="caldav">Apple ID で接続（すべてのカレンダー）</option>
+          <option value="ics">共有カレンダーの公開 URL</option>
+        </select>
+      </div>
+      <div id="calendarCaldav">
+        <div class="field">
+          <label for="calendarAppleId">Apple ID</label>
+          <input id="calendarAppleId" placeholder="例: name@icloud.com" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="calendarPassword">App 用パスワード</label>
+          <input id="calendarPassword" type="password" autocomplete="new-password">
+          <div class="hint">
+            Apple ID のふだんのパスワードでは接続できません。<strong>account.apple.com →「サインインとセキュリティ」→「App 用パスワード」</strong>で作った
+            16 文字を入れてください（いつでも取り消せます）。保存済みの値は表示しません。
+          </div>
+        </div>
+      </div>
+      <div id="calendarIcs" class="field">
+        <label for="calendarIcsUrl">公開 URL</label>
+        <input id="calendarIcsUrl" type="password" autocomplete="new-password">
+        <div class="hint">
+          iPhone の「カレンダー」→ カレンダーの (i) →「公開カレンダー」を ON にして出る <code>webcal://</code> の URL。
+          URL を知っている人は誰でも予定を読めるので、保存済みの値は表示しません。
+        </div>
+      </div>
+      <div class="field" style="max-width:240px">
+        <label for="calendarDays">何日先まで出すか（1〜31 日）</label>
+        <input id="calendarDays" type="number" min="1" max="31">
+      </div>
+      <div class="status" id="calendarStatus"></div>
+    </section>
+
+    <!-- ======================================================= 運行情報 -->
+    <section class="pane" data-pane="train">
+      <h1>運行情報（公共交通オープンデータ）</h1>
+      <p class="lead">電車の遅れ・運転見合わせを出すカードです。公共交通オープンデータセンター（ODPT）の API から 5 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showTrain" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="trainEnabled"> 運行情報を取得する</label>
+      </div>
+      <div class="field">
+        <label for="trainToken">アクセストークン（本番）</label>
+        <input id="trainToken" type="password" autocomplete="new-password">
+        <div class="hint">developer.odpt.org で利用者登録（無料）をするともらえます。東京メトロ・都営地下鉄・私鉄各社の運行情報が取れます。保存済みの値は表示しません。</div>
+      </div>
+      <div class="field">
+        <label for="trainChallengeToken">アクセストークン（チャレンジ）</label>
+        <input id="trainChallengeToken" type="password" autocomplete="new-password">
+        <div class="hint">JR 東日本などは「公共交通オープンデータチャレンジ」用の API にだけ載っています。チャレンジに参加登録するともらえる別のトークンです（期間限定）。無くても動きます。</div>
+      </div>
+      <div class="field">
+        <label>表示する路線（最大 12）</label>
+        <div class="row"><button id="trainReload" class="ghost" type="button">路線の一覧を読み込む</button><button id="trainClear" class="ghost" type="button">選択をすべて外す</button></div>
+        <div class="hint">選ばないと、遅れや運転見合わせが出ている路線だけを出します。一覧はトークンを保存してから読み込めます。</div>
+        <div class="status" id="trainListStatus"></div>
+        <div id="trainRailways" class="toggles"></div>
+      </div>
+      <div class="status" id="trainStatus"></div>
+      <div class="notice">
+        データは公共交通オープンデータ協議会が「公共交通オープンデータ基本ライセンス」で提供しているもので、正確さは保証されていません。
+        急ぐときは各事業者の公式の案内も確かめてください。
+      </div>
+    </section>
+
+    <!-- ===================================================== 雨雲レーダー -->
+    <section class="pane" data-pane="radar">
+      <h1>雨雲レーダー</h1>
+      <p class="lead">気象庁の雨雲の動き（5 分ごと）を、国土地理院の地図に重ねて出すカードです。中心は「場所」で選んだ地点です。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showRadar" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field" style="max-width:320px">
+        <label for="radarZoom">範囲</label>
+        <select id="radarZoom">
+          <option value="6">広域（関東全体くらい）</option>
+          <option value="8">地方（県くらい）</option>
+          <option value="10">周辺（市くらい）</option>
+        </select>
+      </div>
+      <div class="notice info">カードを表示している間だけ、5 分ごとに地図と雨雲の画像（合わせて 30 枚ほど、1 枚数 KB）を取得します。日本国内の地点だけ雨雲が出ます。</div>
+    </section>
+
+    <!-- ===================================================== 日の出・月 -->
+    <section class="pane" data-pane="sunmoon">
+      <h1>日の出・日の入り ／ 月</h1>
+      <p class="lead">今日の日の出・日の入りと太陽の位置、いまの月の満ち欠け・月齢・次の満月と新月を出すカードです。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showSunMoon" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="notice info">日の出・日の入りは天気と同じ Open-Meteo の値（「場所」の地点）です。月の満ち欠けは端末の中で計算するので、通信は増えません。</div>
+    </section>
+
+    <!-- =================================================== カウントダウン -->
+    <section class="pane" data-pane="countdown">
+      <h1>カウントダウン</h1>
+      <p class="lead">決めた日までの残りの日数を、近い順に並べるカードです。1 日を切ると時・分・秒で数えます。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showCountdown" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label>数える行事</label>
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" data-cd="newyear"> 新年</label>
+          <label class="toggle"><input type="checkbox" data-cd="christmas"> クリスマス</label>
+          <label class="toggle"><input type="checkbox" data-cd="holiday"> 次の祝日</label>
+          <label class="toggle"><input type="checkbox" data-cd="dayoff"> 次の休日（土日・祝日）</label>
+          <label class="toggle"><input type="checkbox" data-cd="fullmoon"> 次の満月</label>
+          <label class="toggle"><input type="checkbox" data-cd="newmoon"> 次の新月</label>
+        </div>
+        <div class="hint">「次の祝日」「次の休日」は内閣府の祝日の一覧（週に 1 回取得）を使います。</div>
+      </div>
+      <div class="field">
+        <label for="countdownCustom">自分で決める日（1 行に 1 つ）</label>
+        <textarea id="countdownCustom" placeholder="卒業 2027-03-18&#10;誕生日 05-04"></textarea>
+        <div class="hint">「名前 日付」の形で書きます。日付は 2027-03-18（その日だけ）か 03-18（毎年）。後ろに 18:30 のように時刻も付けられます（最大 10 行）。</div>
+      </div>
+    </section>
+
+    <!-- ===================================================== 今日は何の日 -->
+    <section class="pane" data-pane="today">
+      <h1>今日は何の日</h1>
+      <p class="lead">今日の記念日・年中行事を出すカードです。日本語版 Wikipedia の日付の記事（例:「9月26日」）から、1 日 1 回取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showToday" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" data-w="todayShowEvent"> 過去の今日のできごとを 1 件添える</label>
+        <div class="hint">1 時間ごとに別のできごとに入れ替わります。</div>
+      </div>
+      <div class="notice info">記事は Wikipedia の執筆者によるもので、CC BY-SA 4.0 で公開されています（フッターに出典を出します）。</div>
+    </section>
+
+    <!-- =========================================================== 株価 -->
+    <section class="pane" data-pane="stocks">
+      <h1>株価</h1>
+      <p class="lead">主要な株価指数や為替の値と、簡単なチャートを出すカードです。10 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showStocks" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label for="stocksSymbols">銘柄（1 行に 1 つ、最大 6 つ）</label>
+        <textarea id="stocksSymbols" placeholder="^N225 日経平均"></textarea>
+        <div class="hint">「記号 表示名」の形で書きます。記号は Yahoo Finance の表記です（例: <code>^N225 日経平均</code> / <code>^DJI NY ダウ</code> / <code>^GSPC S&amp;P 500</code> / <code>7203.T トヨタ</code> / <code>USDJPY=X ドル円</code>）。</div>
+      </div>
+      <div class="field" style="max-width:320px">
+        <label for="stocksRange">チャートの期間</label>
+        <select id="stocksRange">
+          <option value="1d">1 日（5 分足）</option>
+          <option value="5d">5 日</option>
+          <option value="1mo">1 か月</option>
+          <option value="6mo">6 か月</option>
+          <option value="1y">1 年</option>
+        </select>
+      </div>
+      <div class="notice">値は Yahoo Finance の公開されていない API から取っています。数十分の遅れがあり、予告なく取れなくなることがあります。投資の判断には使わないでください。</div>
+    </section>
+
     <section class="pane" data-pane="hamster">
       <h1>ハムスター</h1>
       <p class="lead">画面の下で回し車を走るハムスターです。カードではないので、並びには影響しません。</p>

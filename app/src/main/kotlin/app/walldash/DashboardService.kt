@@ -55,6 +55,19 @@ class DashboardService : LifecycleService() {
                     .onFailure { Log.w(TAG, "フィードの定期取得でエラー", it) }
                 runCatching { graph.memo.refreshIfDue() }
                     .onFailure { Log.w(TAG, "メモの定期取得でエラー", it) }
+                runCatching { graph.train.refreshIfDue() }
+                    .onFailure { Log.w(TAG, "運行情報の定期取得でエラー", it) }
+                runCatching { graph.calendar.refreshIfDue() }
+                    .onFailure { Log.w(TAG, "予定の定期取得でエラー", it) }
+                // アカウントの要らない取得先は、カードを出しているときだけ通信する
+                val d = graph.config.get().display
+                val cd = graph.config.get().countdown.builtins
+                runCatching { graph.today.refreshIfDue(d.showToday) }
+                    .onFailure { Log.w(TAG, "今日は何の日の定期取得でエラー", it) }
+                runCatching { graph.stocks.refreshIfDue(d.showStocks) }
+                    .onFailure { Log.w(TAG, "株価の定期取得でエラー", it) }
+                runCatching { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }
+                    .onFailure { Log.w(TAG, "祝日の定期取得でエラー", it) }
                 delay(TICK_MS)
             }
         }

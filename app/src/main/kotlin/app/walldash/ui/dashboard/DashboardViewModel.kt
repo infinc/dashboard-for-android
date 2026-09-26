@@ -13,6 +13,7 @@ import app.walldash.data.DeviceState
 import app.walldash.data.DisasterState
 import app.walldash.data.Tones
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readRawBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,6 +21,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -71,6 +74,28 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     val album = _album.asStateFlow()
     private var albumLoading: String? = null
 
+    /**
+     * 雨雲レーダー。地図（地理院タイル）と雨雲（気象庁のナウキャスト）のタイルを、天気の地点を中心に 5 x 3 枚ずつ持つ。
+     * [centerX] / [centerY] は地点の位置を、ズーム [zoom] のタイル 1 枚 = 256 とした座標で表したもの。
+     */
+    data class RadarFrame(
+        val zoom: Int = 0,
+        val centerX: Float = 0f,
+        val centerY: Float = 0f,
+        val base: Map<Pair<Int, Int>, ImageBitmap> = emptyMap(),
+        val rain: Map<Pair<Int, Int>, ImageBitmap> = emptyMap(),
+        val label: String = "",
+        val failed: Boolean = false,
+    )
+
+    private val _radar = MutableStateFlow(RadarFrame())
+    val radar = _radar.asStateFlow()
+    private var radarAt = 0L
+
+    /** 背景画像。設定で選ばれた（imageSetAt が変わった）ときだけ読み直す。 */
+    private val _wallpaper = MutableStateFlow<ImageBitmap?>(null)
+    val wallpaper = _wallpaper.asStateFlow()
+
     enum class TimerMode { IDLE, RUNNING, RINGING }
 
     data class TimerState(
@@ -88,6 +113,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var lastCharging: Boolean? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            config.map { it.wallpaper.imageSetAt }.distinctUntilChanged().collect { at ->
+                _wallpaper.value = if (at > 0) graph.wallpaper.load()?.asImageBitmap() else null
+            }
+        }
         viewModelScope.launch {
             while (true) {
                 val t = System.currentTimeMillis()
@@ -106,6 +136,12 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 if (active && wantsKmoni()) kmoniTick()
                 delay(KMONI_MS)
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                if (active && graph.config.get().display.showRadar) runCatching { radarTick() }
+                delay(RADAR_CHECK_MS)
             }
         }
     }
@@ -229,6 +265,49 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 雨雲は 5 分ごとに出る。地点かズームが変わったら地図から取り直す。
+     * 気象庁の時刻（targetTimes）は UTC の "yyyyMMddHHmmss"。
+     */
+    private suspend fun radarTick() {
+        val c = graph.config.get()
+        val zoom = c.display.radarZoom
+        val n = 1 shl zoom
+        val lat = c.location.latitude.coerceIn(-85.0, 85.0)
+        val cx = ((c.location.longitude + 180) / 360 * n * 256).toFloat()
+        val latR = Math.toRadians(lat)
+        val cy = ((1 - kotlin.math.ln(kotlin.math.tan(latR) + 1 / kotlin.math.cos(latR)) / Math.PI) / 2 * n * 256).toFloat()
+        val moved = _radar.value.zoom != zoom || _radar.value.centerX != cx || _radar.value.centerY != cy
+        if (!moved && System.currentTimeMillis() - radarAt < RADAR_MS) return
+        radarAt = System.currentTimeMillis()
+
+        val tx = (cx / 256).toInt()
+        val ty = (cy / 256).toInt()
+        val keys = (-2..2).flatMap { dx -> (-1..1).map { dy -> Pair((tx + dx).mod(n), ty + dy) } }.filter { it.second in 0 until n }
+        val base = if (moved || _radar.value.base.isEmpty()) {
+            keys.mapNotNull { k -> fetchBitmap("https://cyberjapandata.gsi.go.jp/xyz/pale/$zoom/${k.first}/${k.second}.png")?.let { k to it } }.toMap()
+        } else {
+            _radar.value.base
+        }
+        val times = runCatching { graph.http.get(RADAR_TIMES).bodyAsText() }.getOrNull()
+        val stamp = times?.let { Regex("\"basetime\"\\s*:\\s*\"(\\d{14})\"").find(it)?.groupValues?.get(1) }
+        if (stamp == null) {
+            _radar.value = _radar.value.copy(zoom = zoom, centerX = cx, centerY = cy, base = base, failed = true, label = "取得できません")
+            return
+        }
+        val rain = keys.mapNotNull { k ->
+            fetchBitmap("https://www.jma.go.jp/bosai/jmatile/data/nowc/$stamp/none/$stamp/surf/hrpns/$zoom/${k.first}/${k.second}.png")?.let { k to it }
+        }.toMap()
+        val local = runCatching {
+            java.time.LocalDateTime.parse(stamp, STAMP).atZone(java.time.ZoneOffset.UTC).withZoneSameInstant(ZoneId.systemDefault())
+        }.getOrNull()
+        _radar.value = RadarFrame(
+            zoom, cx, cy, base, rain,
+            label = local?.let { "%d:%02d 観測".format(it.hour, it.minute) }.orEmpty(),
+            failed = base.isEmpty(),
+        )
+    }
+
     private fun loadAlbum(url: String?) {
         if (url == null || _album.value?.first == url || albumLoading == url) return
         albumLoading = url
@@ -289,6 +368,9 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val POLL_MS = 2_000L
         const val KMONI_MS = 3_000L
+        const val RADAR_CHECK_MS = 60_000L
+        const val RADAR_MS = 300_000L
+        const val RADAR_TIMES = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json"
         const val KMONI_DELAY_MS = 2_000L
         const val TOAST_MS = 5_000L
         const val HISTORY = 60
