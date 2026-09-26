@@ -25,3 +25,6 @@ docs/device-probe-*.txt
 # 壁に出ている内容がそのまま写るため（SSID・IP アドレス・LINE メモの本文・
 # 地点名・再生中の曲）、中身を確認せずにコミットしないこと。
 docs/shots/
+
+RELATION.md
+CLAUDE.md

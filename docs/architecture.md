@@ -1,251 +1,226 @@
 # Walldash の構造と、どこを触ると何が動くか
 
-実機（Lenovo TB-X306F / Android 10 / API 29）と接続した状態で、コードと動作の両方を
-読んだうえでまとめたもの。「あるコードを変更したら他のものも変わってしまう」箇所を
+コードと実機の動作の両方を読んだうえでまとめたもの。「あるコードを変えたら他のものも変わる」箇所を
 はっきりさせることを目的にしている。
 
 ---
 
 ## 1. 全体の形
 
-Walldash は **Android アプリの中に HTTP サーバーを立て、自分の WebView でそれを見ている**。
-つまり UI は Android の View ではなく、`assets/web` の HTML/CSS/JS で出来ている。
+タブレットの画面（カード・設定・ブラウズ）は **Jetpack Compose のネイティブ画面**。
+データは常駐サービスが集めてプロセス内に持ち、画面はそれを直接読む（HTTP は通さない）。
+アプリ内蔵の HTTP サーバーは、**PC や他の端末のブラウザから開く設定画面**のためだけにある。
 
 ```
-┌─ Android プロセス (app.walldash) ───────────────────────────────┐
-│                                                                 │
-│  MainActivity ──── WebView ──HTTP──▶ 127.0.0.1:8080             │
-│   ・全画面 / 消灯防止                      ▲                     │
-│   ・バックライト輝度の制御                 │                     │
-│   ・walldash:// を拾う（ブラウズ・通知）   │                     │
-│                                            │                     │
-│  DashboardService (前面サービス) ──────────┘                     │
-│   ・DashboardServer (Ktor CIO)  ← ルーティングと API             │
-│   ・各 Repository の定期取得ループ（15 秒ごとに声をかける）       │
-│                                                                 │
-│  ConfigStore ── filesDir/config.json  ← 設定の唯一の保管場所      │
-└─────────────────────────────────────────────────────────────────┘
-          ▲                                     ▲
-          │ adb forward tcp:8080                │ 外向き HTTPS のみ
-      PC のブラウザ                    Open-Meteo / 気象庁 / 防災科研 /
-      （/settings）                    RSS / Cloudflare Worker / Spotify
+┌─ Android プロセス (app.walldash) ───────────────────────────────────┐
+│                                                                     │
+│  MainActivity（Compose）                                            │
+│   ├ DashboardScreen … カード 12 枚・フッター・通知バナー・ハムスター │
+│   ├ SettingsPanel   … 設定（「全て保存」でまとめて保存）            │
+│   └ BrowserScreen   … 簡易ブラウザ（WebView はここだけ）             │
+│        ▲ 2 秒ごとに AppGraph.snapshot() を読む（DashboardViewModel）│
+│                                                                     │
+│  AppGraph（プロセスに 1 つ）                                        │
+│   ├ ConfigStore（filesDir/config.json、StateFlow で変化を配る）      │
+│   ├ Weather / Disaster / Feed / Memo / Spotify の各 Repository      │
+│   ├ WifiMonitor / DeviceStatsMonitor                                │
+│   ├ SettingsController（設定の書き換えの唯一の入口）                 │
+│   ├ NoticePlayer（通知音の合成と、鳴らす間だけのメディア音量）       │
+│   └ DashboardServer（Ktor CIO, :8080）… Web の設定画面と /api/*     │
+│                                                                     │
+│  DashboardService（前面サービス）… サーバー起動と定期取得の見回り    │
+└─────────────────────────────────────────────────────────────────────┘
+        ▲ adb forward tcp:8080（USB の PC）     ▲ 外向き HTTPS/HTTP のみ
+        ▲ LAN（LAN 公開 ON のときだけ）          Open-Meteo / 気象庁 / 防災科研 /
+                                                 RSS / Cloudflare Worker / Spotify
 ```
 
-開発時の検証端末。UI の寸法と使える CSS はこの機種を基準に決めている:
+開発時の検証端末:
 
 | 項目 | 値 |
 |---|---|
 | 端末 | Lenovo TB-X306F、Android 10（API 29） |
-| 画面 | 物理 800x1280 / density 160 → 横向きで **CSS 1280x800** |
-| WebView | **Chrome 81 相当**（2020 年 4 月） |
+| 画面 | 横向きで 1280 x 800 dp（density 160） |
 | メモリ | 1.8 GB |
-| 待受 | `127.0.0.1:8080`（既定。LAN 公開は明示的に有効化したときだけ `0.0.0.0`） |
 
-地点・SSID・連携先などの実際の設定値は端末内の `filesDir/config.json` にあり、
-リポジトリには含まれない。
+地点・SSID・連携先などの実際の設定値は端末内の `filesDir/config.json` にあり、リポジトリには含まれない。
 
 ---
 
-## 2. ファイルの役割と依存
+## 2. ファイルの役割
 
-### Kotlin 側
-
-| ファイル | 役割 | ここを変えると影響が出る先 |
-|---|---|---|
-| `data/Models.kt` | **全データ構造の定義**。`Config` / `DisplayConfig` / `DeviceState` など | **最も影響範囲が広い**。`@Serializable` なので JSON の形がそのまま変わり、`config.json`・`/api/state`・`/api/settings` の応答・`dashboard.js`・`settings.js` が同時に影響を受ける |
-| `data/ConfigStore.kt` | `config.json` の読み書き。保存のたび `configVersion` を +1。`sanitize*` で値域を固定 | `sanitizeDisplay` の許可リスト（`ALLOWED_LAYOUTS`・`ACCENT_PATTERN`）を通らない値は**黙って既定値に戻る**。設定画面に選択肢を足すときはここも直す |
-| `server/DashboardServer.kt` | ルーティング、静的配信、認証ガード、マスク処理 | `buildState()` の分岐が「LAN 未認証には何を返さないか」。項目を足したらここでマスクの要否を決める |
-| `server/Auth.kt` | PIN の PBKDF2 ハッシュ、セッション、loopback 判定、試行回数制限 | `isLoopback` は CSRF 判定にも使われる |
-| `MainActivity.kt` | 全画面 WebView、輝度、`walldash://` の処理 | 輝度は `DisplayConfig` を 3 秒ごとに読み直して当て直している（`configWatcher`）。JS ブリッジは持たない |
-| `DashboardService.kt` | 前面サービス。サーバー起動と定期取得ループ | `onCreate` で**真っ先に** `startForeground()` を呼ぶ。重い初期化を前に置くと 5 秒制限で落ちる（実機で実際に落ちた経緯あり） |
-| `data/*Repository.kt` | 各データ源。自前の取得間隔を持つ | サービスは 15 秒ごとに `refreshIfDue()` を呼ぶだけ。1 つ失敗しても他は止まらない |
-| `LauncherMode.kt` | `HomeAlias` の有効・無効を `PackageManager` で切り替え | 再起動後に画面を前面へ戻せるかが変わる |
-
-### Web 側（`assets/web`）
+### Kotlin（`app/src/main/kotlin/app/walldash/`）
 
 | ファイル | 役割 |
 |---|---|
-| `index.html` | ダッシュボードの DOM。カードは `<main>` 直下の `<section class="card c-xxx sN" id="cardXxx">` |
-| `css/tokens.css` | 色・角丸・余白の変数。**Chrome 81 で使えない CSS の一覧も書いてある** |
-| `css/dashboard.css` | カードの見た目と**素の列幅** |
-| `js/dashboard.js` | 2 秒ごとに `/api/state` を取得して全カードを描画。列幅の詰め直しもここ |
-| `settings.html` / `css/settings.css` / `js/settings.js` | 設定画面（左メニュー + 面） |
-| `js/icons.js` `js/words.js` `js/hamster.js` | 天気アイコン / 単語辞書 / 回し車 |
+| `AppGraph.kt` | プロセスに 1 つだけ持つ部品の置き場。サービス・画面・サーバーが同じ実体を使う。`snapshot()` が画面と Web の設定画面が読む全データ |
+| `SettingsController.kt` | 設定の書き換え。アプリの設定画面と `/api/*` の両方がここを通る（全て保存・背景画像・PIN・LAN 公開・ホームアプリ・再取得） |
+| `MainActivity.kt` | Compose の画面の重ね方、全画面化、消灯防止、明るさ（通常時／無操作時／通知中）、権限の確認 |
+| `DashboardService.kt` | 前面サービス。サーバーを立て、15 秒（Spotify は 5 秒）ごとに各 Repository に声をかける |
+| `BootReceiver.kt` / `LauncherMode.kt` | 起動・更新時のサービス起動 / ホームアプリ登録（`HomeAlias` の有効化） |
+| `data/Models.kt` | **全データ構造**。`@Serializable` なので、変えると `config.json`・`/api/*`・Web の設定画面・モックが連動する |
+| `data/Choices.kt` | アクセント色と通知音の候補。アプリと Web の設定画面の両方がこの一覧を使う |
+| `data/CardLayout.kt` | カードの幅と並べ方（`Card`・`pack()`）、画面に収まるかの判定（3-2） |
+| `data/TrainRepository.kt` | 運行情報（ODPT の本番とチャレンジの 2 つの API）、路線の一覧（`train-railways.json`、1 日 1 回） |
+| `data/TodayRepository.kt` | 今日は何の日（Wikipedia の日付の記事の「記念日・年中行事」「できごと」をウィキ記法から地の文にする） |
+| `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
+| `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
+| `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
+| `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
+| `data/WallpaperStore.kt` | 背景画像（`filesDir/wallpaper.jpg`）。縮小と写真の向きの補正をしてから置く |
+| `data/ConfigStore.kt` | `config.json` の読み書き、`configVersion` の +1、`sanitize*`（値域の固定）、`flow`（StateFlow） |
+| `data/*Repository.kt` | 各データ源。自分の取得間隔とバックオフを持つ。1 つ失敗しても他は止まらない |
+| `data/JmaAreaLocator.kt` | 緯度経度 → 気象庁の市町村（3-8） |
+| `data/Words.kt` | 今日の単語の辞書（同梱） |
+| `server/DashboardServer.kt` / `server/Auth.kt` | Web の設定画面の配信、API、PIN・セッション・loopback 判定・CSRF |
+| `sound/NoticePlayer.kt` | 通知音の合成（AudioTrack）とメディア音量の一時変更（3-4） |
+| `ui/theme/Theme.kt` | 色（ダーク・ホワイトの `Palette`、3-3）・アクセント色（`LocalAccent`）・文字サイズ（`tu`・`vh`） |
+| `ui/common/Common.kt` | カードの枠（`WdCard`）、アイコン（SVG パスから作る）、数字の桁揃え |
+| `ui/dashboard/DashboardViewModel.kt` | 2 秒ごとの取得、防災通知・充電の検知、タイマー、強震モニタとジャケット画像 |
+| `ui/dashboard/DashboardScreen.kt` | カードの並べ方（3-2）、フッター、通知バナー、焼き付き防止のずらし |
+| `ui/dashboard/SimpleCards.kt` / `ChartCards.kt` / `RichCards.kt` | 各カード |
+| `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
+| `ui/dashboard/WeatherIcon.kt` / `Hamster.kt` / `GlobeData.kt` | 天気アイコン、回し車のハムスター、Wi-Fi カードの地球儀の海岸線 |
+| `ui/settings/SettingsScreen.kt` / `SettingsWidgets.kt` | アプリの設定画面と部品 |
+| `ui/browser/BrowserScreen.kt` | ブラウズとお気に入り（3-9） |
+
+### Web（`app/src/main/assets/web/`）— PC・LAN から開く設定画面だけ
+
+| ファイル | 役割 |
+|---|---|
+| `settings.html` / `js/settings.js` / `css/settings.css` | 設定画面（左メニュー + 面、左下に「全て保存」） |
+| `login.html` | LAN から PIN でログインする画面 |
+| `css/tokens.css` | 色などの変数 |
 
 ---
 
 ## 3. 「ここを変えると、あれも変わる」一覧
 
-作業前にいちばん見ておきたい箇所。
-
-### 3-1. `DisplayConfig` に項目を足すとき（例: 新しいカード）
-
-`Models.kt` の `DisplayConfig` に `showFoo` を足すだけでは出ない。**5 か所**が連動する。
+### 3-1. 新しいカードを足すとき
 
 1. `Models.kt` … `DisplayConfig` に `showFoo: Boolean = true`
-2. `index.html` … `<section class="card c-foo sN" id="cardFoo">` を追加
-3. `dashboard.js` の `applyConfig()` … `map` に `cardFoo: cfg.display.showFoo`
-4. `dashboard.js` の `SPAN_BASE` … `cardFoo` の素の幅
-5. `settings.html` … メニュー項目（`<i class="dot" data-w="showFoo">`）と面、
-   面の中に `<input type="checkbox" data-w="showFoo">`
+2. `CardLayout.kt` … `Card` に `FOO(幅, "名前", { it.showFoo })` を足す。`DashboardScreen.kt` の `Card()` の `when` に 1 行
+3. `SettingsScreen.kt` … `Pane` に項目を足し、`PaneContent()` に面を書く
+4. `settings.html` … メニュー（`<i class="dot" data-w="showFoo">`）と面、面の中に `<input type="checkbox" data-w="showFoo" data-card>`
+   （`data-card` を付けると、表示に切り替えたときに画面に収まるかを確かめる）
+5. `tools/mock-server.mjs` … `config.display` に `showFoo`、`CARDS` に幅と名前
 
-抜けたときの症状:
-- 3 を忘れる → 設定で切っても消えない
-- 4 を忘れる → 幅が既定の 8 列になる（他のカードの幅がずれる）
-- 5 を忘れる → 設定画面から触れない
+Web 側の真偽値は `data-w` を書くだけで保存対象になる（`settings.js` の `collect()` が全部拾う）。
+`select` と配列は `collect()` と `render()` の両方に 1 行ずつ足す。
 
-### 3-2. カードの幅を変えるとき ← **いちばん間違えやすい**
+### 3-2. カードの幅と並び
 
-幅の定義が **CSS と JS の 2 か所**にある。
+幅は `CardLayout.kt` の `Card` の数値（24 列中いくつ分か）だけで決まる。
 
-- `css/dashboard.css` の `.sN` / `.c-hourly` / `.c-spotify` / `body.layout-*` / `@media (orientation: portrait)`
-- `js/dashboard.js` の `SPAN_BASE` / `SPAN_LAYOUT` / `SPAN_PORTRAIT`
-
-**実際に効いているのは JS 側**（`packCards()` がインラインの `grid-column` で上書きするため）。
-CSS だけ直しても見た目は変わらない。CSS 側は JS が動かなかったときの保険として残してある。
-
-二重に持っている理由: 実機の WebView（Chrome 81）が
-`getComputedStyle().gridColumnEnd` に `"span N"` を返さず、CSS から読み取れないため。
-（最初は CSS から読む実装にしたが、全カードが既定値の 8 列になって崩れた。）
-
-### 3-2b. アクセント色は JS の SVG にも効く
-
-`--accent` を見ているのは CSS だけではない。`dashboard.js` が組み立てる SVG
-（時間別予報の折れ線・面・降水確率の棒、Wi-Fi の折れ線、CPU の面）は
-半透明の塗りが要るため、`accentRgb` から `accent(alpha)` / `accentLight()` で
-色を作っている。`applyConfig()` が設定の色で `accentRgb` と CSS 変数
-`--accent-rgb` の両方を入れ替える。
-
-**SVG の中に色を直接書かないこと。** 書くとアクセント色を変えたときにそこだけ
-取り残される（実際に時間別予報と Wi-Fi と CPU の 3 か所がそうなっていた）。
-
-アクセント色に**追従しない**色は 3 つある。いずれも意味が色に紐づいているため:
-
-- 週間予報の気温バーと凡例（`linear-gradient(90deg, #4DD4FF, #FFB347)`）… 寒色→暖色の温度スケール
-- 画面上端のごく淡い光（`body::before`）
-- 防災・Spotify・今日の単語のカード枠（琥珀／緑／赤の役割色）
-
-### 3-2c. カードごとの見せ方の設定
-
-`DisplayConfig` には「どのカードを出すか」に加えて「そのカードをどう見せるか」も入っている。
-
-| キー | 効く場所 |
+| 行 | カード（列数） |
 |---|---|
-| `clockAlign` `clockDateFormat` | 時計カード。揃えは CSS の `.c-clock.al-*`、日付は `renderClock()` |
-| `weatherFields` | 天気カードの数値の並び。キーは `dashboard.js` の `WX_FIELDS` と一致必須 |
-| `disasterShowTyphoon` `disasterShowVolcano` | `renderDisaster()` が配列を空にする（署名も変わるので再描画される） |
-| `disasterShowKmoni` | CSS の `.c-disaster.no-kmoni` と、`kmoniTick()` の早期 return（通信も止まる） |
-| `hourlyMode` | `renderHourly()`。凡例・軸ラベル・棒の高さの倍率が同時に変わる |
-| `spotifyShowControls` `spotifyShowProgress` | 両方切ると下段ごと消え、`.sp-wrap.big` で絵と曲名が大きくなる |
-| `wifiShowGlobe` | CSS の `.c-wifi.no-globe` |
-| `showHamster` | `window.Hamster.setVisible()`（`hamster.js`）。消すとタイマーも止まる |
+| 1 | 時刻 8 ・ 天気 8 ・ 防災 8 |
+| 2 | LINE メモ 10 ・ 時間別予報 9 ・ Spotify 5 |
+| 3 | Wi-Fi 6 ・ 端末 10 ・ ニュース 8 |
+| 4 | 週間予報 12 ・ タイマー 6 ・ 今日の単語 6 |
+| （追加） | アナログ時計 6 ・ 予定表 9 ・ 運行情報 9 ・ 雨雲レーダー 8 ・ 日の出と月 8 ・ カウントダウン 8 ・ 今日は何の日 8 ・ 株価 10 |
 
-**真偽値の設定を足すときは、`settings.html` のチェックボックスに `data-w="キー名"` を
-書くだけでよい。** `settings.js` の `displayPatch()` が `input[data-w]` を全部拾って
-`display` に入れるので、JS 側に足す場所は無い。
-選択肢（`select`）と配列（`weatherFields`）だけは `displayPatch()` と `render()` の
-両方に 1 行ずつ足す必要がある。
+追加のカードは既定で非表示（`DisplayConfig.show*` の既定が false）。既定の 12 枚で横向きの画面がちょうど 4 行埋まるため、
+既定で出すと更新しただけで画面に収まらなくなる。表示するには、先にほかのカードを非表示にする。
 
-値域は `ConfigStore.sanitizeDisplay()` が固定する。許可リストに無い値は黙って既定へ戻るので、
-選択肢を増やしたら `ALLOWED_*` も直すこと。
+非表示のカードが空けた列は `pack()` が同じ行に残ったカードへ比例配分する（端数は最大剰余法）。
+縦向きと、横でも幅が 840dp 未満の端末では 2 列（時間別予報だけ全幅）にして縦にスクロールさせる。
 
-### 3-2d. ブラウズのお気に入り
+**画面に収まるかの判定**（`CardLayout.fit()`）: 横向きでは 1 行に最低 `minRowDp()`（画面の高さの 20%、120〜160dp）を要り、
+カードを並べられる高さ（ダッシュボードが実測して `CardLayout.measured` に入れる）に入る行数を上限にする。
+カードの文字や図は画面の高さに比例させている（`vh`）ので、下限も高さに比例させた。
+高さ 800dp の横向きのタブレットで 4 行（既定の全カード）まで。縦向き・幅の狭い端末は元からスクロールするので判定しない。
 
-お気に入りは `Config.browser.favorites` に入り、他の設定と同じ `config.json` に保存される。
-UI は Web ではなく **`MainActivity` の素の View**（ブラウズ画面はダッシュボードとは別の
-WebView を重ねたものなので、ダッシュボードの HTML/CSS/JS は一切関係しない）。
+**週間予報を縮めて詰める**（`CardLayout.rows()`）: 横向きで上限の行数を超えるときは、週間予報の幅を 12 列から
+`DAILY_MIN_SPAN`（元の半分の 6 列）まで 1 列ずつ縮め、空いた列に後ろのカードを並べる。縮める幅はできるだけ小さくし、
+まず並び順のまま詰め、それでも入らなければ `pack(backfill = DAILY)` で、今の行に入らなかった後ろのカードを週間予報の行へ戻す。
+半分まで縮めても収まらないときだけ「収まらない」とし、設定画面が理由を出して止める（メッセージにもその旨を書く）。
+縮めた週間予報は中身（1 日 92dp の列）を横にスクロールさせ、続きのある側の端をぼかし、凡例を短くする。
+例: 既定の 12 枚にアナログ時計（6 列）を足すと、4 行目が「週間予報 6 ・ タイマー 6 ・ 今日の単語 6 ・ アナログ時計 6」になる。
 
-操作は 2 つ。ツールバー右の **☆／★** が登録・解除、その右の **☰** がメニュー。
-
-| 部品 | 場所 |
+| どこで | 何をする |
 |---|---|
-| ☆／★ の切り替え | `MainActivity.toggleFavorite()` / `updateFavStar()` |
-| 登録時の名前入力 | `promptAddFavorite()`（既定値は `favoriteTitle()`、全選択で開く） |
-| ☰ メニュー | `showBrowserMenu()`（`PopupMenu`。項目 id は `MENU_*`） |
-| 一覧（確認・移動・削除） | `showFavoritesDialog()` / `favoriteRow()` / `confirmRemoveFavorite()` |
-| 一覧から開く | `openFavorite()` |
-| 名前の既定値 | `WebChromeClient.onReceivedTitle` → `cleanTitle()` → `favoriteTitle()` |
-| 保存と整形 | `ConfigStore.updateFavorites()`（`sanitizeBrowser` を必ず通す） |
+| アプリの設定画面（`SettingsPanel.update()`） | カードを表示に切り替えて収まらなくなるなら、理由をダイアログで出して切り替えない |
+| Web の設定画面（`input[data-card]`） | 同じ判定を `POST /api/layout/check` で問い合わせ、収まらなければ理由を出してチェックを戻す |
+| `SettingsController.saveAll()` | 上の 2 つをすり抜けた保存を `cards_overflow` で断る |
+| `DashboardScreen` | それでも収まらない設定（画面の小さい端末へ持ち込んだ等）は、詰め込まずに 1 行の高さを保って縦にスクロールし、フッターに注意を出す |
 
-注意点:
+カードを増やさない変更（減らす・並びはそのまま）は、元から収まっていなくても止めない。
 
-- **URL 欄は焦点が残っていると更新されない。** `syncUrlField()` が
-  「打っている途中の文字を消さない」ために `hasFocus()` を見ているため、
-  お気に入りから開くときは `openFavorite()` が焦点を外してから読み込ませる。
-  これをしないと、選んだ先に移動したのに URL 欄が前の入力のまま残る。
-- **ページ内で履歴だけ書き換えるサイトは `onPageStarted` を通らない。**
-  YouTube は動画を選んでもページを読み直さず `history.pushState` で URL を変えるだけなので、
-  URL 欄も ★ も前のページのままになっていた。`doUpdateVisitedHistory()` がこの通知を受けるので、
-  URL が変わったときの処理は `onBrowserUrlChanged()` にまとめ、
-  読み込み開始・読み込み完了・履歴の書き換えの 3 経路から呼んでいる
-  （同じ URL で重ねて呼ばれても先頭で弾く）。
-- 一覧は削除しても開いたままにする（`refresh()` が中身だけ作り直す）。
-  続けて整理できるようにするため。
+### 3-3. アクセント色
 
-- **題名は `WebView.getTitle()` では当てにならない。** `onPageFinished` の時点ではまだ
-  入っていないことがあり、実機で Yahoo!ニュースを登録したらホスト名になった。
-  `WebChromeClient.onReceivedTitle` を主に使い、`onPageFinished` は保険にしている。
-- `<title>` の無いページでは WebView が URL をそのまま題名として渡してくる。
-  `cleanTitle()` がそれを空として扱い、ホスト名に落とす。
-- **`favorites` は `PublicConfig` に載せていない。** どこを見ているかは生活の様子が出るうえ、
-  端末の前で登録して端末の前で使うものなので、外に出す経路を作っていない。
-  設定画面から編集する機能を足すなら、LAN 未認証へのマスク（3-8）を先に決めること。
-- 登録すると `configVersion` が +1 される（3-4）。ダッシュボード側は再描画が走るが、
-  ブラウズ中は `webView.onPause()` で止めてあるので実害はない。
+候補は `Choices.kt` の `Accents.ALL`。`ConfigStore.sanitizeDisplay()` は候補に無い色を既定に戻す。
+画面では `LocalAccent` として配り、グラフの線・メーター・ドラムの帯・設定画面のスイッチなどが追従する。
+Web の設定画面は `/api/settings` の `choices.accents` から選択肢を作るので、HTML は触らなくてよい。
 
-### 3-2e. 通知音
+アクセント色に追従しない色（意味が色に紐づくもの）: 週間予報の気温バー（寒色→暖色）、
+防災・Spotify・今日の単語・LINE メモの枠と見出し（琥珀／緑／赤／紫の役割色）。
 
-音はすべて Web Audio API でその場で合成している（音源ファイルは持たない）。
-設定は `Config.notifications`（`display` とは別の入れ物）。
+**テーマ**（`display.theme` = `dark` / `light`）: `Theme.kt` の `DarkPalette` / `LightPalette` を `Wd.palette` に入れ替える。
+`Wd.Text` などは毎回 `Wd.palette` から読む Compose の状態なので、テーマを変えると読んでいる所がすべて描き直される。
+色を画面の外（トップレベルの `val`）に写し取ると追従しなくなるので、関数か getter にすること。
+ホワイトでは強調色を少し濃くして配り（`LocalAccent`）、白に近い色（月・雪・地球儀の陸・強震モニタの地図の反転）は別の色にする。
+強調色で塗ったボタンの文字は、テーマによらず `Wd.OnAccent`（暗い色）。
 
-| キー | 効く場所 |
+**背景画像**（`Config.wallpaper`）: 画像は `WallpaperStore` が `filesDir/wallpaper.jpg` に置き、設定には時刻（`imageSetAt`）だけを持つ。
+ダッシュボードは `imageSetAt` が変わったときだけ読み直し、`display.cardOpacity` の不透明度でカードの面を透かす（`Wd.cardAlpha`）。
+選ぶ・外すはその場で保存する操作で、「全て保存」の差分（`ConfigPatch`）には含めない。
+
+### 3-4. 通知音
+
+音はすべて `NoticePlayer` がその場で合成する（音源ファイルは持たない）。音色は `Choices.kt` の `Tones.ALL`、
+どれを鳴らすかは `NotificationConfig`（`disasterTone` / `chargingTone` / `timerTone`）。
+
+| 音 | 鳴らす所 |
 |---|---|
-| `disasterSound` | `dashboard.js` の `chime()` が先頭で弾く。**バナー表示は止めない** |
-| `chargingSound` | `checkChargingChange()`。覚えの更新は続けてから弾く（次の抜き差しを取りこぼさないため） |
-| `volume` | **端末のメディア音量そのもの**を一時的に動かして作る（下記） |
+| 防災の切り替わり | `DashboardViewModel.checkDisaster()` |
+| 充電の抜き差し | `checkCharging()`（抜いたときは音の高さの並びを逆にする） |
+| タイマー | `tickTimer()` → `NoticePlayer.startRing()`（2 秒ごと、約 40 秒） |
+| 試聴 | アプリの設定画面、Web の設定画面（`POST /api/sound/preview`、タブレットから鳴る） |
 
-#### 音量は WebAudio のゲインではなく端末の音量を動かす
+**音量は合成のゲインではなく端末のメディア音量で作る。** ゲインで絞ると端末の音量が小さいときに通知まで
+小さくなるため。鳴らす直前に元の音量を 1 回だけ覚えてメディア音量を設定値へ動かし、
+180ms 待ってから鳴らし（音量の変更は非同期に効く）、鳴り終わったら戻す。
+重ねて鳴ったときは戻す時刻を延ばすだけ（戻す先を「通知のために上げた音量」にしないため）。
+`MainActivity.onPause()` でも必ず戻す。
 
-最初は WebAudio の GainNode で絞る実装にしたが、**端末の主音量が小さいと通知も小さくなる**ため
-やめた。壁掛けで欲しいのは逆で、「端末の音量が小さくても通知だけは設定した大きさで鳴る」こと。
+副作用として、ブラウズで動画を見ている最中に通知が鳴ると、その 1〜2 秒だけ動画の音量も変わる。
 
-いまの流れ:
+### 3-5. 設定の保存（「全て保存」）
 
-1. `dashboard.js` の `withNoticeVolume(soundMs, play)` が
-   `walldash://volume?ms=…` を呼ぶ（鳴る長さ + 余白）
-2. `MainActivity.holdNoticeVolume()` が**今の音量を覚えてから**
-   `AudioManager.STREAM_MUSIC` を設定値まで動かす
-3. `VOLUME_SETTLE_MS`（180ms）置いてから音を鳴らす。
-   **待たずに鳴らすと変更前の音量で出る**（音量変更は非同期に起きるため）
-4. 保持時間が切れたら `restoreNoticeVolume()` が元の音量へ戻す
+どちらの設定画面も、各面の変更を溜めて 1 回にまとめて送る。
 
-注意点:
+| | アプリ | Web |
+|---|---|---|
+| 溜める所 | `SettingsScreen.kt` の `Draft` | 画面上の入力そのもの（`collect()` が組み立てる） |
+| 未保存の判定 | `Draft` が保存済みの値と違う | `collect()` が読み込み直後と違う |
+| 閉じるとき | 「未保存の変更があります。」のダイアログ | ブラウザの `beforeunload` の確認 |
+| 保存 | `SettingsController.saveAll()` | `POST /api/settings`（中身は `SaveAllRequest`） |
 
-- **元の音量は最初の 1 回だけ覚える。** 鳴っている最中に重ねて呼ばれたときに上書きすると、
-  戻す先が「通知のために上げた音量」になってしまう。
-- タイマーの鳴動は 2 秒ごとに保持を掛け直す。止めたときは `ms=0` でその場で戻す。
-- `onPause()` と `onDestroy()` でも戻す。鳴っている最中に他のアプリへ移られると上げたままになる。
-- **副作用**: 端末の音量そのものを動かすので、ブラウズで動画を見ている最中に通知が鳴ると
-  その 1〜2 秒だけ動画の音量も変わる。設定画面にもその旨を書いてある。
-- マナーモードや DND では `setStreamVolume` が拒まれることがある。`runCatching` で握って
-  ログだけ出す（音が出せなくても表示は続ける）。
+- `display` などは差分ではなく**置き換え**。だから送る側は常に全項目を組み立てる
+- LINE メモのトークンは書き込み専用。入力されたときだけ送り、読み出す経路は無い
+- その場で効かせる操作（背景画像・ホームアプリ登録・PIN・LAN 公開・Spotify の連携と解除・再取得）は「全て保存」に含めない
+- 取得先に関わる値（地点・単位・防災・ニュース・メモ・Spotify・運行情報・予定表・株価）が変わったら、`saveAll()` が待たずに取り直す
+- 秘密の値（メモの端末トークン、ODPT のトークン、iCloud の App 用パスワードと公開 URL）は書き込み専用。`PublicConfig` には「設定済みか」だけを出す
+- アカウントの要らない取得先（今日は何の日・株価・祝日）は、そのカードを表示しているときだけ通信する
+- 値域は `ConfigStore.sanitize*` が固定する。許可リストに無い値は黙って既定に戻る
 
-タイマーの鳴動だけは切る設定を置いていない（自分で時間を決めて鳴らすものなので、
-鳴らないと用をなさない）。音量は同じ経路を通る。
+### 3-6. 設定の変化の伝わり方
 
-**音を足すときは `withNoticeVolume()` を通すこと。** 直接 `tone()` / `beep()` を呼ぶと
-音量設定が効かず、端末のそのときの音量で鳴る。
+`ConfigStore.update()` が保存のたびに `configVersion` を +1 し、`flow`（StateFlow）に流す。
 
-### 3-2f. 気象庁の警報エンドポイントは移動済み
+- 画面（`DashboardScreen` / `SettingsPanel` / `BrowserScreen`）は `flow` を購読して描き直す
+- `MainActivity` は `configVersion` の変化で明るさを当て直す
+- Web の設定画面は読み込み時と保存の応答で最新を受け取る。アプリ側の設定画面は、手元で編集していなければ
+  他の端末からの保存に追従する
+
+### 3-7. 気象庁の警報エンドポイントは移動済み
 
 **使うのは `bosai/warning/data/r8/{府県コード}.json`。**
 以前の `bosai/warning/data/warning/{府県コード}.json` は**気象庁が更新を止めている**。
 2026-09-21 に確認した時点で、全国どの府県も `last-modified` が 2026-05-28 のまま止まっており、
 実際には大雨警報が出ている日に 4 か月前の濃霧注意報を壁に出し続けていた。
 200 が返り JSON も正しい形なので、**取得の失敗としては検知できない**のが厄介な点。
-
-他の気象庁データ（`quake/data/list.json`、`typhoon/data/targetTc.json`、
-`forecast/data/forecast/*.json`）は同じ日に更新されていたので、止まっているのは警報だけ。
 
 新しい方は形がまったく違う:
 
@@ -256,13 +231,10 @@ WebView を重ねたものなので、ダッシュボードの HTML/CSS/JS は�
 | 種別 | `areas[].warnings[]` | `class20Items[].kinds[]`（一次細分も同じ形） |
 | 見出し | 1 つ | **文書ごとに 1 つ** |
 
-そのため `DisasterRepository` は**全文書から対象の市町村の行を集めて束ねる**（3-2g）。
-束ねないと最後に読んだ 1 種類しか出ない。
+`DisasterRepository` は**全文書から対象の市町村の行を集めて束ねる**（3-8）。束ねないと最後に読んだ 1 種類しか出ない。
 
-見出しは**文書 1 本だけ**を出す。5 本つなぐと 3 行を超えてカードから溢れ、
-下の種別の行が押し出された。選ぶのは、その市町村に出ている文書のうち
-**段階がいちばん高いもの**（同じ段階なら新しいもの）。県内で最新の文書を選んでいたときは、
-土砂災害がレベル４の日に同時刻の大雨の本文が出ていた。
+見出しは**文書 1 本だけ**を出す（5 本つなぐとカードから溢れる）。選ぶのは、その市町村に出ている文書のうち
+**段階がいちばん高いもの**（同じ段階なら新しいもの）。
 
 **種別コードは、どの文書から来たものも 1 つの表（`WARNING_KINDS`）で引く。**
 表は気象庁の警報ページ（`bosai/warning/`）のスクリプトが持つ対応表を写したもの
@@ -276,161 +248,108 @@ WebView を重ねたものなので、ダッシュボードの HTML/CSS/JS は�
 
 それ以外（風・雪・波・雷など）は段階の付かない従来の名前。洪水（04/18）は表に無く、
 気象庁のページでは河川ごとの氾濫情報として別に扱われている（Walldash は未対応）。
-
-以前は土砂災害の文書（`VPWW56`）だけ別体系だと考え、段階を捨てて「土砂災害」とだけ出していた。
-実際には他の文書と同じ表に載っており、この扱いのせいでレベル４の土砂災害危険警報も
-「土砂災害」とだけ表示された。段階が上がっても種別名が変わらないため、通知音も鳴らなかった
-（通知は区域ごとの種別名の変化を見ている）。同じ日にレベル４の大雨危険警報（43）も
-表に無く「コード43」と出ていた。
-
 表に無いコードは推測せず「コードNN」と出し、赤（警報扱い）にする。
 
 エンドポイントを疑うときは、**気象庁の警報ページをブラウザで開いて通信を見る**のが早い
-（`https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code={府県コード}`。
-既定の東京都なら `130000`）。
-今回もそれで `data/r8/` が分かった。
+（`https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code={府県コード}`。既定の東京都なら `130000`）。
 
-### 3-2g. 警報・注意報の対象は「天気の地点がある市町村」
+### 3-8. 警報・注意報の対象は「天気の地点がある市町村」
 
-防災の地域は設定に持たない（以前あった府県予報区の選択は廃止）。天気の地点（`Config.location`）の
-緯度経度から、気象庁の市町村区分（`area.json` の `class20s`）を自動で決める。
+防災の地域は設定に持たない。天気の地点（`Config.location`）の緯度経度から、
+気象庁の市町村区分（`area.json` の `class20s`）を自動で決める。
 天気と防災を別々に選ばせると、地点を変えたときに片方だけ古いまま残るため。
 
 決め方は気象庁の警報ページにある「現在地」ボタンと同じ（`JmaAreaLocator`）:
 
 1. `common/const/class20relm.json`（市町村ごとの外接矩形、約 140KB）で、点を含む候補に絞る
-2. 候補の境界 `common/const/geojson/class20s/{コード}.json`（1 件数 KB）で、点が内側にあるかを
-   偶奇判定する（飛び地・穴も同じ判定で扱える）
+2. 候補の境界 `common/const/geojson/class20s/{コード}.json`（1 件数 KB）で、点が内側にあるかを偶奇判定する
 3. どれの内側にもなければ（海岸線や湖の上の点）、矩形の中心がいちばん近い市町村。
    ただし 30km より遠ければ見つからない扱い（国外の地点で日本のどこかを返さないため）
 
 府県予報区は `area.json` の親を `class20s → class15s → class10s → offices` とたどって決める。
-結果は `filesDir/disaster-area.json` に、どの緯度経度について決めたかと一緒に保存し、
-地点が変わったときだけ決め直す。地点を変えると次の 15 秒の見回りで決め直しが走る。
+結果は `filesDir/disaster-area.json` に、どの緯度経度について決めたかと一緒に保存し、地点が変わったときだけ決め直す。
 
-一次細分区域（北部・南部など、`class10Items`）は使わない。区域内のどこか 1 か所に出ていれば
-区域全体に出るので、自分の市町村より強く出ることがある（実際に、市町村は強風注意報なのに
-区域では暴風警報と出ていた）。
+一次細分区域（北部・南部など）は使わない。区域内のどこか 1 か所に出ていれば区域全体に出るので、
+自分の市町村より強く出ることがある（実際に、市町村は強風注意報なのに区域では暴風警報と出ていた）。
 
-| 見え方 | 場所 |
+### 3-9. ブラウズのお気に入り
+
+お気に入りは `Config.browser.favorites` に入り、`ConfigStore.updateFavorites()` だけが書き換える
+（重複・件数 30・名前 80 文字の上限が必ず効く）。`PublicConfig` には載せない（どこを見ているかは生活の様子が出るため）。
+
+| 操作 | 場所 |
 |---|---|
-| カード見出し横の「東京都 新宿区」 | `DisasterState.officeName` / `areaName` → `dashboard.js` |
-| 市町村が決まらないときの案内 | `areaName` が null（`available` は true） |
-| 設定画面の「警報・注意報の地域」 | `settings.js` の `loadDisasterArea()`（`/api/state` を読む） |
+| ☆／★（登録・解除） | ツールバー。登録時は名前を聞く（題名かホスト名を全選択して出す） |
+| ☰ → お気に入り | 一覧。名前を押すと移動、右端の **⋮** から「名前を変更」「削除」 |
 
-設定画面は地点や取得の有無を保存した直後に `/api/refresh` を呼び、決め直しを待たずに表示を更新する。
+- ページ内で履歴だけ書き換えるサイト（YouTube など）は `onPageStarted` を通らないので、`doUpdateVisitedHistory` でも URL を拾う
+- 題名は `onPageFinished` の時点ではまだ入っていないことがあるので、`WebChromeClient.onReceivedTitle` を主に使う
+- WebView が使えない端末では、落とさずに案内を出す
 
-### 3-3. 設定を保存するとき（`display` は「まるごと差し替え」）
+### 3-10. LAN 公開
 
-`ConfigPatch.display` は差分ではなく**置き換え**。`applyPatch` が `patch.display ?: c.display`
-としているため、一部のキーだけ送ると**残りが既定値に戻る**。
+`SettingsController.setLanEnabled()` → 設定を保存 → `DashboardServer.restartLater()`（300ms 後に `0.0.0.0` で張り直す）。
+PIN が無ければ有効にできない。有効中は `lanSettingsUrl()`（Wi-Fi の IP から組み立てる）を設定画面に出す。
 
-そのため `settings.js` は、どの面の「保存」を押しても画面上の**すべての** `input[data-w]` から
-`display` を組み立て直している（`displayPatch()`）。面ごとに部分更新すると、
-別の面で変えたチェックが保存のたびに巻き戻る。
+- loopback（タブレット自身・USB の PC）は認証不要。LAN の端末は PIN でログインしたセッションが必要
+- `/api/*` はすべて認証が必要。ログインしていない LAN の端末にはログイン画面しか返さない
+- XForwardedHeaders は入れない（`X-Forwarded-For` で loopback を偽装されないため）
 
-### 3-3b. モックサーバーの設定は手で合わせる
+以前の LAN 公開ボタンが効かなかったのは、タブレットの歯車の設定画面が WebView の中にあり、
+その WebView が `confirm()` のダイアログを出せず（`WebChromeClient` が無いとキャンセル扱いになる）、
+処理がそこで止まっていたため。いまは確認をアプリのダイアログで出す。
 
-`tools/mock-server.mjs` の `config` は Kotlin の `Config` を手書きで写したもの。
-**欠けていても動いてしまう**（設定画面が未設定を既定値で補うため）ので、
-`Models.kt` に項目を足したらここにも足すこと。
-足さないと、実機では出るはずの違いがモックでは見えないまま UI を詰めることになる。
+### 3-11. ポート 8080 は固定
 
-### 3-4. `configVersion` の役割
+変えると `adb forward`・ブラウザの URL・**Spotify の Redirect URI** が同時に壊れる。
+Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので、連携はタブレット本体か USB の PC から行う。
 
-`ConfigStore.update()` が保存のたびに +1 する。これを見ている場所が **2 つ**ある。
+### 3-12. Android の版ごとの違い
 
-- `dashboard.js` の `render()` … 値が変わったときだけ `applyConfig()` を呼ぶ（= 再描画と列の詰め直し）
-- `MainActivity.configWatcher` … 3 秒ごとに読み、変わっていたら輝度を当て直す
-
-`configVersion` を止めると、**設定画面で保存しても壁に反映されなくなる**。
-
-### 3-5. Chrome 81 の制約
-
-`tokens.css` の冒頭に書いてある通り、以下は**使えない**:
-
-`inset` ショートハンド / **flexbox の `gap`** / `:is()` / `:has()` / `color-mix()` /
-コンテナクエリ / `aspect-ratio`
-
-使えるもの: CSS 変数、CSS Grid（`gap` 含む、ただし `grid-gap` も併記）、`clamp()`、
-`backdrop-filter`、`position: sticky`。
-
-PC のブラウザでは動くのに実機だけ崩れる不具合の大半がこれ。
-デバッグビルドは `WebView.setWebContentsDebuggingEnabled(true)` が入っているので、
-PC から `chrome://inspect` で実機の WebView を直接見られる。
-
-### 3-6. ポート 8080 は固定
-
-変えると **WebView の参照先・`adb forward`・ブラウザの URL・Spotify の Redirect URI** が
-同時に壊れる。設定項目にしていないのはそのため。
-
-### 3-7. 設定画面は 2 か所から開かれる
-
-- PC のブラウザ（`adb forward` 経由の localhost）
-- タブレットの歯車 → `index.html` の `<iframe id="panelFrame">` が `/settings` を読む（96vw x 94vh ≒ 1229x752）
-
-どちらも loopback 扱いなので認証は不要。
-**iframe から開かれているときは `window.top !== window.self`** で、Spotify の認可は
-枠内に出せない（`frame-ancestors` で拒まれる）ため `walldash://browser` に投げている。
-設定画面のレイアウトを変えるときは、この 1229x752 に収まるかを必ず確認すること。
-
-### 3-8. LAN 未認証へのマスク
-
-`DashboardServer.buildState()` が、認証の無い LAN からのアクセスに対して
-SSID・IP・正確な緯度経度・LINE メモ本文・Spotify の再生内容を伏せる。
-`DeviceState` に項目を足したら、ここで伏せるかどうかを決める必要がある。
-
----
-
-## 4. ダッシュボードの並び（24 列グリッド）
-
-`<main>` は `grid-template-columns: repeat(24, 1fr)` で、カードは列数を `span` で指定する。
-12 分割だと「7 列の 65%」のような幅が作れず、時間別予報を狭めた残りに Spotify を
-置けなかったため 24 分割になっている（クラス名の `.s3` 等は 12 分割時代のまま）。
-
-`balanced` レイアウトでは 4 行ちょうどに収まる:
-
-| 行 | カード（列数） | 計 |
+| 版 | 違い | 対応している所 |
 |---|---|---|
-| 1 | 時刻 8 ・ 天気 8 ・ 防災 8 | 24 |
-| 2 | LINE メモ 10 ・ 時間別予報 9 ・ Spotify 5 | 24 |
-| 3 | Wi-Fi 6 ・ 端末 10 ・ ニュース 8 | 24 |
-| 4 | 週間予報 12 ・ タイマー 6 ・ 今日の単語 6 | 24 |
+| 7.0（API 24） | Let's Encrypt のルート（ISRG Root X1/X2）を持たない。天気の Open-Meteo が該当 | `network_security_config.xml` で同梱のルートも信頼（`res/raw/isrg_root_x*.pem`） |
+| 7.x（API 24/25） | PBKDF2WithHmacSHA256 が無い | `Auth` が SHA1 に落とす |
+| 8.0（API 26） | 裏からのサービス起動の制限、通知チャネル | `startForegroundService()` → 5 秒以内に `startForeground()` |
+| 9（API 28） | 平文 HTTP が既定で禁止 | 127.0.0.1 と強震モニタのホストだけ許可 |
+| 10（API 29） | 裏から Activity を前面に出せない。SSID に位置情報の権限と位置情報サービスが要る | ホームアプリ登録、Wi-Fi カードの案内 |
+| 12（API 31） | `WifiInfo` は `NetworkCapabilities.transportInfo` から。裏からの前面サービス開始の制限（起動時・更新時は例外） | `WifiMonitor`、`BootReceiver` |
+| 12・12L（API 31・32） | 精密な位置情報（FINE）だけを求めると要求ごと無視される。COARSE も一緒に求める必要がある（SSID が出なくなっていた） | マニフェストと `MainActivity.requestNeededPermissions()` |
+| 13（API 33） | 通知の実行時権限。SSID は「付近のデバイス」権限。テーマアイコン（単色） | `MainActivity.requestNeededPermissions()`、`ic_launcher_monochrome.xml` |
+| 14（API 34） | 前面サービスの種別が必須 | `specialUse`（マニフェストに用途の説明も書く） |
+| 15（API 35、いまの targetSdk） | 全画面表示の強制。起動時に始められない前面サービスの種別（`dataSync` など。`specialUse` は対象外） | システムバーを隠し、切り欠きの分だけ余白を取る |
+| 15 以降 | 16KB ページサイズの端末 | 同梱のネイティブライブラリ（Compose の `libandroidx.graphics.path.so`）は 16KB 整列済み |
+| 16（API 36） | targetSdk を 36 にすると、大画面での向き・サイズ固定の指定が無視される | いまは targetSdk 35。上げるときに確かめる |
 
-カードを隠すと、CSS の自動配置は残りを詰めるだけで**幅は縮めない**ので行の右端が空く。
-`dashboard.js` の `packCards()` が、行ごとの合計をちょうど 24 列にしてから
-`grid-column` を上書きしてこれを埋める（配分は元の幅に比例、端数は最大剰余法）。
+メーカー独自の省電力（自動起動の管理など）は OS の版と関係なく常駐を止め得る。設定画面の
+「電池の最適化から除外する」と、README の「メーカー独自の省電力制御」で扱う。
 
 ---
 
-## 5. 設定画面の構造
+## 4. 設定画面の構造
 
 左にメニュー、右に選んだ項目の設定だけを出す。ダッシュボードのカードは 1 枚 = 1 項目で、
-そのカードに効く設定を同じ面に置いている。メニュー項目の左の点が、
-いまそのカードを表示しているかを表す。
+そのカードに効く設定を同じ面に置く。メニュー項目の左の点は、いまそのカードを表示しているかを表す。
 
 ```
-全体   … レイアウト・配色 / 画面の明るさ / 場所
+全体   … 配色 / テーマ（色の基調・背景画像・カードの不透明度）/ 画面の明るさ / 場所 / 通知
 カード … 時刻 天気 防災 LINE メモ 時間別予報 Spotify
          Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語
-端末   … ホームアプリ / ネットワーク（LAN 公開）
+         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 ハムスター
+端末   … ホームアプリ（電池の最適化を含む）/ ネットワーク（LAN 公開）
 ```
-
-選択中の面は `location.hash` に入るので、`/settings#weather` で直接開ける。
 
 **「表示する」と「取得する」は別物**（防災・ニュース・LINE メモ・Spotify）:
 「表示する」はカードを出すかどうか、「取得する」は通信するかどうか。
-カードだけ隠して取得は続けたい、という使い方があるため分けてある。
 
-保存の経路は入力の秘匿性で分かれている:
-
-| 入口 | 扱うもの |
+| Web の API | 扱うもの |
 |---|---|
-| `POST /api/settings` | `display` `units` `location` `refresh` `disaster` `feed` |
-| `POST /api/memo` | メモの中継先と端末トークン（トークンは読み出し経路が無い） |
-| `POST /api/spotify` | Spotify の Client ID（`refreshToken` は認可の経路でしか入らない） |
+| `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify） |
+| `POST /api/layout/check` | カードを表示に切り替える前の「画面に収まるか」の確認（3-2） |
+| `POST /api/wallpaper` / `POST /api/wallpaper/clear` | 背景画像の設定（本文は画像ファイル、25 MB まで）・解除 |
+| `GET /api/train/railways` / `POST /api/train/railways/reload` | 運行情報の路線の一覧（設定画面で選ぶ）/ 読み直し |
 | `POST /api/lan` | PIN と LAN 公開（PIN は PBKDF2 + ソルト、平文は保持しない） |
 | `POST /api/device` | ホームアプリ登録 |
-
-LINE メモと Spotify の面だけは「表示トグル（`display`）」と「固有の設定」で
-入口が違うため、保存時に 2 本の POST を順に投げている。
+| `POST /api/sound/preview` | 通知音の試聴（タブレットから鳴る） |
+| `GET /api/spotify/start` / `POST /api/spotify/disconnect` | Spotify の連携・解除 |
+| `POST /api/refresh` | 全データの取り直し |
