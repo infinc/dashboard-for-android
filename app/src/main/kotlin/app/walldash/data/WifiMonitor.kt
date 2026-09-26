@@ -53,16 +53,17 @@ class WifiMonitor(private val context: Context) {
         }
     }
 
+    @Volatile private var started = false
+
+    @Synchronized
     fun start() {
+        if (started) return
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
         runCatching { connectivity.registerNetworkCallback(request, callback) }
+            .onSuccess { started = true }
             .onFailure { Log.e(TAG, "NetworkCallback の登録に失敗", it) }
-    }
-
-    fun stop() {
-        runCatching { connectivity.unregisterNetworkCallback(callback) }
     }
 
     fun snapshot(): WifiState {
