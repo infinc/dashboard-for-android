@@ -28,15 +28,17 @@ class SettingsController(private val graph: AppGraph) {
     /**
      * 「全て保存」。1 回の書き込みにまとめ、取得先が変わったものは待たずに取り直す。
      * カードを増やして画面に収まらなくなる変更は保存しない（設定画面の切り替えで止め損ねた分の最後の砦）。
+     * カードの配置は [CardLayout.adjust] で表示するカードに合わせてから保存する。
      */
     fun saveAll(request: SaveAllRequest): Config {
         val before = graph.config.get()
-        request.settings.display?.let { next ->
-            CardLayout.overflowMessage(before.display, next, CardLayout.area(graph.context))
-                ?.let { throw SettingsException("cards_overflow", it) }
-        }
+        val settings = request.settings.display?.let { next ->
+            val adjusted = CardLayout.adjust(before.display, next, CardLayout.area(graph.context))
+            adjusted.message?.let { throw SettingsException("cards_overflow", it) }
+            request.settings.copy(display = adjusted.display)
+        } ?: request.settings
         val updated = graph.config.update { c ->
-            var next = graph.config.patched(c, request.settings)
+            var next = graph.config.patched(c, settings)
             request.memo?.let { next = next.copy(memo = applyMemo(next.memo, it)) }
             request.spotify?.let { next = next.copy(spotify = applySpotify(next.spotify, it)) }
             request.train?.let { next = next.copy(train = applyTrain(next.train, it)) }

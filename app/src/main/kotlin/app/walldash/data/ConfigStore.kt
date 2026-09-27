@@ -123,6 +123,10 @@ class ConfigStore(context: Context) {
             .filter { it in DEFAULT_WEATHER_FIELDS }
             .distinct()
             .ifEmpty { DEFAULT_WEATHER_FIELDS },
+        // 知らないカード・重複・範囲外の幅を落とし、非表示のカードは抜く（空いた分・空いた行はそのまま空ける。末尾の空の行は toSlots が落とす）
+        cardLayout = CardLayout.toSlots(
+            CardLayout.slots(d).map { row -> row.filter { it.first.isShown(d) } }.take(MAX_LAYOUT_ROWS),
+        ),
     )
 
     /**
@@ -185,5 +189,7 @@ class ConfigStore(context: Context) {
         val ALLOWED_COUNTDOWNS = listOf("newyear", "christmas", "holiday", "dayoff", "fullmoon", "newmoon")
         private const val MAX_STOCKS = 6
         private const val MAX_COUNTDOWNS = 10
+        /** 配置の行数の上限。編集できるのは 4 行だが、縦向きで足したカードの分だけ多く持つことがある。 */
+        private const val MAX_LAYOUT_ROWS = 12
     }
 }

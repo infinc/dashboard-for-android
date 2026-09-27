@@ -188,6 +188,7 @@ private data class Draft(
 
 private enum class Pane(val label: String, val group: String, val card: ((DisplayConfig) -> Boolean)? = null) {
     Palette("配色", "全体"),
+    Layout("カードの配置", "全体"),
     Theme("テーマ", "全体"),
     Screen("画面の明るさ", "全体"),
     Place("場所", "全体"),
@@ -242,14 +243,17 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
         base = latest
     }
 
-    /** 下書きを書き換える。カードを増やして画面に収まらなくなる変更は、理由を出して取りやめる。 */
+    /**
+     * 下書きを書き換える。カードの表示を切り替えたときは配置を合わせ直し（空きが足りなければほかのカードを最小の幅まで縮める）、
+     * それでも画面に収まらなくなる変更は、理由を出して取りやめる。
+     */
     fun update(next: Draft) {
-        val message = CardLayout.overflowMessage(draft.display, next.display, CardLayout.area(context))
-        if (message != null) {
-            blocked = message
+        val adjusted = CardLayout.adjust(draft.display, next.display, CardLayout.area(context))
+        if (adjusted.message != null) {
+            blocked = adjusted.message
             return
         }
-        draft = next
+        draft = next.copy(display = adjusted.display)
         saveStatus = ""
     }
 
@@ -397,9 +401,11 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
             Field("アクセント色") {
                 ColorSwatches(Accents.ALL.map { it.hex to it.label }, disp.accent) { display { copy(accent = it) } }
             }
-            Notice("カードを非表示にしても空白は残りません。空いた列は同じ行に残ったカードへ自動で配分され、1 行が常に画面幅いっぱいになります。")
-            Notice("カードを表示しすぎて画面に収まらなくなるときは、そのカードは表示できません（理由をお知らせします）。先にほかのカードを非表示にしてください。縦向きの画面は縦にスクロールするので、この制限はありません。")
+            Notice("カードの幅と並びは「カードの配置」で変えられます。自動で並べているあいだは、カードを非表示にして空いた列が同じ行に残ったカードへ配分され、1 行が常に画面幅いっぱいになります。")
+            Notice("カードを表示しすぎて、ほかのカードを最小の幅まで縮めても画面に収まらないときは、そのカードは表示できません（理由をお知らせします）。先にほかのカードを非表示にしてください。縦向きの画面は縦にスクロールするので、この制限はありません。")
         }
+
+        Pane.Layout -> LayoutPane(disp) { display { it } }
 
         Pane.Theme -> ThemePane(graph, config, d, set)
 

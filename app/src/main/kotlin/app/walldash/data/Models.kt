@@ -397,7 +397,18 @@ data class DisplayConfig(
     val analogSweep: Boolean = true,
     /** アナログ時計の文字盤に数字を入れる。 */
     val analogNumerals: Boolean = true,
+
+    /**
+     * 利用者が設定画面の「カードの配置」で決めた並べ方（横向きの画面の行ごと、左から順）。
+     * 空なら自動で並べる（[CardLayout.rows] の従来の計算）。幅を 1 度でも動かして保存すると、ここに入る。
+     * 行の幅の合計が 24 列に満たないときは、右端がそのまま空く。
+     */
+    val cardLayout: List<List<CardSlot>> = emptyList(),
 )
+
+/** カードの配置の 1 枠。[card] は [CardLayout.Card] の名前、[span] は 24 列のうち何列使うか。 */
+@Serializable
+data class CardSlot(val card: String, val span: Int)
 
 /**
  * 天気カードに出せる項目。値は ui/dashboard/SimpleCards.kt の wxCell() のキーと一致させること。
@@ -780,12 +791,23 @@ data class PublicConfig(
 @Serializable
 data class Choice(val value: String, val label: String)
 
+/** 「カードの配置」の 1 枚ぶんの情報（[CardLayout.Card] と同じ）。 */
 @Serializable
-data class SettingChoices(val accents: List<Choice>, val tones: List<Choice>) {
+data class CardChoice(val id: String, val label: String, val span: Int, val min: Int)
+
+@Serializable
+data class SettingChoices(
+    val accents: List<Choice>,
+    val tones: List<Choice>,
+    val cards: List<CardChoice> = emptyList(),
+    val layoutRows: Int = CardLayout.LAYOUT_ROWS,
+    val columns: Int = CardLayout.COLUMNS,
+) {
     companion object {
         val ALL = SettingChoices(
             accents = Accents.ALL.map { Choice(it.hex, it.label) },
             tones = Tones.ALL.map { Choice(it.id, it.label) },
+            cards = CardLayout.Card.entries.map { CardChoice(it.name, it.label, it.span, it.min) },
         )
     }
 }
