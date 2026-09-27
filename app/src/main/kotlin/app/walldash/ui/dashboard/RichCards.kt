@@ -436,6 +436,7 @@ fun SpotifyCard(
     album: Pair<String, ImageBitmap>?,
     now: Long,
     onControl: (String) -> Unit,
+    onExpand: () -> Unit,
     modifier: Modifier,
 ) {
     val note = when {
@@ -444,7 +445,11 @@ fun SpotifyCard(
         sp.playing -> "再生中"
         else -> "一時停止中"
     }
-    WdCard("Spotify", modifier, note = note, titleColor = Wd.Green, borderColor = Wd.Green.copy(alpha = 0.5f)) {
+    // 再生中だけ、見出しの右に「画面いっぱいに出す」ボタンを置く
+    val expand: (@Composable () -> Unit)? = if (enabled && connected && sp?.available == true && sp.playing) {
+        { ExpandButton(onExpand) }
+    } else null
+    WdCard("Spotify", modifier, note = note, titleColor = Wd.Green, borderColor = Wd.Green.copy(alpha = 0.5f), titleAction = expand) {
         when {
             !enabled || !connected -> Idle("Spotify は未連携です。\n設定画面から連携してください。")
             sp == null || !sp.available -> Idle(sp?.lastError?.let { "取得できません: $it" } ?: "接続中…")
@@ -501,6 +506,17 @@ fun SpotifyCard(
     }
 }
 
+/** 見出しの文字に合わせた小さなボタン。押せる範囲だけは指で押せる大きさにする。 */
+@Composable
+private fun ExpandButton(onClick: () -> Unit) {
+    Box(
+        Modifier.size(26.dp, 20.dp).clip(RoundedCornerShape(6.dp)).background(Wd.Green.copy(alpha = 0.14f)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(WdIcons.Expand, "画面いっぱいに表示", tint = Wd.Green, modifier = Modifier.size(13.dp))
+    }
+}
+
 @Composable
 private fun Idle(text: String) {
     Text(text, color = Wd.Text3, fontSize = 13.tu, lineHeight = 1.7.em)
@@ -516,8 +532,8 @@ private fun ControlButton(icon: ImageVector, onClick: () -> Unit) {
     }
 }
 
-/** 再生位置は 5 秒おきにしか届かないので、受け取ってからの経過を足して毎秒進める。 */
-private fun progress(sp: SpotifyState, now: Long): String {
+/** 再生位置は 5 秒おきにしか届かないので、受け取ってからの経過を足して毎秒進める。全画面（NowPlayingScreen）でも使う。 */
+internal fun progress(sp: SpotifyState, now: Long): String {
     var pos = sp.progressMs ?: return ""
     if (sp.playing && sp.fetchedAt > 0) pos += max(0L, now - sp.fetchedAt)
     sp.durationMs?.let { pos = minOf(pos, it) }

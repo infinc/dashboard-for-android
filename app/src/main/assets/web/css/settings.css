@@ -181,3 +181,42 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
   .panes { padding: 20px 16px 40px; overflow: visible; }
   .grid2 { grid-template-columns: 1fr; }
 }
+
+/* ---------------------------------------------------------------- カードの配置 */
+/* 横向きのダッシュボードの縮図。各行は 24 列、カードは列の単位で左から並ぶ（位置と幅は JS が % で決める）。 */
+.lay { display: grid; grid-gap: 8px; gap: 8px; }
+.lay-row {
+  position: relative; height: 74px;
+  border: 1px solid var(--border-soft); border-radius: 10px;
+  background: var(--bg-2);
+  background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / 24 - 1px), var(--border-soft) calc(100% / 24 - 1px), var(--border-soft) calc(100% / 24));
+  background-size: 100% 30%; background-position: 0 50%; background-repeat: no-repeat;
+  -webkit-user-select: none; user-select: none; touch-action: pan-y;
+}
+.lay-card {
+  position: absolute; top: 6px; bottom: 6px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  padding: 7px 16px 6px 9px; overflow: hidden;
+}
+.lay-card.active { border-color: var(--accent); }
+/* カードは掴んで別の行・同じ行の別の位置へ動かせる */
+.lay-card { cursor: grab; touch-action: none; }
+.lay-ghost { position: fixed; top: 0; bottom: auto; z-index: 10; pointer-events: none; opacity: 0.92; border-color: var(--accent); box-shadow: var(--shadow); cursor: grabbing; }
+.lay-row.target { border-color: var(--accent); }
+.lay-drop { position: absolute; top: 8px; bottom: 8px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--accent); }
+.lay-drop.bad { background: var(--red); }
+.lay-name { font-size: 12.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-span { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-span.min { color: var(--amber); }
+/* 右の壁のつまみ。見た目は細い棒、掴める範囲は広めにとる。 */
+.lay-grip {
+  position: absolute; top: 6px; bottom: 6px; width: 30px; margin-left: -18px;
+  cursor: ew-resize; touch-action: none; z-index: 1;
+}
+.lay-grip::after {
+  content: ""; position: absolute; left: 13px; top: 50%; width: 4px; height: 28px; margin-top: -14px;
+  border-radius: 2px; background: var(--text-3);
+}
+.lay-grip.active::after { background: var(--accent); }
+.lay-free { position: absolute; top: 50%; margin-top: -8px; margin-left: 10px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.lay-actions { display: grid; grid-template-columns: auto 1fr; grid-gap: 12px; gap: 12px; align-items: center; }

@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
@@ -87,6 +89,8 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
     val d = config.display
     val s = state
+    /** Spotify の再生中の曲を画面いっぱいに出しているか。 */
+    var nowPlaying by remember { mutableStateOf(false) }
 
     @Composable
     fun Card(slot: Slot, modifier: Modifier) {
@@ -98,7 +102,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.HOURLY -> HourlyCard(s?.weather, d.hourlyMode, modifier)
             Slot.SPOTIFY -> SpotifyCard(
                 s?.spotify, config.spotify.enabled, !config.spotify.refreshToken.isNullOrBlank(), d, album, now,
-                vm::spotifyControl, modifier,
+                vm::spotifyControl, { nowPlaying = true }, modifier,
             )
             Slot.WIFI -> WifiCard(s?.wifi, s?.deviceStats, rssi, d.wifiShowGlobe, modifier)
             Slot.STATS -> StatsCard(s?.deviceStats, cpu, modifier)
@@ -147,6 +151,9 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                         rows.forEach { row ->
                             Row(Modifier.fillMaxWidth().height(rowHeight), horizontalArrangement = Arrangement.spacedBy(GAP)) {
                                 row.forEach { (slot, span) -> Card(slot, Modifier.weight(span.toFloat()).fillMaxSize()) }
+                                // 利用者の配置で行の右端が余っているときは、そのまま空けておく
+                                val free = CardLayout.COLUMNS - row.sumOf { it.second }
+                                if (!compact && free > 0) Spacer(Modifier.weight(free.toFloat()))
                             }
                         }
                     }
@@ -166,6 +173,10 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         }
 
         if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+
+        AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            NowPlayingScreen(s?.spotify, album, now, vm::spotifyControl, onBack = { nowPlaying = false })
+        }
     }
 }
 
