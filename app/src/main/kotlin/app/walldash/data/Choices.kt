@@ -51,6 +51,20 @@ object Tones {
         Tone("alarm", "アラーム", Wave.SQUARE, listOf(Note(1760.0, 0.0, 0.09), Note(1760.0, 0.16, 0.09), Note(1760.0, 0.32, 0.09), Note(1760.0, 0.48, 0.09))),
         Tone("soft", "やわらか", Wave.SINE, listOf(Note(440.0, 0.0, 0.4), Note(554.4, 0.32, 0.5))),
         Tone("ping", "ピン", Wave.SINE, listOf(Note(1568.0, 0.0, 0.25))),
+        Tone("doorbell", "ピンポン", Wave.TRIANGLE, listOf(Note(659.3, 0.0, 0.5), Note(523.3, 0.45, 0.8))),
+        Tone("school", "学校のチャイム", Wave.SINE, listOf(Note(659.3, 0.0, 0.55), Note(523.3, 0.45, 0.55), Note(587.3, 0.9, 0.55), Note(392.0, 1.35, 0.9))),
+        Tone("arpeggio", "和音", Wave.SINE, listOf(Note(523.3, 0.0, 0.25), Note(659.3, 0.09, 0.25), Note(784.0, 0.18, 0.25), Note(1046.5, 0.27, 0.45))),
+        Tone("harp", "ハープ", Wave.TRIANGLE, listOf(Note(523.3, 0.0, 0.35), Note(587.3, 0.07, 0.35), Note(659.3, 0.14, 0.35), Note(784.0, 0.21, 0.35), Note(880.0, 0.28, 0.35), Note(1046.5, 0.35, 0.5))),
+        Tone("notice", "お知らせ", Wave.SINE, listOf(Note(880.0, 0.0, 0.12), Note(1174.7, 0.14, 0.12), Note(1760.0, 0.28, 0.3))),
+        Tone("descend", "下る音", Wave.TRIANGLE, listOf(Note(1046.5, 0.0, 0.16), Note(784.0, 0.12, 0.16), Note(523.3, 0.24, 0.3))),
+        Tone("crystal", "きらきら", Wave.SINE, listOf(Note(2093.0, 0.0, 0.5), Note(2637.0, 0.06, 0.5), Note(3136.0, 0.12, 0.6))),
+        Tone("bird", "小鳥", Wave.SINE, listOf(Note(2637.0, 0.0, 0.06), Note(3136.0, 0.08, 0.06), Note(2637.0, 0.16, 0.06), Note(3520.0, 0.24, 0.1))),
+        Tone("pop", "ポップ", Wave.SINE, listOf(Note(660.0, 0.0, 0.06), Note(990.0, 0.05, 0.1))),
+        Tone("coin", "コイン", Wave.SQUARE, listOf(Note(988.0, 0.0, 0.08), Note(1318.5, 0.08, 0.35))),
+        Tone("fanfare", "ファンファーレ", Wave.SQUARE, listOf(Note(392.0, 0.0, 0.14), Note(523.3, 0.15, 0.14), Note(659.3, 0.3, 0.14), Note(784.0, 0.45, 0.5))),
+        Tone("gong", "ゴーン", Wave.SINE, listOf(Note(196.0, 0.0, 1.6), Note(293.7, 0.0, 1.4))),
+        Tone("knock", "ノック", Wave.TRIANGLE, listOf(Note(220.0, 0.0, 0.06), Note(220.0, 0.16, 0.06))),
+        Tone("siren", "サイレン", Wave.SQUARE, listOf(Note(960.0, 0.0, 0.24), Note(770.0, 0.25, 0.24), Note(960.0, 0.5, 0.24), Note(770.0, 0.75, 0.24))),
     )
 
     fun byId(id: String?, fallback: String): Tone =

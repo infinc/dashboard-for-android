@@ -53,6 +53,9 @@ class MainActivity : ComponentActivity() {
     private val dimRunnable = Runnable { applyBrightness(dimmed = true) }
     private var dimmed = false
 
+    /** Spotify の全画面で「画面を暗くしない」がオンの間は、無操作でも暗くしない。 */
+    private var holdAwake = false
+
     /** 通知で明るくする直前の状態。null は「通知のために明るくしてはいない」。 */
     private var dimBeforeNotice: Boolean? = null
 
@@ -78,6 +81,11 @@ class MainActivity : ComponentActivity() {
             // 減光中でも通知が読めるよう、バナーが出ている間だけ明るくする
             LaunchedEffect(toast != null) { if (toast != null) wakeForNotice() else restoreAfterNotice() }
             LaunchedEffect(browserUrl) { vm.setActive(browserUrl == null && resumed) }
+            val awake by vm.holdAwake.collectAsStateWithLifecycle()
+            LaunchedEffect(awake) {
+                holdAwake = awake
+                resetIdleTimer()
+            }
 
             val hasWallpaper = config.wallpaper.imageSetAt > 0
             WalldashTheme(
@@ -141,14 +149,14 @@ class MainActivity : ComponentActivity() {
     private fun restoreAfterNotice() {
         val wasDimmed = dimBeforeNotice ?: return
         dimBeforeNotice = null
-        if (wasDimmed) applyBrightness(dimmed = true)
+        if (wasDimmed && !holdAwake) applyBrightness(dimmed = true)
     }
 
     private fun resetIdleTimer() {
         applyBrightness(dimmed = false)
         idleHandler.removeCallbacks(dimRunnable)
         val display = graph.config.get().display
-        if (display.idleDimEnabled) idleHandler.postDelayed(dimRunnable, display.idleDimAfterSeconds * 1000L)
+        if (display.idleDimEnabled && !holdAwake) idleHandler.postDelayed(dimRunnable, display.idleDimAfterSeconds * 1000L)
     }
 
     /** 明るさは常にこのウィンドウが決める（端末の自動輝度に任せると壁掛けでは明滅する）。 */

@@ -51,7 +51,7 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    radarZoom: 8, todayShowEvent: true, analogSweep: true, analogNumerals: true,
+    todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
   disaster: { enabled: true, minIntensity: "3" },
@@ -98,7 +98,7 @@ const CARDS = [
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
-config.choices.cards = CARDS.map(({ id, label, span, min }) => ({ id, label, span, min }));
+config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));
 config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
@@ -110,7 +110,7 @@ const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 const MOCK_MAX_ROWS = Number(process.env.MOCK_MAX_ROWS ?? 4);
 const LIMIT = Math.min(4, MOCK_MAX_ROWS);
 const sum = (row) => row.reduce((a, x) => a + x.span, 0);
-const slot = (card, span) => ({ card: card.id, span });
+const slot = (card, span) => ({ card: card.id, span, height: 1 });
 // Kotlin の trimEnd(): 末尾の空の行だけ落とす（途中の空の行は置き場所を保つため残す）
 const trimEnd = (rows) => { const out = rows.slice(); while (out.length && !out[out.length - 1].length) out.pop(); return out; };
 
@@ -149,11 +149,12 @@ const autoRows = (d, maxRows = MOCK_MAX_ROWS) => {
   }
   return plain;
 };
-// Kotlin の slots() / fitRow(): 知らないカード・重複を落とし、幅を最小〜24 に、行の合計が 24 を超えたら縮める
+// Kotlin の slots() / fitRow(): 知らないカード・重複を落とし、幅を最小〜24 に、行の合計が 24 を超えたら縮める。
+// 高さ（height）はそのまま通す（縦に伸ばしたカードとぶつかるかの検査は、設定画面の JS と実機の CardLayout に任せる）
 const slots = (layout) => {
   const seen = new Set();
   return (layout || []).map((row) => row.filter((x) => CARD[x.card] && !seen.has(x.card) && seen.add(x.card))
-    .map((x) => ({ card: x.card, span: Math.min(24, Math.max(CARD[x.card].min, x.span)) })));
+    .map((x) => ({ card: x.card, span: Math.min(24, Math.max(CARD[x.card].min, x.span)), height: Math.min(4, Math.max(1, x.height || 1)) })));
 };
 const fitRow = (row) => {
   const out = row.map((x) => ({ ...x }));

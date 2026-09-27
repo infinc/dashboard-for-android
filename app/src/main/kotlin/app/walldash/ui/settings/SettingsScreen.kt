@@ -593,11 +593,8 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
         Pane.Train -> TrainPane(graph, config, d, set)
 
         Pane.Radar -> {
-            PaneTitle("雨雲レーダー", "気象庁の雨雲の動き（5 分ごと）を、国土地理院の地図に重ねて出すカードです。中心は「場所」で選んだ地点です。")
+            PaneTitle("雨雲レーダー", "気象庁の雨雲の動き（5 分ごと）を、文字や道路の無い灰色の地図（Esri）に重ねて出すカードです。中心は「場所」で選んだ地点で、ドラッグで別の場所へ動かせます（3 分触らなければ戻ります）。範囲はカードの右上の「＋」「−」で変えられます。")
             CardSwitch(disp.showRadar) { copy(showRadar = it) }
-            Field("範囲") {
-                Select(listOf(6 to "広域（関東全体くらい）", 8 to "地方（県くらい）", 10 to "周辺（市くらい）"), disp.radarZoom, { display { copy(radarZoom = it) } })
-            }
             Notice("カードを表示している間だけ、5 分ごとに地図と雨雲の画像（合わせて 30 枚ほど、1 枚数 KB）を取得します。日本国内の地点だけ雨雲が出ます。")
         }
 

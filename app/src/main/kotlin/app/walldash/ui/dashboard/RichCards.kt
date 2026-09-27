@@ -508,12 +508,12 @@ fun SpotifyCard(
 
 /** 見出しの文字に合わせた小さなボタン。押せる範囲だけは指で押せる大きさにする。 */
 @Composable
-private fun ExpandButton(onClick: () -> Unit) {
+internal fun ExpandButton(onClick: () -> Unit, color: Color = Wd.Green) {
     Box(
-        Modifier.size(26.dp, 20.dp).clip(RoundedCornerShape(6.dp)).background(Wd.Green.copy(alpha = 0.14f)).clickable(onClick = onClick),
+        Modifier.size(26.dp, 20.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.14f)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(WdIcons.Expand, "画面いっぱいに表示", tint = Wd.Green, modifier = Modifier.size(13.dp))
+        Icon(WdIcons.Expand, "画面いっぱいに表示", tint = color, modifier = Modifier.size(13.dp))
     }
 }
 

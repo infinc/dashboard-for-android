@@ -113,7 +113,6 @@ class ConfigStore(context: Context) {
         accent = if (Accents.isKnown(d.accent)) d.accent.uppercase() else Accents.DEFAULT,
         theme = if (d.theme in ALLOWED_THEMES) d.theme else "dark",
         cardOpacity = d.cardOpacity.coerceIn(0.2, 1.0),
-        radarZoom = if (d.radarZoom in ALLOWED_RADAR_ZOOMS) d.radarZoom else 8,
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
         clockDateFormat = if (d.clockDateFormat in ALLOWED_DATE_FORMATS) d.clockDateFormat else "ja",
         hourlyMode = if (d.hourlyMode in ALLOWED_HOURLY_MODES) d.hourlyMode else "both",
@@ -125,7 +124,7 @@ class ConfigStore(context: Context) {
             .ifEmpty { DEFAULT_WEATHER_FIELDS },
         // 知らないカード・重複・範囲外の幅を落とし、非表示のカードは抜く（空いた分・空いた行はそのまま空ける。末尾の空の行は toSlots が落とす）
         cardLayout = CardLayout.toSlots(
-            CardLayout.slots(d).map { row -> row.filter { it.first.isShown(d) } }.take(MAX_LAYOUT_ROWS),
+            CardLayout.slots(d).map { row -> row.filter { it.card.isShown(d) } }.take(MAX_LAYOUT_ROWS),
         ),
     )
 
@@ -184,7 +183,6 @@ class ConfigStore(context: Context) {
         private val ALLOWED_DATE_FORMATS = setOf("ja", "slash")
         private val ALLOWED_HOURLY_MODES = setOf("both", "temp", "precip")
         private val ALLOWED_THEMES = setOf("dark", "light")
-        private val ALLOWED_RADAR_ZOOMS = setOf(6, 8, 10)
         private val ALLOWED_STOCK_RANGES = setOf("1d", "5d", "1mo", "6mo", "1y")
         val ALLOWED_COUNTDOWNS = listOf("newyear", "christmas", "holiday", "dayoff", "fullmoon", "newmoon")
         private const val MAX_STOCKS = 6

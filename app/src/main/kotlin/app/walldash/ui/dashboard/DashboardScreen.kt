@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,11 +92,16 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val s = state
     /** Spotify の再生中の曲を画面いっぱいに出しているか。 */
     var nowPlaying by remember { mutableStateOf(false) }
+    /** 時刻を画面いっぱいに出しているか。 */
+    var bigClock by remember { mutableStateOf(false) }
+    val keepAwake by vm.keepAwake.collectAsStateWithLifecycle()
+    // 全画面の間だけ「画面を暗くしない」を効かせる（MainActivity が holdAwake を見る。閉じたら無操作の減光に戻る）
+    LaunchedEffect(nowPlaying || bigClock) { vm.setFullscreenOpen(nowPlaying || bigClock) }
 
     @Composable
     fun Card(slot: Slot, modifier: Modifier) {
         when (slot) {
-            Slot.CLOCK -> ClockCard(now, config.units, d, s?.weather, s?.deviceTimezone, modifier)
+            Slot.CLOCK -> ClockCard(now, config.units, d, s?.weather, s?.deviceTimezone, { bigClock = true }, modifier)
             Slot.WEATHER -> WeatherCard(s?.weather, d, config.units, now, modifier)
             Slot.DISASTER -> DisasterCard(s?.disaster, config.disaster.enabled, d, kmoniBase, kmoni, modifier)
             Slot.MEMO -> MemoCard(s?.memo, config.memo.enabled, now, modifier)
@@ -113,7 +119,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.ANALOG_CLOCK -> AnalogClockCard(now, d.analogSweep, d.analogNumerals, modifier)
             Slot.CALENDAR -> CalendarCard(s?.calendar, config.calendar.enabled, calendarConfigured(config), now, modifier)
             Slot.TRAIN -> TrainCard(s?.train, config.train.enabled, !config.train.token.isNullOrBlank() || !config.train.challengeToken.isNullOrBlank(), now, modifier)
-            Slot.RADAR -> RadarCard(radar, config.location.name, modifier)
+            Slot.RADAR -> RadarCard(radar, config.location.name, vm::panRadar, vm::zoomRadar, modifier)
             Slot.SUN_MOON -> SunMoonCard(s?.weather, now, modifier)
             Slot.COUNTDOWN -> CountdownCard(config.countdown, s?.holidays.orEmpty(), now, modifier)
             Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
@@ -135,25 +141,29 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                 // 設定画面が「カードを増やしても収まるか」を判定するときに、この実測の高さを使う
                 SideEffect { CardLayout.measured = area }
                 // 横向きで行が溢れるときは、週間予報を半分の幅まで縮めて空いた列に後ろのカードを並べる
-                val rows = CardLayout.rows(d, area)
-                val fit = (maxHeight - GAP * max(0, rows.size - 1)) / max(1, rows.size)
+                val grid = CardLayout.grid(d, area)
+                val fit = (maxHeight - GAP * max(0, grid.rows - 1)) / max(1, grid.rows)
                 // それでも収まらないとき（設定で止める前の古い設定や、画面の小さい端末への持ち込み）は、
                 // 詰め込んで文字を重ねるより、1 行の高さを保って縦にスクロールさせる
-                val fits = compact || rows.size <= CardLayout.maxRows(area)
+                val fits = compact || grid.rows <= CardLayout.maxRows(area)
                 SideEffect { overflow = !fits }
                 val rowHeight = when {
                     compact -> maxOf(fit, 190.dp)
                     !fits -> CardLayout.minRowDp(screen.screenHeightDp).dp
                     else -> fit
                 }
+                // 24 列の格子に置く（利用者の配置で行の右端が余っているときや、縦に伸ばしたカードの下は、そのまま空く）
+                val pitch = (maxWidth + GAP) / CardLayout.COLUMNS
                 val body: @Composable () -> Unit = {
-                    Column(verticalArrangement = Arrangement.spacedBy(GAP)) {
-                        rows.forEach { row ->
-                            Row(Modifier.fillMaxWidth().height(rowHeight), horizontalArrangement = Arrangement.spacedBy(GAP)) {
-                                row.forEach { (slot, span) -> Card(slot, Modifier.weight(span.toFloat()).fillMaxSize()) }
-                                // 利用者の配置で行の右端が余っているときは、そのまま空けておく
-                                val free = CardLayout.COLUMNS - row.sumOf { it.second }
-                                if (!compact && free > 0) Spacer(Modifier.weight(free.toFloat()))
+                    Box(Modifier.fillMaxWidth().height(rowHeight * grid.rows + GAP * max(0, grid.rows - 1))) {
+                        grid.cards.forEach { p ->
+                            key(p.card) {
+                                Card(
+                                    p.card,
+                                    Modifier
+                                        .offset(x = pitch * p.col, y = (rowHeight + GAP) * p.row)
+                                        .size(pitch * p.span - GAP, rowHeight * p.height + GAP * (p.height - 1)),
+                                )
                             }
                         }
                     }
@@ -175,7 +185,10 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
 
         AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            NowPlayingScreen(s?.spotify, album, now, vm::spotifyControl, onBack = { nowPlaying = false })
+            NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, onBack = { nowPlaying = false })
+        }
+        AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
         }
     }
 }
@@ -222,7 +235,7 @@ private fun credits(d: app.walldash.data.DisplayConfig): String = buildList {
     add("Weather data by Open-Meteo.com (CC BY 4.0)")
     if (d.showDisaster || d.showRadar) add("防災情報・雨雲: 気象庁")
     if (d.showDisaster && d.disasterShowKmoni) add("強震モニタ: 防災科学技術研究所")
-    if (d.showRadar) add("地図: 地理院タイル")
+    if (d.showRadar) add("地図: Esri, HERE, Garmin, © OpenStreetMap")
     if (d.showTrain) add("運行情報: 公共交通オープンデータ協議会")
     if (d.showToday) add("今日は何の日: Wikipedia (CC BY-SA)")
     if (d.showStocks) add("株価: Yahoo Finance")
