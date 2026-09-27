@@ -5,6 +5,7 @@ import app.walldash.AppGraph
 import app.walldash.SettingsController
 import app.walldash.data.ApiError
 import app.walldash.data.CardLayout
+import app.walldash.data.CardSlot
 import app.walldash.data.DisplayConfig
 import app.walldash.data.SaveAllRequest
 import app.walldash.data.Tones
@@ -164,12 +165,25 @@ class DashboardServer(private val graph: AppGraph) {
                 call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
             }
 
-            /** カードを表示に切り替える前の確認。判定はアプリの設定画面・saveAll と同じ CardLayout で行う。 */
+            /**
+             * カードの表示を切り替える前の確認と、「カードの配置」に出す並び。判定はアプリの設定画面・saveAll と同じ CardLayout で行う。
+             * 収まるなら、合わせ直した配置（[LayoutCheckResponse.layout]）を設定画面がそのまま下書きにする。
+             */
             post("/api/layout/check") {
                 if (!guardWrite(call)) return@post
                 val body = call.receive<LayoutCheckRequest>()
-                val message = CardLayout.overflowMessage(body.before, body.after, CardLayout.area(graph.context))
-                call.respond(LayoutCheckResponse(ok = message == null, message = message))
+                val area = CardLayout.area(graph.context)
+                val adjusted = CardLayout.adjust(body.before, body.after, area)
+                val display = if (adjusted.message == null) adjusted.display else body.before
+                call.respond(
+                    LayoutCheckResponse(
+                        ok = adjusted.message == null,
+                        message = adjusted.message,
+                        layout = display.cardLayout,
+                        rows = CardLayout.toSlots(CardLayout.editorRows(display, area)),
+                        autoMessage = CardLayout.autoMessage(display, area),
+                    ),
+                )
             }
 
             /** 背景画像。本文は画像ファイルそのもの（縮小と向きの補正はここで行う）。 */
@@ -384,7 +398,16 @@ class DashboardServer(private val graph: AppGraph) {
     private data class LayoutCheckRequest(val before: DisplayConfig, val after: DisplayConfig)
 
     @Serializable
-    private data class LayoutCheckResponse(val ok: Boolean, val message: String? = null)
+    private data class LayoutCheckResponse(
+        val ok: Boolean,
+        val message: String? = null,
+        /** 保存する配置（空なら自動）。 */
+        val layout: List<List<CardSlot>> = emptyList(),
+        /** 「カードの配置」に出す横向きの並び（自動のときも幅つき）。 */
+        val rows: List<List<CardSlot>> = emptyList(),
+        /** 配置を自動へ戻せないときの理由。 */
+        val autoMessage: String? = null,
+    )
 
     @Serializable
     private data class LanRequest(val enabled: Boolean? = null, val pin: String? = null)

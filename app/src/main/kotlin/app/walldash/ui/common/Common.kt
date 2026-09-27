@@ -5,10 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -45,6 +47,8 @@ fun WdCard(
     titleColor: Color = Wd.Text3,
     borderColor: Color = Wd.Border,
     headerEnd: (@Composable () -> Unit)? = null,
+    /** 見出しのすぐ右に置く小さなボタンなど。 */
+    titleAction: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // 背景画像の上では面を透かす（枠線と文字はそのまま）
@@ -72,14 +76,21 @@ fun WdCard(
     ) {
         CardHeader(
             title = {
-                Text(
-                    title,
-                    color = titleColor,
-                    fontSize = 12.5f.tu,
-                    letterSpacing = 0.14.em,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        color = titleColor,
+                        fontSize = 12.5f.tu,
+                        letterSpacing = 0.14.em,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    titleAction?.let {
+                        Spacer(Modifier.width(6.dp))
+                        it()
+                    }
+                }
             },
             end = {
                 when {
@@ -176,6 +187,8 @@ object WdIcons {
     val Forward = icon("M8.5 5l7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4z")
     val More = icon("M12 7.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 13.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 20.1a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z")
     val Menu = icon("M4 6.5h16v1.8H4zM4 11.1h16v1.8H4zM4 15.7h16v1.8H4z")
+    /** 画面いっぱいに広げる（四隅のかぎ）。 */
+    val Expand = icon("M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z")
     val Close = icon("M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z")
 
     private fun icon(d: String): ImageVector = ImageVector.Builder(

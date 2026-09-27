@@ -110,7 +110,7 @@ class TodayRepository(context: Context, private val client: HttpClient) {
                     }
                     line.startsWith("*") -> {
                         val body = line.trimStart('*', ' ')
-                        val region = Regex("\\{\\{([A-Za-z]+)}}").find(body)?.groupValues?.get(1)?.let { REGIONS[it] }
+                        val region = Regex("\\{\\{([A-Za-z]+)\\}\\}").find(body)?.groupValues?.get(1)?.let { REGIONS[it] }
                         // 名前は「（{{JPN}}、このころ）」の手前まで
                         val name = clean(body.substringBefore("（{{").substringBefore("({{"))
                         if (name.isNotEmpty()) items += TodayItem(name, region)
@@ -126,18 +126,22 @@ class TodayRepository(context: Context, private val client: HttpClient) {
             .map { clean(it.trimStart('*', ' ')) }
             .filter { Regex("^(紀元前)?\\d{1,4}年").containsMatchIn(it) && " - " in it }
 
-        /** ウィキ記法を地の文にする（リンク・テンプレート・脚注・強調・HTML を落とす）。 */
+        /**
+         * ウィキ記法を地の文にする（リンク・テンプレート・脚注・強調・HTML を落とす）。
+         * 波括弧と角括弧は、文字クラスの中も含めて必ずエスケープする。Android の正規表現（ICU）は、
+         * エスケープしない `}` や `[^]]` を構文エラーにする（JVM では通るので、PC のテストでは気づけない）。
+         */
         internal fun clean(text: String): String {
             var s = text
             s = s.replace(Regex("<ref[^>/]*/>"), "")
             s = s.replace(Regex("<ref[^>]*>.*?</ref>"), "")
             s = s.replace(Regex("<ref[^>]*>.*$"), "")
-            s = s.replace(Regex("\\[\\[(?:File|ファイル|画像|Image):[^]]*(\\[\\[[^]]*]][^]]*)*]]"), "")
+            s = s.replace(Regex("\\[\\[(?:File|ファイル|画像|Image):[^\\]]*(\\[\\[[^\\]]*\\]\\][^\\]]*)*\\]\\]"), "")
             // テンプレートは入れ子になり得るので内側から消す
-            repeat(4) { s = s.replace(Regex("\\{\\{[^{}]*}}"), "") }
-            s = s.replace(Regex("\\[\\[[^]|]*\\|([^]]*)]]"), "$1")
-            s = s.replace(Regex("\\[\\[([^]]*)]]"), "$1")
-            s = s.replace(Regex("\\[https?://\\S+ ([^]]*)]"), "$1")
+            repeat(4) { s = s.replace(Regex("\\{\\{[^\\{\\}]*\\}\\}"), "") }
+            s = s.replace(Regex("\\[\\[[^\\]|]*\\|([^\\]]*)\\]\\]"), "$1")
+            s = s.replace(Regex("\\[\\[([^\\]]*)\\]\\]"), "$1")
+            s = s.replace(Regex("\\[https?://\\S+ ([^\\]]*)\\]"), "$1")
             s = s.replace(Regex("'{2,}"), "")
             s = s.replace(Regex("<[^>]+>"), "")
             s = s.replace("&nbsp;", " ")

@@ -4,10 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -193,22 +193,29 @@ private fun Moon(m: Astro.MoonPhase, now: Long, modifier: Modifier) {
     fun date(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).let { "${it.monthValue}/${it.dayOfMonth} %02d:%02d".format(it.hour, it.minute) }
     val dark = if (Wd.palette.light) Color(0xFF2A3342) else Color(0xFF1E2530)
     val lit = Color(0xFFF3EFD9)
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.fillMaxHeight(0.78f).aspectRatio(1f)) { moonDisc(m.phase, dark, lit) }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(m.name, fontSize = vhText(2.3f, 15f, 19f), fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 2.dp)) {
-                Text("月齢 ", color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
-                Text("%.1f".format(Locale.US, m.age), fontSize = vhText(2.6f, 16f, 22f), fontWeight = FontWeight.SemiBold, style = Tabular)
+    // 円盤を高さだけで決めると、幅の狭いときに右の文字の列が潰れて縦書きのように折り返す。文字の列に要る幅を先に残す
+    BoxWithConstraints(modifier) {
+        val disc = minOf(maxHeight * 0.78f, maxWidth - 10.dp - MOON_TEXT_WIDTH).coerceAtLeast(36.dp)
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(disc)) { moonDisc(m.phase, dark, lit) }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(m.name, fontSize = vhText(2.3f, 15f, 19f), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 2.dp)) {
+                    Text("月齢 ", color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
+                    Text("%.1f".format(Locale.US, m.age), fontSize = vhText(2.6f, 16f, 22f), fontWeight = FontWeight.SemiBold, style = Tabular)
+                }
+                Text("輝いている面 ${(m.illumination * 100).roundToInt()}%", color = Wd.Text2, fontSize = 11.5f.tu)
+                Spacer(Modifier.height(4.dp))
+                Text("満月 ${date(m.nextFull)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
+                Text("新月 ${date(m.nextNew)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
             }
-            Text("輝いている面 ${(m.illumination * 100).roundToInt()}%", color = Wd.Text2, fontSize = 11.5f.tu)
-            Spacer(Modifier.height(4.dp))
-            Text("満月 ${date(m.nextFull)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
-            Text("新月 ${date(m.nextNew)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
         }
     }
 }
+
+/** 月の右の文字の列（「満月 10/26 13:13」が 1 行に収まる幅）。 */
+private val MOON_TEXT_WIDTH = 104.dp
 
 /**
  * 月の円盤。[phase] 0 = 新月、0.25 = 上弦、0.5 = 満月、0.75 = 下弦。

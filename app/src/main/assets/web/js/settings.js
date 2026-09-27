@@ -18,6 +18,10 @@
   var trainSelected = [];
   var railwayChoices = [];
   var saving = false;
+  // カードの配置。layoutSaved は保存する配置（空なら自動）、layoutRows は画面に描く横向きの並び（自動のときも幅つき）
+  var layoutSaved = [];
+  var layoutRows = [];
+  var layoutAutoMessage = null;
 
   function api(path, options) {
     options = options || {};
@@ -104,6 +108,7 @@
     display.clockDateFormat = $("clockDateFormat").value;
     display.hourlyMode = $("hourlyMode").value;
     display.radarZoom = Number($("radarZoom").value);
+    display.cardLayout = layoutSaved;
     // data-w の付いたチェックボックスはすべて display の真偽値
     var boxes = document.querySelectorAll("input[data-w]");
     for (var i = 0; i < boxes.length; i++) display[boxes[i].getAttribute("data-w")] = boxes[i].checked;
@@ -310,8 +315,10 @@
 
     renderLan();
     updateRangeLabels();
+    layoutSaved = d.cardLayout || [];
     baseline = JSON.stringify(collect());
     updateDirty();
+    checkLayout(collect().settings.display, collect().settings.display, true);
   }
 
   function renderPlace() {
@@ -467,24 +474,315 @@
 
   // ---------------------------------------------------------------- カードの数
 
+  // ---------------------------------------------------------------- カードの配置
+
+  function cardInfo(id) {
+    var cards = config.choices.cards || [];
+    for (var i = 0; i < cards.length; i++) if (cards[i].id === id) return cards[i];
+    return { id: id, label: id, span: 6, min: 1 };
+  }
+
+  function copyRows(rows) {
+    return rows.map(function (row) { return row.map(function (x) { return { card: x.card, span: x.span }; }); });
+  }
+
+  /**
+   * タブレットに配置を合わせ直してもらう（判定と並べ方はアプリの CardLayout.adjust と同じ）。
+   * 収まるならその配置を下書きにし、収まらないなら false を返す。[keep] のときは保存する配置を変えず、描く並びだけ受け取る。
+   */
+  function checkLayout(before, after, keep) {
+    return api("/api/layout/check", { method: "POST", body: JSON.stringify({ before: before, after: after }) })
+      .then(function (r) {
+        if (!r.ok) return r;
+        if (!keep) layoutSaved = r.layout || [];
+        layoutRows = r.rows || [];
+        layoutAutoMessage = r.autoMessage || null;
+        renderLayout();
+        updateDirty();
+        return r;
+      });
+  }
+
+  /**
+   * 行の [index] 番目のカードの右の壁を [delta] 列動かす（アプリの CardLayout.resize と同じ）。
+   * 右へ: 右隣を最小の幅まで縮め、足りなければ行の右端の空きを使う。左へ: 自分を最小の幅まで縮め、その分を右隣へ渡す。
+   */
+  function resizeRow(row, index, delta) {
+    var out = row.map(function (x) { return { card: x.card, span: x.span }; });
+    var next = index + 1;
+    var total = function () { return out.reduce(function (a, x) { return a + x.span; }, 0); };
+    if (delta > 0) {
+      var grow = delta;
+      if (next < out.length) {
+        var take = Math.max(0, Math.min(grow, out[next].span - cardInfo(out[next].card).min));
+        out[next].span -= take;
+        out[index].span += take;
+        grow -= take;
+      }
+      out[index].span += Math.max(0, Math.min(grow, 24 - total()));
+    } else if (delta < 0) {
+      var shrink = Math.max(0, Math.min(-delta, out[index].span - cardInfo(out[index].card).min));
+      out[index].span -= shrink;
+      if (next < out.length) out[next].span += shrink;
+    }
+    return out;
+  }
+
+  /** 末尾の空の行を落とす（途中の空の行は、4 行のどこに置いたかを保つため残す）。 */
+  function trimRows(rows) {
+    var out = rows.slice();
+    while (out.length && !out[out.length - 1].length) out.pop();
+    return out;
+  }
+
+  /**
+   * 行の [at] 番目に [card] を入れる（アプリの CardLayout.squeeze と同じ）。空きが最小の幅に足りなければ、
+   * ほかのカードを最小の幅を超えている分の多い順に 1 列ずつ縮め、そのあと [want] 列になるまで少しずつ分けてもらう。
+   */
+  function squeezeRow(row, card, want, at) {
+    var out = row.map(function (x) { return { card: x.card, span: x.span }; });
+    var min = cardInfo(card).min;
+    var excess = function (x) { return x.span - cardInfo(x.card).min; };
+    var widest = function () { return out.slice().sort(function (p, q) { return excess(q) - excess(p); })[0]; };
+    var total = function () { return out.reduce(function (a, x) { return a + x.span; }, 0); };
+    while (24 - total() < min) widest().span--;
+    var span = min;
+    while (span < want) {
+      if (24 - total() - span > 0) { span++; continue; }
+      var w = widest();
+      if (!w || excess(w) <= span - min + 1) break;
+      w.span--;
+      span++;
+    }
+    out.splice(Math.max(0, Math.min(at, out.length)), 0, { card: card, span: span });
+    return out;
+  }
+
+  /**
+   * カードを [fromRow] 行の [fromIndex] 番目から [toRow] 行の [toIndex] 番目（抜いたあとの位置）へ動かす（アプリの CardLayout.move と同じ）。
+   * 行き先の行のカードを最小の幅まで縮めても入らなければ null。
+   */
+  function moveCard(rows, fromRow, fromIndex, toRow, toIndex) {
+    var grid = copyRows(rows);
+    while (grid.length <= toRow) grid.push([]);
+    var moving = grid[fromRow].splice(fromIndex, 1)[0];
+    var target = grid[toRow];
+    var at = Math.max(0, Math.min(toIndex, target.length));
+    var used = target.reduce(function (a, x) { return a + x.span; }, 0);
+    var mins = target.reduce(function (a, x) { return a + cardInfo(x.card).min; }, 0);
+    if (toRow === fromRow || 24 - used >= moving.span) target.splice(at, 0, moving);
+    else if (24 - mins >= cardInfo(moving.card).min) grid[toRow] = squeezeRow(target, moving.card, moving.span, at);
+    else return null;
+    return trimRows(grid);
+  }
+
+  // 幅を変えている最中（drag）と、カードを動かしている最中（move）
+  var drag = null;
+  var move = null;
+
+  function renderLayout() {
+    var root = $("layoutEditor");
+    var columns = (config.choices && config.choices.columns) || 24;
+    var count = Math.max((config.choices && config.choices.layoutRows) || 4, layoutRows.length);
+    root.innerHTML = "";
+    for (var r = 0; r < count; r++) {
+      var row = layoutRows[r] || [];
+      var el = document.createElement("div");
+      var target = move && move.drop && move.drop.row === r ? move.drop : null;
+      el.className = "lay-row" + (target ? " target" : "");
+      el.setAttribute("data-row", r);
+      var at = 0;
+      var shownIndex = 0;
+      for (var i = 0; i < row.length; i++) {
+        // 動かしている最中は、元の場所からそのカードを抜いて描く（差し込む位置の線と揃えるため）
+        if (move && move.row === r && move.index === i) continue;
+        var info = cardInfo(row[i].card);
+        var span = row[i].span;
+        var active = drag && drag.row === r && drag.index === i;
+        var card = document.createElement("div");
+        card.className = "lay-card" + (active ? " active" : "");
+        card.style.left = "calc(" + (at / columns * 100) + "% + 3px)";
+        card.style.width = "calc(" + (span / columns * 100) + "% - 6px)";
+        card.setAttribute("data-row", r);
+        card.setAttribute("data-index", i);
+        card.setAttribute("data-shown", shownIndex++);
+        var name = document.createElement("div");
+        name.className = "lay-name";
+        name.textContent = info.label;
+        var width = document.createElement("div");
+        width.className = "lay-span" + (span <= info.min ? " min" : "");
+        width.textContent = span + " 列" + (span <= info.min ? "（最小）" : "");
+        card.appendChild(name);
+        card.appendChild(width);
+        el.appendChild(card);
+        at += span;
+        if (move) continue;
+        var grip = document.createElement("div");
+        grip.className = "lay-grip" + (active ? " active" : "");
+        grip.style.left = (at / columns * 100) + "%";
+        grip.setAttribute("data-row", r);
+        grip.setAttribute("data-index", i);
+        grip.title = "ドラッグして幅を変える";
+        el.appendChild(grip);
+      }
+      if (target) {
+        var mark = document.createElement("div");
+        mark.className = "lay-drop" + (target.fits ? "" : " bad");
+        mark.style.left = (target.x / columns * 100) + "%";
+        el.appendChild(mark);
+      } else if (columns - at >= 2) {
+        var free = document.createElement("div");
+        free.className = "lay-free";
+        free.style.left = (at / columns * 100) + "%";
+        free.textContent = at ? "余白 " + (columns - at) + " 列" : "空いている行";
+        el.appendChild(free);
+      }
+      root.appendChild(el);
+    }
+    var custom = layoutSaved.length > 0;
+    $("layoutAuto").disabled = !custom;
+    setStatus("layoutMode", custom ? "自分で決めた配置です" : "いまは自動で並べています（幅や場所を動かすと、自分で決めた配置になります）");
+  }
+
+  function commitRows(rows) {
+    layoutRows = rows;
+    layoutSaved = trimRows(copyRows(rows));
+    renderLayout();
+    updateDirty();
+  }
+
+  /** 指やマウスの位置から、離したときに入る行と位置（動かすカードを抜いた並びでの位置）を決める。 */
+  function dropAt(x, y) {
+    var rowsEl = $("layoutEditor").querySelectorAll(".lay-row");
+    var r = 0;
+    for (var i = 0; i < rowsEl.length; i++) if (y >= rowsEl[i].getBoundingClientRect().top - 4) r = i;
+    var rect = rowsEl[r].getBoundingClientRect();
+    var col = rect.width / 24;
+    var row = (layoutRows[r] || []).filter(function (_, j) { return !(r === move.row && j === move.index); });
+    var edge = 0, index = 0, mark = 0;
+    row.forEach(function (c) {
+      if (rect.left + (edge + c.span / 2) * col < x) { index++; mark = edge + c.span; }
+      edge += c.span;
+    });
+    return { row: r, index: index, x: mark, fits: moveCard(layoutRows, move.row, move.index, r, index) !== null };
+  }
+
+  // つまみを掴んだら幅を変え、カードを掴んで動かしたら置き場所を変える（描き直してもドラッグが切れないよう、動きは document で受ける）
+  $("layoutEditor").addEventListener("pointerdown", function (e) {
+    var grip = e.target.closest ? e.target.closest(".lay-grip") : null;
+    if (grip) {
+      e.preventDefault();
+      var r = Number(grip.getAttribute("data-row"));
+      drag = {
+        row: r,
+        index: Number(grip.getAttribute("data-index")),
+        x: e.clientX,
+        column: grip.parentNode.getBoundingClientRect().width / ((config.choices && config.choices.columns) || 24),
+        start: copyRows(layoutRows)[r]
+      };
+      renderLayout();
+      return;
+    }
+    var card = e.target.closest ? e.target.closest(".lay-card") : null;
+    if (!card) return;
+    e.preventDefault();
+    var rect = card.getBoundingClientRect();
+    move = {
+      row: Number(card.getAttribute("data-row")),
+      index: Number(card.getAttribute("data-index")),
+      startX: e.clientX, startY: e.clientY,
+      dx: e.clientX - rect.left, dy: e.clientY - rect.top,
+      width: rect.width, height: rect.height,
+      started: false, drop: null, ghost: null
+    };
+  });
+  document.addEventListener("pointermove", function (e) {
+    if (drag) {
+      var next = resizeRow(drag.start, drag.index, Math.round((e.clientX - drag.x) / drag.column));
+      if (JSON.stringify(next) === JSON.stringify(layoutRows[drag.row])) return;
+      var rows = copyRows(layoutRows);
+      rows[drag.row] = next;
+      commitRows(rows);
+      return;
+    }
+    if (!move) return;
+    // 少し動かしてから持ち上げる（クリックだけで並びが崩れないように）
+    if (!move.started) {
+      if (Math.abs(e.clientX - move.startX) + Math.abs(e.clientY - move.startY) < 6) return;
+      move.started = true;
+      var info = cardInfo(layoutRows[move.row][move.index].card);
+      var ghost = document.createElement("div");
+      ghost.className = "lay-card lay-ghost";
+      ghost.style.width = move.width + "px";
+      ghost.style.height = move.height + "px";
+      ghost.innerHTML = '<div class="lay-name"></div><div class="lay-span"></div>';
+      ghost.firstChild.textContent = info.label;
+      ghost.lastChild.textContent = layoutRows[move.row][move.index].span + " 列";
+      document.body.appendChild(ghost);
+      move.ghost = ghost;
+    }
+    move.ghost.style.left = (e.clientX - move.dx) + "px";
+    move.ghost.style.top = (e.clientY - move.dy) + "px";
+    var drop = dropAt(e.clientX, e.clientY);
+    if (!move.drop || JSON.stringify(drop) !== JSON.stringify(move.drop)) {
+      move.drop = drop;
+      renderLayout();
+    }
+  });
+  function endDrag() {
+    if (drag) {
+      drag = null;
+      renderLayout();
+      return;
+    }
+    if (!move) return;
+    var m = move;
+    move = null;
+    if (m.ghost) m.ghost.parentNode.removeChild(m.ghost);
+    var d = m.drop;
+    if (!m.started || !d || (d.row === m.row && d.index === m.index)) { renderLayout(); return; }
+    var next = moveCard(layoutRows, m.row, m.index, d.row, d.index);
+    if (!next) {
+      renderLayout();
+      var info = cardInfo(layoutRows[m.row][m.index].card);
+      alert("ここには入りません\n\n「" + info.label + "」は、行き先の行のカードをいちばん狭い幅まで縮めても入りません（最小の幅 " + info.min +
+        " 列）。ほかの行を選ぶか、先に行き先の行のカードを動かしてください。");
+      return;
+    }
+    commitRows(next);
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+
+  $("layoutAuto").addEventListener("click", function () {
+    if (layoutAutoMessage) {
+      alert("自動の並べ方に戻せません\n\n" + layoutAutoMessage);
+      return;
+    }
+    var before = collect().settings.display;
+    layoutSaved = [];
+    checkLayout(before, collect().settings.display).catch(function () {});
+  });
+
   /*
-   * カードを表示に切り替えたら、タブレットに「画面に収まるか」を確かめる（判定はアプリと同じ計算）。
-   * 収まらないなら理由を出してチェックを戻す。確かめられないとき（通信の失敗）は止めず、保存時の検査に任せる。
+   * カードの表示を切り替えたら、タブレットに配置を合わせ直してもらう（判定はアプリと同じ計算）。
+   * 空きが足りなければほかのカードを最小の幅まで縮めて入れる。それでも入らないなら理由を出してチェックを戻す。
+   * 確かめられないとき（通信の失敗）は止めず、保存時の検査に任せる。
    */
   (function bindCardChecks() {
     var boxes = document.querySelectorAll("input[data-card]");
     for (var i = 0; i < boxes.length; i++) {
       boxes[i].addEventListener("change", function () {
         var box = this;
-        if (!box.checked) return;
+        var on = box.checked;
         var after = collect().settings.display;
-        box.checked = false;
+        box.checked = !on;
         var before = collect().settings.display;
-        box.checked = true;
-        api("/api/layout/check", { method: "POST", body: JSON.stringify({ before: before, after: after }) })
+        box.checked = on;
+        checkLayout(before, after)
           .then(function (r) {
             if (r.ok) return;
-            box.checked = false;
+            box.checked = !on;
             updateDirty();
             alert("カードを増やせません\n\n" + r.message);
           })
