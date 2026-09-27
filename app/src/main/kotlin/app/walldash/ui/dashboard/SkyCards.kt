@@ -2,6 +2,8 @@ package app.walldash.ui.dashboard
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,7 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,13 +31,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -55,6 +61,7 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -66,49 +73,93 @@ private val RAIN_SCALE = listOf(
     "30" to Color(0xFFFAF500), "50" to Color(0xFFFF9900), "80" to Color(0xFFFF2800), "" to Color(0xFFB40068),
 )
 
-/** 地理院タイル（淡色地図）は白地なので、ダークのテーマでは反転して暗い地図にする（強震モニタと同じ変換）。 */
-private val MAP_DARK_FILTER = ColorFilter.colorMatrix(
-    ColorMatrix(
-        floatArrayOf(
-            -0.85f, 0f, 0f, 0f, 225f,
-            0f, -0.85f, 0f, 0f, 228f,
-            0f, 0f, -0.85f, 0f, 235f,
-            0f, 0f, 0f, 1f, 0f,
-        ),
-    ),
-)
-
+/**
+ * 地図（Esri の灰色の地図。テーマに合わせて明暗を選ぶ）に雨雲を重ねる。ドラッグで別の場所へ動かせる
+ * （しばらく触らなければ地点へ戻る）。右上の「＋」「−」で拡大・縮小する。
+ */
 @Composable
-fun RadarCard(frame: DashboardViewModel.RadarFrame, place: String, modifier: Modifier) {
-    WdCard("雨雲レーダー", modifier, note = listOf(place, frame.label).filter { it.isNotEmpty() }.joinToString(" ・ ")) {
+fun RadarCard(
+    frame: DashboardViewModel.RadarFrame,
+    place: String,
+    onPan: (Float, Float) -> Unit,
+    onZoom: (Int) -> Unit,
+    modifier: Modifier,
+) {
+    val note = listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(" ・ ")
+    WdCard("雨雲レーダー", modifier, note = note) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Wd.Bg.copy(alpha = 0.6f))) {
-            if (frame.base.isEmpty()) {
-                Box(Modifier.padding(8.dp)) { EmptyText(if (frame.failed) "地図を取得できません" else "取得中…", if (frame.failed) Wd.Red else Wd.Text3) }
-            } else {
-                val light = Wd.palette.light
+            val empty = frame.base.isEmpty() && frame.old.isEmpty()
+            if (frame.zoom != 0) {
                 val accent = LocalAccent.current
-                Canvas(Modifier.fillMaxSize().clipToBounds()) {
+                val density = LocalDensity.current.density
+                val pan by rememberUpdatedState(onPan)
+                // 地図が一時的に空になってもドラッグを受け続けるよう、Canvas は出したままにする
+                Canvas(
+                    Modifier.fillMaxSize().clipToBounds().pointerInput(Unit) {
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            // 指と同じ向きに地図が動くよう、表示の中心は逆へ動かす
+                            pan(-drag.x / density, -drag.y / density)
+                        }
+                    },
+                ) {
                     val unit = 1.dp.toPx()
-                    val tilePx = (256 * unit).roundToInt()
-                    fun origin(tx: Int, ty: Int) = IntOffset(
-                        (size.width / 2 + (tx * 256 - frame.centerX) * unit).roundToInt(),
-                        (size.height / 2 + (ty * 256 - frame.centerY) * unit).roundToInt(),
-                    )
-                    frame.base.forEach { (key, img) ->
-                        drawImage(img, dstOffset = origin(key.first, key.second), dstSize = IntSize(tilePx, tilePx), colorFilter = if (light) null else MAP_DARK_FILTER)
+                    // ズーム [z] のタイルを、いまのズームの座標に引き伸ばして（縮めて）描く。端は丸めて隙間を作らない
+                    fun tiles(map: Map<Pair<Int, Int>, ImageBitmap>, z: Int, alpha: Float) {
+                        if (map.isEmpty()) return
+                        val side = 256f * 2f.pow(frame.zoom - z)
+                        map.forEach { (key, img) ->
+                            val l = (size.width / 2 + (key.first * side - frame.centerX) * unit).roundToInt()
+                            val t = (size.height / 2 + (key.second * side - frame.centerY) * unit).roundToInt()
+                            val r = (size.width / 2 + ((key.first + 1) * side - frame.centerX) * unit).roundToInt()
+                            val b = (size.height / 2 + ((key.second + 1) * side - frame.centerY) * unit).roundToInt()
+                            if (r < 0 || b < 0 || l > size.width || t > size.height) return@forEach
+                            drawImage(img, dstOffset = IntOffset(l, t), dstSize = IntSize(r - l, b - t), alpha = alpha, filterQuality = FilterQuality.Low)
+                        }
                     }
-                    frame.rain.forEach { (key, img) ->
-                        drawImage(img, dstOffset = origin(key.first, key.second), dstSize = IntSize(tilePx, tilePx), alpha = 0.85f)
-                    }
+                    tiles(frame.old, frame.oldZoom, 1f)
+                    tiles(frame.base, frame.zoom, 1f)
+                    // 新しいズームの雨雲が揃うまでは前の雨雲を敷く
+                    tiles(frame.oldRain, frame.oldRainZoom, 0.85f)
+                    tiles(frame.rain, frame.rainZoom, 0.85f)
+                    if (empty) return@Canvas
                     // 天気の地点
-                    val c = Offset(size.width / 2, size.height / 2)
+                    val c = Offset(
+                        size.width / 2 + (frame.homeX - frame.centerX) * unit,
+                        size.height / 2 + (frame.homeY - frame.centerY) * unit,
+                    )
                     drawCircle(accent.copy(alpha = 0.3f), 7.dp.toPx(), c)
                     drawCircle(accent, 3.dp.toPx(), c)
                     drawCircle(Color.White, 3.dp.toPx(), c, style = Stroke(1.dp.toPx()))
                 }
+            }
+            if (empty) {
+                Box(Modifier.padding(8.dp)) { EmptyText(if (frame.failed) "地図を取得できません" else "取得中…", if (frame.failed) Wd.Red else Wd.Text3) }
+            } else {
                 Legend(Modifier.align(Alignment.BottomStart).padding(6.dp))
             }
+            if (frame.zoom != 0) ZoomButtons(frame, onZoom, Modifier.align(Alignment.TopEnd).padding(6.dp))
         }
+    }
+}
+
+/** 地図アプリと同じく、上に「＋」、下に「−」。端まで来たほうは薄くして押せなくする。 */
+@Composable
+private fun ZoomButtons(frame: DashboardViewModel.RadarFrame, onZoom: (Int) -> Unit, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(6.dp)).background(Wd.Surface.copy(alpha = 0.85f))) {
+        ZoomButton("＋", "拡大", frame.canZoomIn) { onZoom(1) }
+        Box(Modifier.width(30.dp).height(1.dp).background(Wd.BorderSoft))
+        ZoomButton("−", "縮小", frame.canZoomOut) { onZoom(-1) }
+    }
+}
+
+@Composable
+private fun ZoomButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(30.dp).clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (enabled) Wd.Text else Wd.Text3.copy(alpha = 0.5f), fontSize = 16.tu, lineHeight = 16.tu)
     }
 }
 

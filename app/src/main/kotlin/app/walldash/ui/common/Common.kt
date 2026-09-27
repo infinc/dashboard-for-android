@@ -189,6 +189,13 @@ object WdIcons {
     val Menu = icon("M4 6.5h16v1.8H4zM4 11.1h16v1.8H4zM4 15.7h16v1.8H4z")
     /** 画面いっぱいに広げる（四隅のかぎ）。 */
     val Expand = icon("M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z")
+    /** 太陽（Spotify の全画面の「画面を暗くしない」）。subpath はすべて絶対の M で始める。 */
+    val Sun = icon(
+        "M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z" +
+            "M11 1.5h2v3.2h-2zM11 19.3h2v3.2h-2zM1.5 11h3.2v2H1.5zM19.3 11h3.2v2h-3.2z" +
+            "M4.2 5.6l1.4-1.4 2.3 2.3-1.4 1.4zM16.1 17.5l1.4-1.4 2.3 2.3-1.4 1.4z" +
+            "M16.1 6.5l2.3-2.3 1.4 1.4-2.3 2.3zM4.2 18.4l2.3-2.3 1.4 1.4-2.3 2.3z",
+    )
     val Close = icon("M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z")
 
     private fun icon(d: String): ImageVector = ImageVector.Builder(

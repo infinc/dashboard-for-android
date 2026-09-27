@@ -94,21 +94,22 @@ fun dateTime(iso: String?): String = iso?.let { Regex("\\d{4}-(\\d{2})-(\\d{2})T
 // ---------------------------------------------------------------- 時刻
 
 @Composable
-fun ClockCard(now: Long, units: UnitsConfig, display: DisplayConfig, weather: WeatherState?, deviceZone: String?, modifier: Modifier) {
+fun ClockCard(
+    now: Long,
+    units: UnitsConfig,
+    display: DisplayConfig,
+    weather: WeatherState?,
+    deviceZone: String?,
+    onExpand: () -> Unit,
+    modifier: Modifier,
+) {
     val zone = ZoneId.systemDefault()
     val d = Instant.ofEpochMilli(now).atZone(zone)
     val offsetMin = d.offset.totalSeconds / 60
     val tz = "UTC" + (if (offsetMin < 0) "-" else "+") + abs(offsetMin) / 60 +
         (if (abs(offsetMin) % 60 != 0) ":" + "%02d".format(abs(offsetMin) % 60) else "")
 
-    val h = d.hour
-    val shownHour = if (units.clock24h) "%02d".format(h) else ((h % 12).takeIf { it != 0 } ?: 12).toString()
-    val suffix = if (units.clock24h) "" else if (h < 12) "AM" else "PM"
-    val date = if (display.clockDateFormat == "slash") {
-        d.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + " (" + wday(d) + ")"
-    } else {
-        "${d.year}年${d.monthValue}月${d.dayOfMonth}日 (${wday(d)})"
-    }
+    val (shownHour, suffix, date) = clockParts(now, units, display)
     val sub = weather?.timezone?.takeIf { it != deviceZone }?.let { tzId ->
         runCatching {
             weather.placeName + " は " + Instant.ofEpochMilli(now).atZone(ZoneId.of(tzId))
@@ -122,7 +123,8 @@ fun ClockCard(now: Long, units: UnitsConfig, display: DisplayConfig, weather: We
         else -> Alignment.Start
     }
     val accent = LocalAccent.current
-    WdCard("時刻", modifier, note = tz) {
+    // Spotify と同じく、見出しの右に「画面いっぱいに出す」ボタン（灰色）
+    WdCard("時刻", modifier, note = tz, titleAction = { ExpandButton(onExpand, Wd.Text3) }) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = align) {
             val big = vhText(11f, 48f, 92f)
             Text(
@@ -145,6 +147,20 @@ fun ClockCard(now: Long, units: UnitsConfig, display: DisplayConfig, weather: We
             if (sub.isNotEmpty()) Text(sub, color = Wd.Text3, fontSize = 12.tu, modifier = Modifier.padding(top = 2.dp))
         }
     }
+}
+
+/** 時刻の表示に使う、時（12 時間制なら 1〜12）・AM/PM（24 時間制なら空）・日付（曜日つき）。全画面（[BigClockScreen]）でも使う。 */
+internal fun clockParts(now: Long, units: UnitsConfig, display: DisplayConfig): Triple<String, String, String> {
+    val d = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
+    val h = d.hour
+    val shownHour = if (units.clock24h) "%02d".format(h) else ((h % 12).takeIf { it != 0 } ?: 12).toString()
+    val suffix = if (units.clock24h) "" else if (h < 12) "AM" else "PM"
+    val date = if (display.clockDateFormat == "slash") {
+        d.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + " (" + wday(d) + ")"
+    } else {
+        "${d.year}年${d.monthValue}月${d.dayOfMonth}日 (${wday(d)})"
+    }
+    return Triple(shownHour, suffix, date)
 }
 
 // ---------------------------------------------------------------- 天気

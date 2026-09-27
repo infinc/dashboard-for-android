@@ -389,8 +389,6 @@ data class DisplayConfig(
     val showCountdown: Boolean = false,
     val showAnalogClock: Boolean = false,
 
-    /** 雨雲レーダーの範囲（地図タイルのズーム）。6 = 広域 / 8 = 地方 / 10 = 周辺。気象庁の雨雲は偶数のズームだけある。 */
-    val radarZoom: Int = 8,
     /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
     val todayShowEvent: Boolean = true,
     /** アナログ時計の秒針をなめらかに動かす（切ると 1 秒ごとに刻む。描き直しが減るので古い端末に優しい）。 */
@@ -401,14 +399,17 @@ data class DisplayConfig(
     /**
      * 利用者が設定画面の「カードの配置」で決めた並べ方（横向きの画面の行ごと、左から順）。
      * 空なら自動で並べる（[CardLayout.rows] の従来の計算）。幅を 1 度でも動かして保存すると、ここに入る。
-     * 行の幅の合計が 24 列に満たないときは、右端がそのまま空く。
+     * 行の幅の合計が 24 列に満たないときは、右端がそのまま空く。縦に伸ばしたカードの下の列は、下の行では飛ばして並べる。
      */
     val cardLayout: List<List<CardSlot>> = emptyList(),
 )
 
-/** カードの配置の 1 枠。[card] は [CardLayout.Card] の名前、[span] は 24 列のうち何列使うか。 */
+/**
+ * カードの配置の 1 枠。[card] は [CardLayout.Card] の名前、[span] は 24 列のうち何列使うか、
+ * [height] は何行ぶんの高さか（2 以上なら下の行の同じ列まで伸びる）。
+ */
 @Serializable
-data class CardSlot(val card: String, val span: Int)
+data class CardSlot(val card: String, val span: Int, val height: Int = 1)
 
 /**
  * 天気カードに出せる項目。値は ui/dashboard/SimpleCards.kt の wxCell() のキーと一致させること。
@@ -793,7 +794,7 @@ data class Choice(val value: String, val label: String)
 
 /** 「カードの配置」の 1 枚ぶんの情報（[CardLayout.Card] と同じ）。 */
 @Serializable
-data class CardChoice(val id: String, val label: String, val span: Int, val min: Int)
+data class CardChoice(val id: String, val label: String, val span: Int, val min: Int, val flag: String = "")
 
 @Serializable
 data class SettingChoices(
@@ -807,7 +808,7 @@ data class SettingChoices(
         val ALL = SettingChoices(
             accents = Accents.ALL.map { Choice(it.hex, it.label) },
             tones = Tones.ALL.map { Choice(it.id, it.label) },
-            cards = CardLayout.Card.entries.map { CardChoice(it.name, it.label, it.span, it.min) },
+            cards = CardLayout.Card.entries.map { CardChoice(it.name, it.label, it.span, it.min, it.flag) },
         )
     }
 }

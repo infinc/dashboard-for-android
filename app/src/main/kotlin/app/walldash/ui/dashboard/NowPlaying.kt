@@ -3,9 +3,13 @@ package app.walldash.ui.dashboard
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -22,15 +26,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -43,21 +57,39 @@ import app.walldash.data.SpotifyState
 import app.walldash.ui.common.Tabular
 import app.walldash.ui.common.WdIcons
 import app.walldash.ui.theme.tu
+import kotlinx.coroutines.delay
 
 /**
  * Spotify の再生中の曲を画面いっぱいに出す。
  * 背景はジャケットの色から作り、中央にジャケット、左下に曲名とアーティスト名、下の真ん中に操作ボタン
  * （前の曲・再生／一時停止・次の曲。アーティスト名と同じくらいの大きさ）、右下にボタンと同じ高さ・大きさで再生時間。左上の「<」か端末の戻る操作で閉じる。
+ * 右上の小さなボタンで「画面を暗くしない」を切り替える（[keepAwake]）。
+ * 操作ボタン・右上のボタン・再生時間は、[IDLE_HIDE_MS] 触られなければ溶けるように消え、どこかに触れると戻る。
  */
 @Composable
 fun NowPlayingScreen(
     sp: SpotifyState?,
     album: Pair<String, ImageBitmap>?,
     now: Long,
+    keepAwake: Boolean,
+    onKeepAwake: (Boolean) -> Unit,
     onControl: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    // 触れるたびに数を進め、そこから IDLE_HIDE_MS 何もなければ隠す
+    var touches by remember { mutableIntStateOf(0) }
+    var shown by remember { mutableStateOf(true) }
+    LaunchedEffect(touches) {
+        shown = true
+        delay(IDLE_HIDE_MS)
+        shown = false
+    }
+    val melt by animateFloatAsState(
+        if (shown) 1f else 0f,
+        if (shown) tween(280, easing = FastOutSlowInEasing) else tween(1100, easing = LinearOutSlowInEasing),
+        label = "melt",
+    )
     val cover = album?.takeIf { sp?.albumImageUrl != null && it.first == sp.albumImageUrl }
     val base = remember(cover?.first) { cover?.second?.let(::coverColor) ?: FALLBACK }
     val top by animateColorAsState(base.shade(0.34f), tween(800), label = "top")
@@ -66,6 +98,15 @@ fun NowPlayingScreen(
     BoxWithConstraints(
         Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(top, bottom)))
+            // 画面のどこに触れても（ボタンの上でも）操作の表示を戻す。触れた操作はそのままボタンにも届く
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { it.pressed && !it.previousPressed }) touches++
+                    }
+                }
+            }
             // 下のダッシュボードに触れさせない
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
@@ -115,16 +156,27 @@ fun NowPlayingScreen(
             }
         }
 
+        // 画面を暗くしない（右上に小さく）。消えている間は押せない
+        AwakeToggle(
+            keepAwake,
+            enabled = shown,
+            onToggle = { onKeepAwake(!keepAwake) },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 20.dp).melt(melt),
+        )
+
         if (sp?.trackName != null) {
-            Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                ControlButton(WdIcons.Previous, "前の曲") { onControl("previous") }
-                if (sp.playing) ControlButton(WdIcons.Pause, "一時停止") { onControl("pause") }
-                else ControlButton(WdIcons.Play, "再生") { onControl("play") }
-                ControlButton(WdIcons.Next, "次の曲") { onControl("next") }
+            Row(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).melt(melt),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ControlButton(WdIcons.Previous, "前の曲", shown) { onControl("previous") }
+                if (sp.playing) ControlButton(WdIcons.Pause, "一時停止", shown) { onControl("pause") }
+                else ControlButton(WdIcons.Play, "再生", shown) { onControl("play") }
+                ControlButton(WdIcons.Next, "次の曲", shown) { onControl("next") }
             }
             // 再生時間は右下。操作ボタンと同じ高さの枠の真ん中に、記号と同じくらいの大きさの数字で
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(end = 56.dp, bottom = 10.dp).height(CONTROL_HEIGHT),
+                Modifier.align(Alignment.BottomEnd).padding(end = 56.dp, bottom = 10.dp).height(CONTROL_HEIGHT).melt(melt),
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Text(
@@ -145,11 +197,51 @@ private val CONTROLS_HALF = 84.dp + 24.dp
 
 private val CONTROL_HEIGHT = 48.dp
 
+/** 触られないまま、操作ボタンなどを消すまでの時間。 */
+internal const val IDLE_HIDE_MS = 5_000L
+
+/**
+ * 溶けるように消す。[p] が 1 で元のまま、0 で消える。
+ * 薄れながら下へ垂れ、縦に少し伸びて横は細る（ぼかしは Android 12 未満で効かないので、形の変化で溶ける感じを出す）。
+ */
+internal fun Modifier.melt(p: Float): Modifier = graphicsLayer {
+    val q = 1f - p
+    alpha = p * p
+    translationY = q * 18.dp.toPx()
+    scaleY = 1f + q * 0.35f
+    scaleX = 1f - q * 0.12f
+    transformOrigin = TransformOrigin(0.5f, 0f)
+}.blur(((1f - p) * 10).dp, BlurredEdgeTreatment.Unbounded)
+
+/** 右上の「画面を暗くしない」。オンのときは白地、オフのときは枠だけ。時刻の全画面（[BigClockScreen]）でも使う。 */
+@Composable
+internal fun AwakeToggle(on: Boolean, enabled: Boolean, onToggle: () -> Unit, modifier: Modifier) {
+    val bg by animateColorAsState(if (on) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.10f), tween(200), label = "awakeBg")
+    val fg by animateColorAsState(if (on) Color(0xFF1B1F27) else Color.White.copy(alpha = 0.78f), tween(200), label = "awakeFg")
+    Row(
+        modifier.clip(RoundedCornerShape(16.dp))
+            .background(bg)
+            .border(1.dp, Color.White.copy(alpha = if (on) 0f else 0.35f), RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(WdIcons.Sun, null, tint = fg, modifier = Modifier.size(15.dp))
+        Text(
+            if (on) "暗くしない：オン" else "暗くしない：オフ",
+            color = fg,
+            fontSize = 11.tu,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 5.dp),
+        )
+    }
+}
+
 /** 操作ボタン。記号はアーティスト名の文字（18）と同じくらいの大きさ、押せる範囲は指の大きさ。 */
 @Composable
-private fun ControlButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun ControlButton(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(56.dp, CONTROL_HEIGHT).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+        Modifier.size(56.dp, CONTROL_HEIGHT).clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(26.dp))
