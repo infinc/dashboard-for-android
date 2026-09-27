@@ -27,6 +27,9 @@
       <button class="nav-item" type="button" data-pane="general">
         <i class="dot dot-off"></i><span>配色</span>
       </button>
+      <button class="nav-item" type="button" data-pane="layout">
+        <i class="dot dot-off"></i><span>カードの配置</span>
+      </button>
       <button class="nav-item" type="button" data-pane="theme">
         <i class="dot dot-off"></i><span>テーマ</span>
       </button>
@@ -135,13 +138,43 @@
       </div>
 
       <div class="notice info">
-        カードを非表示にしても空白は残りません。空いた列は<strong>同じ行に残ったカードへ自動で配分</strong>され、
-        1 行が常に画面幅いっぱいになります。
+        カードの幅と並びは「<a href="#layout">カードの配置</a>」で変えられます。自動で並べているあいだは、カードを非表示にして空いた列が
+        <strong>同じ行に残ったカードへ自動で配分</strong>され、1 行が常に画面幅いっぱいになります。
       </div>
       <div class="notice info">
-        カードを表示しすぎて<strong>画面に収まらなくなるときは、そのカードは表示できません</strong>（理由をお知らせします）。
+        カードを表示しすぎて、<strong>ほかのカードを最小の幅まで縮めても画面に収まらないときは、そのカードは表示できません</strong>（理由をお知らせします）。
         先にほかのカードを非表示にしてください。タブレットが縦向きのときは縦にスクロールするので、この制限はありません。
       </div>
+    </section>
+
+    <!-- ============================================================ カードの配置 -->
+    <section class="pane" data-pane="layout">
+      <h1>カードの配置</h1>
+      <p class="lead">横向きのダッシュボードを縮めて描いています。カードの右の壁（つまみ）を左右にドラッグすると幅が、カードそのものを掴んで動かすと置き場所（ほかの行・同じ行の順番）が変わります。</p>
+
+      <div class="field">
+        <div id="layoutEditor" class="lay"></div>
+        <div class="hint" id="layoutHint">行は 4 行で固定です。幅は画面を 24 等分した列の単位で変わります。</div>
+      </div>
+
+      <div class="field lay-actions">
+        <button id="layoutAuto" class="ghost" type="button">自動の並べ方に戻す</button>
+        <span class="status" id="layoutMode"></span>
+      </div>
+
+      <div class="notice info">
+        カードの間の壁を動かすと、隣のカードとの間で幅をやり取りします。行の右端の壁を左へ動かすと右に余白ができ、
+        <strong>余白はそのまま保存されます</strong>（ダッシュボードでも空いたままになります）。
+      </div>
+      <div class="notice info">
+        カードを掴んで動かし、入れたい行の入れたい位置で離すと、そこへ入れ替わります。行き先の行に空きが足りなければ、その行のカードを最小の幅まで縮めて入れます。
+        それでも入らない行では、差し込む位置の線が赤くなり、離しても元に戻ります。
+      </div>
+      <div class="notice info">
+        カードは、それ以上狭めると中身が崩れる幅（最小の幅）より狭くはできません。カードを表示するとき、空きが足りなければ
+        ほかのカードを最小の幅まで縮めて入れます。それでも入らないときは、そのカードは表示できません（理由をお知らせします）。
+      </div>
+      <div class="notice info">縦向きの画面では、この配置の順番のまま 2 列に並べます（幅は使いません）。</div>
     </section>
 
     <!-- ============================================================ テーマ -->

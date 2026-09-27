@@ -84,53 +84,151 @@ const json = (res, status, body) => {
 };
 
 /*
- * カードが画面に収まるか（Kotlin の CardLayout と同じ計算）。
+ * カードの並べ方と、画面に収まるか（Kotlin の CardLayout と同じ計算）。
  * モックは横向き 1280x800dp の端末を想定する（並べられる高さ 740dp、1 行 160dp 以上 → 4 行まで）。
+ * 幅（span）と最小の幅（min）を変えたら、CardLayout.Card と一緒に直すこと。
  */
 const CARDS = [
-  ["showClock", 8, "時刻"], ["showWeather", 8, "天気"], ["showDisaster", 8, "防災"], ["showMemo", 10, "LINE メモ"],
-  ["showHourly", 9, "時間別予報"], ["showSpotify", 5, "Spotify"], ["showWifi", 6, "Wi-Fi"], ["showDeviceStats", 10, "端末状態"],
-  ["showFeed", 8, "ニュース"], ["showDaily", 12, "週間予報"], ["showTimer", 6, "タイマー"], ["showWord", 6, "今日の単語"],
-  ["showAnalogClock", 6, "アナログ時計"], ["showCalendar", 9, "予定表"], ["showTrain", 9, "運行情報"], ["showRadar", 8, "雨雲レーダー"],
-  ["showSunMoon", 8, "日の出・月"], ["showCountdown", 8, "カウントダウン"], ["showToday", 8, "今日は何の日"], ["showStocks", 10, "株価"],
-];
+  ["CLOCK", "showClock", 8, 6, "時刻"], ["WEATHER", "showWeather", 8, 7, "天気"], ["DISASTER", "showDisaster", 8, 7, "防災"],
+  ["MEMO", "showMemo", 10, 5, "LINE メモ"], ["HOURLY", "showHourly", 9, 7, "時間別予報"], ["SPOTIFY", "showSpotify", 5, 5, "Spotify"],
+  ["WIFI", "showWifi", 6, 6, "Wi-Fi"], ["STATS", "showDeviceStats", 10, 7, "端末状態"], ["NEWS", "showFeed", 8, 5, "ニュース"],
+  ["DAILY", "showDaily", 12, 6, "週間予報"], ["TIMER", "showTimer", 6, 5, "タイマー"], ["WORD", "showWord", 6, 4, "今日の単語"],
+  ["ANALOG_CLOCK", "showAnalogClock", 6, 4, "アナログ時計"], ["CALENDAR", "showCalendar", 9, 6, "予定表"], ["TRAIN", "showTrain", 9, 6, "運行情報"],
+  ["RADAR", "showRadar", 8, 5, "雨雲レーダー"], ["SUN_MOON", "showSunMoon", 8, 7, "日の出・月"], ["COUNTDOWN", "showCountdown", 8, 6, "カウントダウン"],
+  ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
+].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
+const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
+config.choices.cards = CARDS.map(({ id, label, span, min }) => ({ id, label, span, min }));
+config.choices.layoutRows = 4;
+config.choices.columns = 24;
+config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
 const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
+const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
 const MOCK_MAX_ROWS = Number(process.env.MOCK_MAX_ROWS ?? 4);
-// Kotlin の pack(): backfill のカードの行に空きがあれば、今の行に入らなかった後ろのカードをそこへ戻す
-const packRows = (items, backfill) => {
-  const used = [];
+const LIMIT = Math.min(4, MOCK_MAX_ROWS);
+const sum = (row) => row.reduce((a, x) => a + x.span, 0);
+const slot = (card, span) => ({ card: card.id, span });
+// Kotlin の trimEnd(): 末尾の空の行だけ落とす（途中の空の行は置き場所を保つため残す）
+const trimEnd = (rows) => { const out = rows.slice(); while (out.length && !out[out.length - 1].length) out.pop(); return out; };
+
+// Kotlin の pack(): 行に詰め、余りは同じ行のカードへ元の幅に比例して配る。backfill のカードの行に空きがあれば後ろのカードを戻す
+const pack = (items, backfill) => {
+  const rows = [];
   let home = -1;
-  for (const [key, span] of items) {
+  for (const it of items) {
     let target;
-    if (used.length && used[used.length - 1] + span <= 24) target = used.length - 1;
-    else if (home >= 0 && used[home] + span <= 24) target = home;
-    else { used.push(0); target = used.length - 1; }
-    used[target] += span;
-    if (backfill && key === backfill) home = target;
+    if (rows.length && sum(rows[rows.length - 1]) + it.span <= 24) target = rows.length - 1;
+    else if (home >= 0 && sum(rows[home]) + it.span <= 24) target = home;
+    else { rows.push([]); target = rows.length - 1; }
+    rows[target].push({ ...it });
+    if (backfill && it.card === backfill) home = target;
   }
-  return used.length;
+  return rows.map((row) => {
+    const total = sum(row), extra = 24 - total;
+    if (extra <= 0) return row;
+    const exact = row.map((x) => (extra * x.span) / total);
+    const out = row.map((x, i) => ({ ...x, span: x.span + Math.floor(exact[i]) }));
+    const left = extra - exact.reduce((a, e) => a + Math.floor(e), 0);
+    exact.map((e, i) => [e - Math.floor(e), i]).sort((p, q) => q[0] - p[0]).slice(0, left).forEach(([, i]) => (out[i].span += 1));
+    return out;
+  });
 };
-// Kotlin の rows(): 溢れるときは週間予報を半分（6 列）まで縮め、空いた列に後ろのカードを並べる
-const rowCount = (d) => {
-  const cards = CARDS.filter(([key]) => isShown(d, key));
-  const plain = packRows(cards);
-  if (plain <= MOCK_MAX_ROWS || !cards.some(([key]) => key === "showDaily")) return plain;
+// Kotlin の autoRows(): 溢れるときは週間予報を半分（6 列）まで縮め、空いた列に後ろのカードを並べる
+const autoRows = (d, maxRows = MOCK_MAX_ROWS) => {
+  const cards = shown(d);
+  const plain = pack(cards.map((c) => slot(c, c.span)));
+  if (plain.length <= maxRows || !cards.includes(CARD.DAILY)) return plain;
   for (let span = 12; span >= 6; span--) {
-    const items = cards.map(([key, s]) => [key, key === "showDaily" ? span : s]);
-    if (span < 12 && packRows(items) <= MOCK_MAX_ROWS) return packRows(items);
-    if (packRows(items, "showDaily") <= MOCK_MAX_ROWS) return packRows(items, "showDaily");
+    const items = cards.map((c) => slot(c, c === CARD.DAILY ? span : c.span));
+    if (span < 12) { const r = pack(items); if (r.length <= maxRows) return r; }
+    const r = pack(items, "DAILY");
+    if (r.length <= maxRows) return r;
   }
   return plain;
 };
-const overflowMessage = (before, after) => {
-  const added = CARDS.filter(([key]) => isShown(after, key) && !isShown(before, key)).map(([, , label]) => label);
-  const rows = rowCount(after);
-  if (!added.length || rows <= MOCK_MAX_ROWS) return null;
-  const shrink = isShown(after, "showDaily") ? "週間予報を半分の幅まで縮めても、" : "";
-  return `「${added.join("」「")}」を表示すると、${shrink}カードが ${rows} 行になり画面に収まりません（この画面に並べられるのは ${MOCK_MAX_ROWS} 行までです）。ほかのカードを非表示にしてから、もう一度表示してください。`;
+// Kotlin の slots() / fitRow(): 知らないカード・重複を落とし、幅を最小〜24 に、行の合計が 24 を超えたら縮める
+const slots = (layout) => {
+  const seen = new Set();
+  return (layout || []).map((row) => row.filter((x) => CARD[x.card] && !seen.has(x.card) && seen.add(x.card))
+    .map((x) => ({ card: x.card, span: Math.min(24, Math.max(CARD[x.card].min, x.span)) })));
+};
+const fitRow = (row) => {
+  const out = row.map((x) => ({ ...x }));
+  const excess = (x) => x.span - CARD[x.card].min;
+  while (sum(out) > 24) {
+    const w = out.filter((x) => excess(x) > 0).sort((p, q) => excess(q) - excess(p))[0];
+    if (!w) break;
+    w.span--;
+  }
+  return out;
+};
+// Kotlin の place() / squeeze()
+const squeeze = (row, card) => {
+  const out = row.map((x) => ({ ...x }));
+  const excess = (x) => x.span - CARD[x.card].min;
+  const widest = () => out.slice().sort((p, q) => excess(q) - excess(p))[0];
+  while (24 - sum(out) < card.min) widest().span--;
+  let span = card.min;
+  while (span < card.span) {
+    if (24 - sum(out) - span > 0) { span++; continue; }
+    const w = widest();
+    if (!w || excess(w) <= span - card.min + 1) break;
+    w.span--;
+    span++;
+  }
+  return [...out, slot(card, span)];
+};
+const place = (rows, card, limit) => {
+  const free = (row) => 24 - sum(row);
+  const slack = (row) => 24 - row.reduce((a, x) => a + CARD[x.card].min, 0);
+  const fits = rows.findIndex((row) => free(row) >= card.span);
+  if (fits >= 0) return rows.map((row, i) => (i === fits ? [...row, slot(card, card.span)] : row));
+  if (rows.length < limit) return [...rows, [slot(card, card.span)]];
+  const idx = rows.map((row, i) => [slack(row), i]).filter(([s]) => s >= card.min).sort((p, q) => q[0] - p[0])[0];
+  if (!idx) return null;
+  return rows.map((row, i) => (i === idx[1] ? squeeze(row, card) : row));
+};
+// Kotlin の arranged(): 利用者の配置を表示するカードに合わせる
+const arranged = (d) => {
+  const show = new Set(shown(d).map((c) => c.id));
+  let rows = trimEnd(slots(d.cardLayout).map((row) => fitRow(row.filter((x) => show.has(x.card)))));
+  const placed = new Set(rows.flat().map((x) => x.card));
+  for (const c of shown(d)) if (!placed.has(c.id)) rows = place(rows, c, LIMIT) ?? [...rows, [slot(c, c.span)]];
+  return rows;
+};
+const editorRows = (d) => (d.cardLayout?.length ? arranged(d) : autoRows(d));
+const fits = (d) => (d.cardLayout?.length ? arranged(d).filter((row) => row.length).length <= LIMIT : autoRows(d).length <= MOCK_MAX_ROWS);
+// Kotlin の adjust()
+const adjust = (before, after) => {
+  const added = shown(after).filter((c) => !isShown(before, c.key));
+  if (!after.cardLayout?.length && (!added.length || fits(after))) return { display: after, message: null };
+  const show = new Set(shown(after).map((c) => c.id));
+  let rows = (after.cardLayout?.length ? slots(after.cardLayout) : autoRows(before))
+    .map((row) => fitRow(row.filter((x) => show.has(x.card))));
+  rows = trimEnd(rows);
+  const failed = [];
+  const placed = new Set(rows.flat().map((x) => x.card));
+  for (const c of shown(after)) {
+    if (placed.has(c.id)) continue;
+    const next = place(rows, c, LIMIT);
+    if (next) rows = next; else { failed.push(c); rows = [...rows, [slot(c, c.span)]]; }
+  }
+  const display = { ...after, cardLayout: trimEnd(rows) };
+  if (!added.length || (!failed.length && rows.filter((row) => row.length).length <= LIMIT)) return { display, message: null };
+  const names = (failed.length ? failed : added).map((c) => c.label).join("」「");
+  return {
+    display,
+    message: `「${names}」は、ほかのカードをいちばん狭い幅まで縮めても画面に入りません（この画面に並べられるのは ${LIMIT} 行までです）。ほかのカードを非表示にしてから、もう一度表示してください。`,
+  };
+};
+const autoMessage = (d) => {
+  const auto = { ...d, cardLayout: [] };
+  const rows = autoRows(auto).length;
+  if (rows <= MOCK_MAX_ROWS) return null;
+  return `自動の並べ方では、いまのカードが ${rows} 行になり画面に収まりません（この画面に並べられるのは ${MOCK_MAX_ROWS} 行までです）。ほかのカードを非表示にしてから、もう一度お試しください。`;
 };
 
 const drain = (req) => new Promise((resolve) => { req.on("data", () => {}); req.on("end", resolve); });
@@ -171,8 +269,11 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && post) {
       // SettingsController.saveAll と同じく、settings の各項目は「まるごと差し替え」
       const { settings = {}, memo, spotify, train, calendar } = await readBody(req);
-      const blocked = settings.display && overflowMessage(config.display, settings.display);
-      if (blocked) return json(res, 400, { error: "cards_overflow", detail: blocked });
+      if (settings.display) {
+        const adjusted = adjust(config.display, settings.display);
+        if (adjusted.message) return json(res, 400, { error: "cards_overflow", detail: adjusted.message });
+        settings.display = adjusted.display;
+      }
       config = { ...config, configVersion: config.configVersion + 1 };
       for (const key of ["location", "units", "display", "refresh", "disaster", "feed", "notifications", "stocks", "countdown"]) {
         if (settings[key]) config[key] = settings[key];
@@ -209,8 +310,12 @@ const server = createServer(async (req, res) => {
     }
     if (path === "/api/layout/check" && post) {
       const { before = {}, after = {} } = await readBody(req);
-      const message = overflowMessage(before, after);
-      return json(res, 200, { ok: message === null, message });
+      const adjusted = adjust(before, after);
+      const display = adjusted.message ? before : adjusted.display;
+      return json(res, 200, {
+        ok: !adjusted.message, message: adjusted.message,
+        layout: display.cardLayout ?? [], rows: editorRows(display), autoMessage: autoMessage(display),
+      });
     }
     if (path === "/api/wallpaper" && post) {
       await drain(req);

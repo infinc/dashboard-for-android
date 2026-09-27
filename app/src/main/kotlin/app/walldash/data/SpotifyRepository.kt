@@ -115,9 +115,8 @@ class SpotifyRepository(
 
     private fun toState(dto: NowPlayingDto): SpotifyState {
         val item = dto.item
-        // 画像は大きい順に並んでいる。壁に出すのは小さめのカードなので中間のものを選ぶ。
-        val images = item?.album?.images.orEmpty()
-        val image = images.getOrNull(1) ?: images.firstOrNull()
+        // 画像は大きい順に並んでいる。再生中の曲を画面いっぱいに出す（NowPlayingScreen）ので、いちばん大きい 640px を選ぶ。
+        val image = item?.album?.images.orEmpty().firstOrNull()
         return SpotifyState(
             available = true,
             playing = dto.isPlaying && item != null,
