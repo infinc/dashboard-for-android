@@ -12,6 +12,9 @@ import app.walldash.data.TrainConfig
 import app.walldash.data.TrainPatch
 import app.walldash.data.CalendarConfig
 import app.walldash.data.CalendarPatch
+import app.walldash.data.PhotoConfig
+import app.walldash.data.PhotoPatch
+import app.walldash.data.PhotoRepository
 import app.walldash.server.Auth
 import app.walldash.server.DashboardServer
 import kotlinx.coroutines.launch
@@ -43,6 +46,7 @@ class SettingsController(private val graph: AppGraph) {
             request.spotify?.let { next = next.copy(spotify = applySpotify(next.spotify, it)) }
             request.train?.let { next = next.copy(train = applyTrain(next.train, it)) }
             request.calendar?.let { next = next.copy(calendar = applyCalendar(next.calendar, it)) }
+            request.photos?.let { next = next.copy(photos = applyPhotos(next.photos, it)) }
             next
         }
         if (sourcesChanged(before, updated)) refreshAllLater()
@@ -100,6 +104,7 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showToday) runCatching { graph.today.refreshNow() }
         if (c.display.showStocks) runCatching { graph.stocks.refreshNow() }
         if (c.display.showCountdown) runCatching { graph.holidays.refreshNow() }
+        if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
     }
 
     fun refreshAllLater() {
@@ -109,7 +114,8 @@ class SettingsController(private val graph: AppGraph) {
     private fun sourcesChanged(a: Config, b: Config): Boolean =
         a.location != b.location || a.units != b.units || a.disaster != b.disaster ||
             a.feed != b.feed || a.memo != b.memo || a.spotify.enabled != b.spotify.enabled ||
-            a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks
+            a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks ||
+            a.photos.enabled != b.photos.enabled || a.photos.albumUrl != b.photos.albumUrl
 
     private fun applyMemo(current: MemoConfig, patch: MemoPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,
@@ -137,6 +143,14 @@ class SettingsController(private val graph: AppGraph) {
         password = secret(current.password, patch.password),
         icsUrl = secret(current.icsUrl, patch.icsUrl),
         daysAhead = (patch.daysAhead ?: current.daysAhead).coerceIn(1, 31),
+    )
+
+    private fun applyPhotos(current: PhotoConfig, patch: PhotoPatch) = current.copy(
+        enabled = patch.enabled ?: current.enabled,
+        albumUrl = secret(current.albumUrl, patch.albumUrl),
+        // 選択肢に無い秒数は、いちばん近い選択肢に丸める
+        intervalSec = (patch.intervalSec ?: current.intervalSec).let { s -> PhotoRepository.INTERVALS.minBy { kotlin.math.abs(it - s) } },
+        shuffle = patch.shuffle ?: current.shuffle,
     )
 
     /** 書き込み専用の値。null は変更しない、空文字は消す。 */

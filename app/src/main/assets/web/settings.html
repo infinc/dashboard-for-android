@@ -104,6 +104,12 @@
       <button class="nav-item" type="button" data-pane="stocks">
         <i class="dot" data-w="showStocks"></i><span>株価</span>
       </button>
+      <button class="nav-item" type="button" data-pane="calculator">
+        <i class="dot" data-w="showCalculator"></i><span>計算機</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="photos">
+        <i class="dot" data-w="showPhotos"></i><span>写真</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -855,6 +861,59 @@
         </select>
       </div>
       <div class="notice">値は Yahoo Finance の公開されていない API から取っています。数十分の遅れがあり、予告なく取れなくなることがあります。投資の判断には使わないでください。</div>
+    </section>
+
+    <!-- ========================================================= 計算機 -->
+    <section class="pane" data-pane="calculator">
+      <h1>計算機</h1>
+      <p class="lead">四則演算の計算機です。掛け算・割り算を先に計算します（12 + 3 × 2 = 18）。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showCalculator" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">カードが横長のときは左に表示・右に鍵盤、「カードの配置」で縦に 2 行ぶんへ伸ばすと上に表示・下に大きな鍵盤になります。</div>
+    </section>
+
+    <!-- =========================================================== 写真 -->
+    <section class="pane" data-pane="photos">
+      <h1>写真（iCloud 共有アルバム）</h1>
+      <p class="lead">iCloud の共有アルバムの写真を、決めた間隔で切り替えて出すカードです。カードを押すと次の写真へ進みます。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showPhotos" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="photosEnabled"> 写真を取得する</label>
+      </div>
+      <div class="field">
+        <label for="photosUrl">共有アルバムの URL</label>
+        <input id="photosUrl" type="password" autocomplete="new-password">
+        <div class="hint">
+          iPhone の「写真」→ 共有アルバムを開く → 人のアイコン →「公開 Web サイト」を ON にして出る <code>https://www.icloud.com/sharedalbum/#…</code> の URL。
+          URL を知っている人は誰でも写真を見られるので、保存済みの値は表示しません。
+        </div>
+      </div>
+      <div class="field" style="max-width:320px">
+        <label for="photosInterval">写真を変える間隔</label>
+        <select id="photosInterval">
+          <option value="10">10 秒</option>
+          <option value="30">30 秒</option>
+          <option value="60">1 分</option>
+          <option value="300">5 分</option>
+          <option value="600">10 分</option>
+          <option value="1800">30 分</option>
+          <option value="3600">1 時間</option>
+          <option value="10800">3 時間</option>
+          <option value="86400">1 日</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="photosShuffle"> 順番を混ぜる（オフなら新しい写真から順に）</label>
+      </div>
+      <div class="status" id="photosStatus"></div>
+      <div class="notice info">
+        iCloud 写真のライブラリそのものは、Apple ID の 2 ファクタ認証が要る非公開の仕組みのため読めません（App 用パスワードも使えません）。
+        出したい写真を共有アルバムに入れてください。写真は 30 分ごとに一覧を取り直し、出すときに 1 枚ずつ読み込みます（1 枚 数百 KB 〜 1 MB）。
+      </div>
     </section>
 
     <section class="pane" data-pane="hamster">

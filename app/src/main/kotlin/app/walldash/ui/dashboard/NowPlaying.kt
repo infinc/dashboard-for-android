@@ -21,7 +21,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import kotlin.math.max
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -53,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.min
+import app.walldash.data.LyricsRepository
 import app.walldash.data.SpotifyState
 import app.walldash.ui.common.Tabular
 import app.walldash.ui.common.WdIcons
@@ -65,6 +80,7 @@ import kotlinx.coroutines.delay
  * （前の曲・再生／一時停止・次の曲。アーティスト名と同じくらいの大きさ）、右下にボタンと同じ高さ・大きさで再生時間。左上の「<」か端末の戻る操作で閉じる。
  * 右上の小さなボタンで「画面を暗くしない」を切り替える（[keepAwake]）。
  * 操作ボタン・右上のボタン・再生時間は、[IDLE_HIDE_MS] 触られなければ溶けるように消え、どこかに触れると戻る。
+ * ジャケットを押すとジャケットが左へ動き、右に歌詞（[loadLyrics]、LRCLIB）を出す。もう一度押すと歌詞を消して真ん中へ戻る。
  */
 @Composable
 fun NowPlayingScreen(
@@ -74,9 +90,12 @@ fun NowPlayingScreen(
     keepAwake: Boolean,
     onKeepAwake: (Boolean) -> Unit,
     onControl: (String) -> Unit,
+    loadLyrics: suspend (SpotifyState) -> Result<LyricsRepository.Lyrics?>,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    var lyricsOpen by remember { mutableStateOf(false) }
+    val shift by animateFloatAsState(if (lyricsOpen) 1f else 0f, tween(480, easing = FastOutSlowInEasing), label = "lyricsShift")
     // 触れるたびに数を進め、そこから IDLE_HIDE_MS 何もなければ隠す
     var touches by remember { mutableIntStateOf(0) }
     var shown by remember { mutableStateOf(true) }
@@ -112,7 +131,16 @@ fun NowPlayingScreen(
     ) {
         val side = min(maxHeight * 0.58f, maxWidth * 0.5f)
         val artistWidth = maxWidth / 2 - CONTROLS_HALF - 112.dp
-        Crossfade(cover, Modifier.align(Alignment.Center), animationSpec = tween(500), label = "cover") { c ->
+        // 歌詞を出している間は、ジャケットを画面の左半分の真ん中へ
+        val coverShift = maxWidth * 0.25f
+        Crossfade(
+            cover,
+            Modifier.align(Alignment.Center)
+                .graphicsLayer { translationX = -coverShift.toPx() * shift }
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "歌詞") { lyricsOpen = !lyricsOpen },
+            animationSpec = tween(500),
+            label = "cover",
+        ) { c ->
             Box(
                 Modifier.size(side)
                     .shadow(28.dp, RoundedCornerShape(14.dp))
@@ -122,6 +150,21 @@ fun NowPlayingScreen(
             ) {
                 if (c != null) Image(c.second, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
+        }
+
+        if (shift > 0.01f && sp != null) {
+            val height = min(side + 40.dp, maxHeight - 300.dp).coerceAtLeast(160.dp)
+            LyricsPanel(
+                sp,
+                loadLyrics,
+                Modifier.align(Alignment.CenterStart)
+                    .padding(start = maxWidth * 0.5f + 12.dp)
+                    .size(maxWidth * 0.5f - 68.dp, height)
+                    .graphicsLayer {
+                        alpha = shift
+                        translationX = (1 - shift) * 48.dp.toPx()
+                    },
+            )
         }
 
         // 戻る: 「<」だけ（押せる範囲は指の大きさにする）
@@ -190,6 +233,131 @@ fun NowPlayingScreen(
             }
         }
     }
+}
+
+/** 歌詞の探し具合。 */
+private sealed interface LyricsUi {
+    data object Loading : LyricsUi
+    data object NotFound : LyricsUi
+    data class Failed(val message: String) : LyricsUi
+    data class Found(val lyrics: LyricsRepository.Lyrics) : LyricsUi
+}
+
+/**
+ * 右の歌詞。再生位置に合わせて、いま歌っている行を白く太くして欄の真ん中へ送る（ほかの行は薄く）。
+ * 時刻の無い歌詞は、曲の長さから振った目安の時刻で同じように流す（[LyricsRepository.Lyrics.estimated]）。上下の端はぼかす。
+ */
+@Composable
+private fun LyricsPanel(sp: SpotifyState, load: suspend (SpotifyState) -> Result<LyricsRepository.Lyrics?>, modifier: Modifier) {
+    val latest by rememberUpdatedState(sp)
+    val key = listOf(sp.trackName, sp.artistName, sp.albumName, sp.durationMs)
+    val ui by produceState<LyricsUi>(LyricsUi.Loading, key) {
+        value = LyricsUi.Loading
+        if (latest.trackName == null) {
+            value = LyricsUi.NotFound
+            return@produceState
+        }
+        value = load(latest).fold(
+            { if (it == null) LyricsUi.NotFound else LyricsUi.Found(it) },
+            { LyricsUi.Failed(it.message ?: "通信エラー") },
+        )
+    }
+    // 再生位置は 5 秒ごとにしか届かないので、受け取ってからの経過を足す。行の切り替わりに遅れないよう 0.2 秒ごとに見る
+    var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            tick = System.currentTimeMillis()
+            delay(200)
+        }
+    }
+    val fade = Modifier
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            drawRect(
+                Brush.verticalGradient(0f to Color.Transparent, 0.14f to Color.Black, 0.86f to Color.Black, 1f to Color.Transparent),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+    Box(modifier) {
+        Box(Modifier.fillMaxSize().then(fade)) {
+            when (val u = ui) {
+                LyricsUi.Loading -> LyricsNote("歌詞を探しています…")
+                LyricsUi.NotFound -> LyricsNote("この曲の歌詞は見つかりませんでした")
+                is LyricsUi.Failed -> LyricsNote("歌詞を取得できません: ${u.message}")
+                is LyricsUi.Found -> when {
+                    u.lyrics.instrumental -> LyricsNote("♪ インストゥルメンタル")
+                    // 時刻の無い歌詞も、曲の長さから振った目安の時刻で同じように流す
+                    u.lyrics.synced || u.lyrics.estimated -> SyncedLyrics(u.lyrics.lines, positionMs(sp, tick))
+                    // 曲の長さが分からず時刻を振れなかったときだけ、並べて指でスクロールしてもらう
+                    else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 60.dp)) {
+                        u.lyrics.lines.forEach { line ->
+                            Text(line.text.ifEmpty { " " }, color = Color.White.copy(alpha = 0.85f), fontSize = 20.tu, lineHeight = 1.5.em)
+                        }
+                    }
+                }
+            }
+        }
+        // 出典は、端をぼかす範囲の外（欄の右下の外側）に
+        Text(
+            if ((ui as? LyricsUi.Found)?.lyrics?.estimated == true) "時刻の無い歌詞のため、位置は目安です ・ 歌詞: LRCLIB" else "歌詞: LRCLIB",
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 10.tu,
+            modifier = Modifier.align(Alignment.BottomEnd).offset(y = 18.dp),
+        )
+    }
+}
+
+@Composable
+private fun LyricsNote(text: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+        Text(text, color = Color.White.copy(alpha = 0.6f), fontSize = 18.tu)
+    }
+}
+
+/** 時刻付きの歌詞。行の位置を測っておき、いまの行の真ん中が欄の真ん中に来るよう全体をずらす。 */
+@Composable
+private fun SyncedLyrics(lines: List<LyricsRepository.Line>, position: Long) {
+    // 少し先回りして光らせる（届く再生位置が実際より遅れがちなため）
+    val current = lines.indexOfLast { (it.timeMs ?: 0) <= position + 250 }
+    val tops = remember(lines) { IntArray(lines.size) }
+    val heights = remember(lines) { IntArray(lines.size) }
+    var measured by remember(lines) { mutableIntStateOf(0) }
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
+        val boxHeight = constraints.maxHeight
+        val target = if (current < 0 || measured == 0) boxHeight / 2f - (heights.getOrElse(0) { 0 }) / 2f
+        else boxHeight / 2f - (tops[current] + heights[current] / 2f)
+        val offset by animateFloatAsState(target, tween(520, easing = FastOutSlowInEasing), label = "lyricsScroll")
+        Column(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true).graphicsLayer { translationY = offset }) {
+            lines.forEachIndexed { i, line ->
+                val on = i == current
+                val alpha by animateFloatAsState(if (on) 1f else if (i < current) 0.32f else 0.45f, tween(300), label = "lyricAlpha")
+                Text(
+                    line.text.ifEmpty { "♪" },
+                    color = Color.White.copy(alpha = alpha),
+                    fontSize = 23.tu,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.SemiBold,
+                    lineHeight = 1.35.em,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).onGloballyPositioned {
+                        // 位置が変わったときだけ数え直す（ずらすたびに呼ばれるので、毎回数えると描き直しが止まらない）
+                        val y = it.positionInParent().y.toInt()
+                        if (tops[i] != y || heights[i] != it.size.height) {
+                            tops[i] = y
+                            heights[i] = it.size.height
+                            measured++
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 曲の頭からの再生位置（ミリ秒）。再生中は受け取ってからの経過を足す。 */
+private fun positionMs(sp: SpotifyState, now: Long): Long {
+    var pos = sp.progressMs ?: return 0
+    if (sp.playing && sp.fetchedAt > 0) pos += max(0L, now - sp.fetchedAt)
+    return sp.durationMs?.let { minOf(pos, it) } ?: pos
 }
 
 /** 下の真ん中の操作ボタンの列の幅の半分（ボタン 3 つ）。アーティスト名の欄はここまで空ける。 */

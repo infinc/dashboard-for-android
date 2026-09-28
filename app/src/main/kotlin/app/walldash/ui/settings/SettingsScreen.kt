@@ -65,6 +65,7 @@ import app.walldash.data.GeocodeResult
 import app.walldash.data.LocationConfig
 import app.walldash.data.MemoPatch
 import app.walldash.data.NotificationConfig
+import app.walldash.data.PhotoPatch
 import app.walldash.data.SaveAllRequest
 import app.walldash.data.SpotifyPatch
 import app.walldash.data.StockSymbol
@@ -111,6 +112,10 @@ private data class Draft(
     val stocksRange: String,
     val countdownBuiltins: List<String>,
     val countdownText: String,
+    val photosEnabled: Boolean,
+    val photosUrl: String,
+    val photosInterval: Int,
+    val photosShuffle: Boolean,
 ) {
     fun toRequest() = SaveAllRequest(
         settings = ConfigPatch(
@@ -144,6 +149,12 @@ private data class Draft(
             pollIntervalMs = (memoIntervalSec.toLongOrNull() ?: 30) * 1000,
         ),
         spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim()),
+        photos = PhotoPatch(
+            enabled = photosEnabled,
+            albumUrl = photosUrl.takeIf { it.isNotEmpty() },
+            intervalSec = photosInterval,
+            shuffle = photosShuffle,
+        ),
     )
 
     companion object {
@@ -176,6 +187,10 @@ private data class Draft(
             stocksRange = c.stocks.range,
             countdownBuiltins = c.countdown.builtins,
             countdownText = Countdown.toLines(c.countdown.custom),
+            photosEnabled = c.photos.enabled,
+            photosUrl = "",
+            photosInterval = c.photos.intervalSec,
+            photosShuffle = c.photos.shuffle,
         )
 
         /** 「^N225 日経平均」の行を銘柄にする。名前を省いたら記号をそのまま名前にする。 */
@@ -213,6 +228,8 @@ private enum class Pane(val label: String, val group: String, val card: ((Displa
     Countdown("カウントダウン", "カード", { it.showCountdown }),
     Today("今日は何の日", "カード", { it.showToday }),
     Stocks("株価", "カード", { it.showStocks }),
+    Calculator("計算機", "カード", { it.showCalculator }),
+    Photos("写真", "カード", { it.showPhotos }),
     Hamster("ハムスター", "カード", { it.showHamster }),
     Device("ホームアプリ", "端末"),
     Network("ネットワーク", "端末"),
@@ -640,6 +657,14 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
             Notice("値は Yahoo Finance の公開されていない API から取っています。数十分の遅れがあり、予告なく取れなくなることがあります。投資の判断には使わないでください。", Wd.Amber)
         }
 
+        Pane.Calculator -> {
+            PaneTitle("計算機", "四則演算の計算機です。掛け算・割り算を先に計算します（12 + 3 × 2 = 18）。")
+            CardSwitch(disp.showCalculator) { copy(showCalculator = it) }
+            Notice("カードが横長のときは左に表示・右に鍵盤、「カードの配置」で縦に 2 行ぶんへ伸ばすと上に表示・下に大きな鍵盤になります。")
+        }
+
+        Pane.Photos -> PhotosPane(graph, config, d, set)
+
         Pane.Hamster -> {
             PaneTitle("ハムスター", "画面下で回し車を走るハムスターです。意匠は Uiverse.io の Nawsome 作「Loader」（MIT License）によります。")
             Field { SwitchRow("ハムスターを出す", disp.showHamster, { display { copy(showHamster = it) } }) }
@@ -696,6 +721,49 @@ private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
 }
 
 private val CountdownLabels = app.walldash.data.Countdown.BUILTIN_LABELS
+
+/** 写真を切り替える間隔の選択肢（秒 → 表示）。 */
+internal fun photoIntervalLabel(sec: Int) = when {
+    sec < 60 -> "$sec 秒"
+    sec < 3600 -> "${sec / 60} 分"
+    sec < 86400 -> "${sec / 3600} 時間"
+    else -> "${sec / 86400} 日"
+}
+
+@Composable
+private fun PhotosPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit) {
+    val disp = d.display
+    val c = config.photos
+    val s = graph.photos.state
+    PaneTitle("写真（iCloud 共有アルバム）", "iCloud の共有アルバムの写真を、決めた間隔で切り替えて出すカードです。カードを押すと次の写真へ進みます。")
+    Field { SwitchRow("このカードをダッシュボードに表示する", disp.showPhotos, { set(d.copy(display = disp.copy(showPhotos = it))) }) }
+    Field { SwitchRow("写真を取得する", d.photosEnabled, { set(d.copy(photosEnabled = it)) }) }
+    Field(
+        "共有アルバムの URL",
+        "iPhone の「写真」→ 共有アルバムを開く → 人のアイコン →「公開 Web サイト」を ON にして出る https://www.icloud.com/sharedalbum/#… の URL。" +
+            "URL を知っている人は誰でも写真を見られるので、保存済みの値は表示しません。",
+    ) {
+        Input(d.photosUrl, { set(d.copy(photosUrl = it)) }, placeholder = if (c.albumUrl.isNullOrBlank()) "https://www.icloud.com/sharedalbum/#B0…" else "設定済み（変更する場合のみ入力）", password = true)
+    }
+    Field("写真を変える間隔") {
+        Select(app.walldash.data.PhotoRepository.INTERVALS.map { it to photoIntervalLabel(it) }, d.photosInterval, { set(d.copy(photosInterval = it)) })
+    }
+    Field { SwitchRow("順番を混ぜる（オフなら新しい写真から順に）", d.photosShuffle, { set(d.copy(photosShuffle = it)) }) }
+    StatusText(
+        when {
+            !c.enabled -> "取得は無効です"
+            s.lastError != null -> "エラー: ${s.lastError}"
+            s.fetchedAt > 0 -> "取得できています（${s.albumName ?: "アルバム"}、${s.count} 枚）"
+            else -> "まだ取得していません —「全て保存」のあと少し待ってください（カードを表示しているときだけ取得します）"
+        },
+        if (s.lastError != null && c.enabled) Wd.Red else Wd.Text2,
+    )
+    Spacer(Modifier.height(18.dp))
+    Notice(
+        "iCloud 写真のライブラリそのものは、Apple ID の 2 ファクタ認証が要る非公開の仕組みのため読めません（App 用パスワードも使えません）。" +
+            "出したい写真を共有アルバムに入れてください。写真は 30 分ごとに一覧を取り直し、出すときに 1 枚ずつ読み込みます（1 枚 数百 KB 〜 1 MB）。",
+    )
+}
 
 @Composable
 private fun CalendarPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit) {

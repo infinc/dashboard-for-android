@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import java.io.File
 import kotlin.math.min
@@ -251,10 +252,12 @@ class DisasterRepository(
         }
 
         return TyphoonInfo(
+            id = target.tropicalCyclone,
             number = typhoonLabel(number),
             name = name,
-            scale = analysis?.str("scale"),
-            intensity = analysis?.str("intensity"),
+            // 大きさ・強さが付かない台風は "-" が入っている
+            scale = analysis?.str("scale")?.takeIf { it != "-" },
+            intensity = analysis?.str("intensity")?.takeIf { it != "-" },
             location = analysis?.str("location"),
             pressureHpa = analysis?.str("pressure"),
             maxWindMps = analysis?.str("maximumWind", "sustained", "m/s"),
@@ -263,6 +266,115 @@ class DisasterRepository(
             speedKmh = analysis?.str("speed", "km/h"),
             reportedAt = target.issue,
         )
+    }
+
+    /**
+     * 台風の進路図（全画面）の材料。開いたときにだけ取る（壁に出している間の定期取得には入れない）。
+     *
+     * forecast.json … 経路（"track" の中の "typhoon" / "preTyphoon"）、実況の強風域・暴風域、予報円の中心と半径（メートル）
+     * specifications.json … 各時刻の位置の表現・気圧・風速・進路・暴風（警戒）域の半径（km）
+     * どちらも要素ごとに形が違う（"part" が文字列だったりオブジェクトだったり）ので、JSON のまま読む。
+     */
+    suspend fun typhoonTrack(id: String): TyphoonTrack {
+        require(id.matches(Regex("[A-Za-z0-9]+"))) { "台風の識別子が正しくありません" }
+        val forecast: JsonArray = client.get("$BASE/typhoon/data/$id/forecast.json").body()
+        val spec: JsonArray = runCatching { client.get("$BASE/typhoon/data/$id/specifications.json").body<JsonArray>() }
+            .getOrDefault(JsonArray(emptyList()))
+        val specs = spec.mapNotNull { it as? JsonObject }
+        val title = specs.firstOrNull { it.partName() == "title" } ?: forecast.mapNotNull { it as? JsonObject }.firstOrNull { it.partName() == "title" }
+        val byHours = specs.mapNotNull { o -> (o["advancedHours"] as? JsonPrimitive)?.intOrNull?.let { it to o } }.toMap()
+
+        var track = emptyList<LatLon>()
+        var pre = emptyList<LatLon>()
+        var gale: Circle? = null
+        var storm: Circle? = null
+        val points = mutableListOf<TyphoonPoint>()
+        for (element in forecast) {
+            val o = element as? JsonObject ?: continue
+            val hours = (o["advancedHours"] as? JsonPrimitive)?.intOrNull ?: continue
+            val center = o.latLon("center") ?: continue
+            val s = byHours[hours]
+            if (hours == 0) {
+                o.obj("track")?.let { t ->
+                    track = t.latLons("typhoon")
+                    pre = t.latLons("preTyphoon")
+                }
+                gale = o.obj("galeWarningArea")?.let { g -> g.latLon("center")?.let { c -> g.num("radius")?.let { Circle(c, it / 1000) } } }
+                storm = o.obj("stormWarningArea")?.arcs()?.firstOrNull()
+            }
+            val circle = o.obj("probabilityCircle")?.num("radius")?.div(1000)
+            points += TyphoonPoint(
+                hours = hours,
+                validTime = o.str("validtime", "JST") ?: s?.str("validtime", "JST"),
+                center = center,
+                circleKm = circle ?: s?.num("probabilityCircleRadius", "km"),
+                stormKm = s?.ranges("stormWarning")?.maxOfOrNull { it.second }
+                    ?: if (hours == 0) storm?.radiusKm else o.obj("stormWarningArea")?.arcs()?.filter { it.center == center }?.maxOfOrNull { it.radiusKm },
+                category = s?.str("category", "jp"),
+                scale = s?.str("scale")?.takeIf { it != "-" },
+                intensity = s?.str("intensity")?.takeIf { it != "-" },
+                location = s?.str("location"),
+                pressureHpa = s?.str("pressure"),
+                maxWindMps = s?.str("maximumWind", "sustained", "m/s"),
+                gustMps = s?.str("maximumWind", "gust", "m/s"),
+                course = s?.str("course"),
+                speedKmh = s?.str("speed", "km/h"),
+                galeText = s?.ranges("galeWarning")?.takeIf { it.isNotEmpty() }
+                    ?.joinToString(" ・ ") { (area, km) -> "$area ${km.toInt()} km" },
+            )
+        }
+        if (points.isEmpty()) error("進路の情報がありません")
+        return TyphoonTrack(
+            id = id,
+            number = typhoonLabel(title?.str("typhoonNumber")),
+            name = title?.str("name", "jp"),
+            reportedAt = title?.str("issue", "JST"),
+            track = track,
+            preTrack = pre,
+            points = points.sortedBy { it.hours },
+            gale = gale,
+            storm = storm,
+        )
+    }
+
+    private fun JsonObject.obj(key: String): JsonObject? = when (val v = this[key]) {
+        is JsonObject -> v
+        // 文字列に JSON を詰めて返してくることがあるので、そのときは読み直す
+        is JsonPrimitive -> v.contentOrNull?.let { runCatching { Http.json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        else -> null
+    }
+
+    private fun JsonElement.toLatLon(): LatLon? {
+        val a = this as? JsonArray ?: return null
+        val lat = (a.getOrNull(0) as? JsonPrimitive)?.doubleOrNull ?: return null
+        val lon = (a.getOrNull(1) as? JsonPrimitive)?.doubleOrNull ?: return null
+        return LatLon(lat, lon)
+    }
+
+    private fun JsonObject.latLon(key: String): LatLon? = this[key]?.toLatLon()
+
+    private fun JsonObject.latLons(key: String): List<LatLon> = (this[key] as? JsonArray)?.mapNotNull { it.toLatLon() }.orEmpty()
+
+    private fun JsonObject.num(vararg path: String): Double? {
+        var current: JsonElement? = this
+        for (key in path) current = (current as? JsonObject)?.get(key)
+        return (current as? JsonPrimitive)?.doubleOrNull
+    }
+
+    /** 暴風域の円弧 [[中心], 半径(m), [角度, 角度]] の並びを円にする（中心と半径だけを使う）。 */
+    private fun JsonObject.arcs(): List<Circle> = (this["arc"] as? JsonArray).orEmpty().mapNotNull { e ->
+        val a = e as? JsonArray ?: return@mapNotNull null
+        val c = a.getOrNull(0)?.toLatLon() ?: return@mapNotNull null
+        val r = (a.getOrNull(1) as? JsonPrimitive)?.doubleOrNull ?: return@mapNotNull null
+        Circle(c, r / 1000)
+    }
+
+    /** specifications.json の stormWarning / galeWarning（[{area, range: {km}}]）→ (方角, km)。方角が「全域」なら "全域"。 */
+    private fun JsonObject.ranges(key: String): List<Pair<String, Double>>? = (this[key] as? JsonArray)?.mapNotNull { e ->
+        val o = e as? JsonObject ?: return@mapNotNull null
+        val km = o.num("range", "km") ?: return@mapNotNull null
+        val area = (o["area"] as? JsonPrimitive)?.contentOrNull ?: o.str("area", "jp") ?: ""
+        area to km
     }
 
     // ------------------------------------------------------------ 噴火

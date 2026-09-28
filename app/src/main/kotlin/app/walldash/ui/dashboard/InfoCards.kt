@@ -43,6 +43,7 @@ import app.walldash.data.Holiday
 import app.walldash.data.StockQuote
 import app.walldash.data.StocksState
 import app.walldash.data.TodayState
+import app.walldash.data.TrainRepository
 import app.walldash.data.TrainState
 import app.walldash.ui.common.EmptyText
 import app.walldash.ui.common.Hairline
@@ -101,7 +102,7 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
                             Text(
                                 line.status,
                                 color = when {
-                                    !line.trouble && line.status == "情報なし" -> Wd.Text3
+                                    !line.trouble && (line.status == "情報なし" || line.status == TrainRepository.NOT_PROVIDED) -> Wd.Text3
                                     !line.trouble -> Wd.Green
                                     "見合わせ" in line.status || "運休" in line.status -> Wd.Red
                                     else -> Wd.Amber
@@ -116,6 +117,12 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
                             Text(line.text, color = Wd.Text2, fontSize = 11.5f.tu, lineHeight = 1.45.em, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 11.dp, top = 2.dp))
                         }
                     }
+                }
+                if (lines.any { it.status == TrainRepository.NOT_PROVIDED }) {
+                    Text(
+                        "「配信なし」の路線は、登録したトークンの API に運行情報がありません（JR 東日本などは ODPT のチャレンジ用トークンが必要です）。",
+                        color = Wd.Text3, fontSize = 10.5f.tu, lineHeight = 1.45.em, modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
             }
         }

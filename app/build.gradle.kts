@@ -88,6 +88,17 @@ android {
     }
 }
 
+// デバッグ版の APK を作るたびに（assembleDebug・Android Studio の「Build APK」）、
+// リポジトリの直下に walldash.apk として写す。端末へ入れるときに build/ の奥を探さなくて済むように。
+val apkToRoot = tasks.register("apkToRoot") {
+    val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    val out = rootProject.layout.projectDirectory.file("walldash.apk")
+    inputs.file(apk)
+    outputs.file(out)
+    doLast { apk.get().asFile.copyTo(out.asFile, overwrite = true) }
+}
+tasks.matching { it.name == "assembleDebug" }.configureEach { finalizedBy(apkToRoot) }
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

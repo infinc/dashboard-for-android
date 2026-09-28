@@ -84,6 +84,7 @@ fun DisasterCard(
     display: DisplayConfig,
     kmoniBase: ImageBitmap?,
     kmoni: DashboardViewModel.KmoniFrame,
+    onTyphoon: (TyphoonInfo) -> Unit,
     modifier: Modifier,
 ) {
     val active = d != null && (d.activeAreas.isNotEmpty() || d.tsunami.isNotEmpty())
@@ -99,7 +100,7 @@ fun DisasterCard(
                 when {
                     !enabled -> EmptyText("防災情報の取得が無効です。設定画面の「防災」で有効にしてください。")
                     d == null || !d.available -> EmptyText("気象庁の情報を取得できていません。")
-                    else -> DisasterBody(d, display)
+                    else -> DisasterBody(d, display, onTyphoon)
                 }
             }
             if (display.disasterShowKmoni) Kmoni(kmoniBase, kmoni, Modifier.width(112.dp).fillMaxHeight())
@@ -108,7 +109,7 @@ fun DisasterCard(
 }
 
 @Composable
-private fun DisasterBody(d: DisasterState, display: DisplayConfig) {
+private fun DisasterBody(d: DisasterState, display: DisplayConfig, onTyphoon: (TyphoonInfo) -> Unit) {
     val typhoons = if (display.disasterShowTyphoon) d.typhoons else emptyList()
     val volcanoes = if (display.disasterShowVolcano) d.volcanoes else emptyList()
     val scroll = rememberScrollState()
@@ -146,7 +147,7 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig) {
             }
             if (typhoons.isNotEmpty()) {
                 Section("台風", Wd.Text3)
-                typhoons.forEach { TyphoonRows(it) }
+                typhoons.forEach { TyphoonRows(it) { onTyphoon(it) } }
             }
             if (volcanoes.isNotEmpty()) {
                 Section("噴火  ${volcanoes.size} 件", Wd.Text3)
@@ -196,15 +197,22 @@ private fun NameRow(name: String, state: String, nameColor: Color, stateColor: C
 }
 
 @Composable
-private fun TyphoonRows(t: TyphoonInfo) {
+private fun TyphoonRows(t: TyphoonInfo, onOpen: () -> Unit) {
     val course = t.course?.let { it + "へ" + (t.speedKmh?.let { s -> " $s km/h" } ?: "") }
     Column(Modifier.padding(top = 4.dp)) {
-        NameRow(
-            listOfNotNull(t.number, t.name).joinToString(" ").ifEmpty { "台風" },
-            listOfNotNull(t.scale, t.intensity).joinToString("・"),
-            Wd.Amber,
-            Wd.Text2,
-        )
+        // 名前を押すと進路図を画面いっぱいに出す（押せることが分かるよう、名前の右に広げる記号を添える）
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = t.id != null, onClick = onOpen)
+                    .background(Wd.Amber.copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(listOfNotNull(t.number, t.name).joinToString(" ").ifEmpty { "台風" }, color = Wd.Amber, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                if (t.id != null) Icon(WdIcons.Expand, "進路図を画面いっぱいに表示", tint = Wd.Amber, modifier = Modifier.padding(start = 5.dp).size(11.dp))
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(listOfNotNull(t.scale, t.intensity).joinToString("・"), color = Wd.Text2, fontSize = 12.tu, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        }
         Text(
             listOfNotNull(t.location, t.pressureHpa?.let { "$it hPa" }, course).joinToString(" ・ "),
             color = Wd.Text3, fontSize = 11.5f.tu,
