@@ -11,7 +11,10 @@ import app.walldash.AppGraph
 import app.walldash.data.Config
 import app.walldash.data.DeviceState
 import app.walldash.data.DisasterState
+import app.walldash.data.LyricsRepository
+import app.walldash.data.SpotifyState
 import app.walldash.data.Tones
+import app.walldash.data.TyphoonTrack
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -150,6 +153,21 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         _fullscreenOpen.value = open
     }
 
+    /**
+     * 写真カードに出している写真。[index] は何枚目か（1 から）、[count] はアルバムの枚数。
+     * 写真の URL は切れるので持たず、読み込んだ画像だけを持つ。
+     */
+    data class PhotoFrame(val image: ImageBitmap, val caption: String?, val takenAt: String?, val index: Int, val count: Int)
+
+    private val _photo = MutableStateFlow<PhotoFrame?>(null)
+    val photo = _photo.asStateFlow()
+    /** 出す順（写真の guid）。アルバムの中身か「順番を混ぜる」が変わったら作り直す。 */
+    private var photoOrder: List<String> = emptyList()
+    private var photoOrderKey: Any? = null
+    private var photoPos = -1
+    private var photoShownAt = 0L
+    private val photoWake = Channel<Unit>(Channel.CONFLATED)
+
     /** 背景画像。設定で選ばれた（imageSetAt が変わった）ときだけ読み直す。 */
     private val _wallpaper = MutableStateFlow<ImageBitmap?>(null)
     val wallpaper = _wallpaper.asStateFlow()
@@ -194,6 +212,13 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 if (active && wantsKmoni()) kmoniTick()
                 delay(KMONI_MS)
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                if (active) try { photoTick() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+                // 1 秒ごとに切り替えの時刻を見る。カードを押されたらすぐ次へ
+                withTimeoutOrNull(1_000) { photoWake.receive() }
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -564,6 +589,83 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
     }.getOrNull()
 
+    // ------------------------------------------------------------ 写真
+
+    /** 写真カードを押したら、待たずに次の写真へ。 */
+    fun nextPhoto() {
+        photoShownAt = 0
+        photoWake.trySend(Unit)
+    }
+
+    /**
+     * 設定の間隔ごとに次の写真を読む。アルバムを取り直して中身が変わったら、出す順を作り直す（いまの写真の次から続ける）。
+     * 画像の URL が切れていたら（403 など）、アルバムを取り直してもらってから次の回に読む。
+     */
+    private suspend fun photoTick() {
+        val c = graph.config.get()
+        if (!c.display.showPhotos || !c.photos.enabled) {
+            _photo.value = null
+            return
+        }
+        val list = graph.photos.photos
+        if (list.isEmpty()) {
+            if (graph.photos.state.lastError != null) _photo.value = null
+            return
+        }
+        val key = list.map { it.guid } to c.photos.shuffle
+        if (key != photoOrderKey) {
+            val current = photoOrder.getOrNull(photoPos)
+            photoOrder = list.map { it.guid }.let { if (c.photos.shuffle) it.shuffled() else it }
+            photoOrderKey = key
+            photoPos = photoOrder.indexOf(current).let { if (it >= 0) it else -1 }
+            if (current == null || photoPos < 0) photoShownAt = 0
+        }
+        val now = System.currentTimeMillis()
+        if (_photo.value != null && now - photoShownAt < c.photos.intervalSec * 1000L) return
+        val nextPos = (photoPos + 1) % photoOrder.size
+        // 1 周したら、混ぜる設定のときは順番を混ぜ直す（毎周同じ並びにしない）
+        if (nextPos == 0 && c.photos.shuffle && photoOrder.size > 2) photoOrder = photoOrder.shuffled()
+        val guid = photoOrder[nextPos]
+        val p = list.firstOrNull { it.guid == guid } ?: return
+        val image = try {
+            decodeScaled(graph.http.get(p.url).readRawBytes(), PHOTO_MAX_SIDE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ResponseException) {
+            graph.photos.refreshSoon()
+            return
+        } catch (e: Exception) {
+            null
+        }
+        photoPos = nextPos
+        photoShownAt = now
+        if (image != null) _photo.value = PhotoFrame(image, p.caption, p.takenAt, list.indexOf(p) + 1, list.size)
+    }
+
+    /** 大きな写真は長辺 [maxSide] まで縮めて読む（この端末はメモリが少ない）。 */
+    private fun decodeScaled(bytes: ByteArray, maxSide: Int): ImageBitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+    }
+
+    // ------------------------------------------------------------ 全画面の材料（台風・歌詞）
+
+    /** 台風の進路図。全画面を開いたときにだけ取る。 */
+    suspend fun typhoonTrack(id: String): Result<TyphoonTrack> = runCatching { graph.disaster.typhoonTrack(id) }
+
+    /** 台風の進路図の地図（Esri の暗い灰色の地図、タイル 1 枚）。 */
+    suspend fun darkMapTile(zoom: Int, x: Int, y: Int): ImageBitmap? =
+        (fetchRadarTile(baseUrl(true, zoom, x to y)) as? Tile.Ok)?.image
+
+    /** 再生中の曲の歌詞（LRCLIB）。見つからなければ null。 */
+    suspend fun lyrics(sp: SpotifyState): Result<LyricsRepository.Lyrics?> = runCatching {
+        graph.lyrics.find(sp.trackName ?: return@runCatching null, sp.artistName, sp.albumName, sp.durationMs)
+    }
+
     // ------------------------------------------------------------ タイマー
 
     fun pickTimer(hours: Int, minutes: Int) {
@@ -615,6 +717,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         /** 気象庁の雨雲は偶数のズームだけ（10 まで）。奇数は 1 つ下の偶数を引き伸ばす。 */
         fun rainZoomOf(zoom: Int) = minOf(zoom and 1.inv(), 10)
 
+        private const val PHOTO_MAX_SIDE = 1600
         private const val POLL_MS = 2_000L
         private const val KMONI_MS = 3_000L
         private const val RADAR_CHECK_MS = 60_000L

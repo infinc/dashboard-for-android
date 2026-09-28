@@ -9,7 +9,9 @@ import app.walldash.data.DisasterRepository
 import app.walldash.data.FeedRepository
 import app.walldash.data.HolidayRepository
 import app.walldash.data.Http
+import app.walldash.data.LyricsRepository
 import app.walldash.data.MemoRepository
+import app.walldash.data.PhotoRepository
 import app.walldash.data.SpotifyRepository
 import app.walldash.data.StocksRepository
 import app.walldash.data.TodayRepository
@@ -51,6 +53,8 @@ class AppGraph private constructor(context: Context) {
     val calendar = CalendarRepository(http, config)
     val stocks = StocksRepository(http, config)
     val holidays = HolidayRepository(this.context, http)
+    val photos = PhotoRepository(config)
+    val lyrics = LyricsRepository(http)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
@@ -74,6 +78,7 @@ class AppGraph private constructor(context: Context) {
         calendar = calendar.state,
         stocks = stocks.state,
         holidays = holidays.upcoming(),
+        photos = photos.state,
         config = config.get().toPublic(),
     )
 

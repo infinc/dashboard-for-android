@@ -167,6 +167,13 @@
     if ($("calendarPassword").value) calendar.password = $("calendarPassword").value;
     if ($("calendarIcsUrl").value) calendar.icsUrl = $("calendarIcsUrl").value;
 
+    var photos = {
+      enabled: $("photosEnabled").checked,
+      intervalSec: Number($("photosInterval").value) || 60,
+      shuffle: $("photosShuffle").checked
+    };
+    if ($("photosUrl").value) photos.albumUrl = $("photosUrl").value;
+
     var memo = {
       enabled: $("memoEnabled").checked,
       endpoint: $("memoEndpoint").value.trim(),
@@ -188,6 +195,7 @@
       },
       train: train,
       calendar: calendar,
+      photos: photos,
       memo: memo,
       spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim() }
     };
@@ -279,6 +287,13 @@
     $("calendarIcsUrl").placeholder = cal.icsUrlSet ? "設定済み（変更する場合のみ入力）" : "webcal://p00-caldav.icloud.com/published/2/…";
     $("calendarDays").value = cal.daysAhead || 7;
     renderCalendarMode();
+
+    var ph = config.photos || {};
+    $("photosEnabled").checked = !!ph.enabled;
+    $("photosUrl").value = "";
+    $("photosUrl").placeholder = ph.albumUrlSet ? "設定済み（変更する場合のみ入力）" : "https://www.icloud.com/sharedalbum/#B0…";
+    $("photosInterval").value = String(ph.intervalSec || 60);
+    $("photosShuffle").checked = ph.shuffle !== false;
 
     var wx = document.querySelectorAll("input[data-wx]");
     for (var w = 0; w < wx.length; w++) wx[w].checked = d.weatherFields.indexOf(wx[w].getAttribute("data-wx")) >= 0;
@@ -391,6 +406,12 @@
       else if (cal.lastError) setStatus("calendarStatus", "エラー: " + cal.lastError, "err");
       else if (cal.fetchedAt > 0) setStatus("calendarStatus", "取得できています（" + (cal.events || []).length + " 件）", "ok");
       else setStatus("calendarStatus", "まだ取得していません —「全て保存」のあと少し待ってください");
+
+      var ph = (s && s.photos) || {};
+      if (!config.photos || !config.photos.enabled) setStatus("photosStatus", "取得は無効です");
+      else if (ph.lastError) setStatus("photosStatus", "エラー: " + ph.lastError, "err");
+      else if (ph.fetchedAt > 0) setStatus("photosStatus", "取得できています（" + (ph.albumName || "アルバム") + "、" + ph.count + " 枚）", "ok");
+      else setStatus("photosStatus", "まだ取得していません —「全て保存」のあと少し待ってください（カードを表示しているときだけ取得します）");
 
       var tr = (s && s.train) || {};
       if (!config.train || !config.train.enabled) setStatus("trainStatus", "取得は無効です");

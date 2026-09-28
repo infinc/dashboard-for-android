@@ -51,6 +51,7 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
+    showCalculator: false, showPhotos: false,
     todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
@@ -65,6 +66,7 @@ let config = {
   wallpaper: { imageSetAt: 0 },
   train: { enabled: false, tokenSet: false, challengeTokenSet: false, railways: [] },
   calendar: { enabled: false, mode: "caldav", appleId: "", passwordSet: false, icsUrlSet: false, daysAhead: 7 },
+  photos: { enabled: false, albumUrlSet: false, intervalSec: 60, shuffle: true },
   stocks: {
     symbols: [
       { symbol: "^N225", label: "日経平均" }, { symbol: "^DJI", label: "NY ダウ" },
@@ -96,6 +98,7 @@ const CARDS = [
   ["ANALOG_CLOCK", "showAnalogClock", 6, 4, "アナログ時計"], ["CALENDAR", "showCalendar", 9, 6, "予定表"], ["TRAIN", "showTrain", 9, 6, "運行情報"],
   ["RADAR", "showRadar", 8, 5, "雨雲レーダー"], ["SUN_MOON", "showSunMoon", 8, 7, "日の出・月"], ["COUNTDOWN", "showCountdown", 8, 6, "カウントダウン"],
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
+  ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));
@@ -103,7 +106,7 @@ config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks"]);
+const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
@@ -247,6 +250,7 @@ const state = () => ({
   disaster: { available: true, officeName: "東京都", areaName: "新宿区" },
   train: { lines: [], fetchedAt: 0, lastError: null },
   calendar: { events: [], fetchedAt: 0, lastError: null },
+  photos: { albumName: null, count: 0, fetchedAt: 0, lastError: null },
   config,
 });
 
@@ -269,7 +273,7 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && !post) return json(res, 200, config);
     if (path === "/api/settings" && post) {
       // SettingsController.saveAll と同じく、settings の各項目は「まるごと差し替え」
-      const { settings = {}, memo, spotify, train, calendar } = await readBody(req);
+      const { settings = {}, memo, spotify, train, calendar, photos } = await readBody(req);
       if (settings.display) {
         const adjusted = adjust(config.display, settings.display);
         if (adjusted.message) return json(res, 400, { error: "cards_overflow", detail: adjusted.message });
@@ -299,6 +303,10 @@ const server = createServer(async (req, res) => {
           passwordSet: password === undefined ? config.calendar.passwordSet : password !== "",
           icsUrlSet: icsUrl === undefined ? config.calendar.icsUrlSet : icsUrl !== "",
         };
+      }
+      if (photos) {
+        const { albumUrl, ...rest } = photos;
+        config.photos = { ...config.photos, ...rest, albumUrlSet: albumUrl === undefined ? config.photos.albumUrlSet : albumUrl !== "" };
       }
       return json(res, 200, config);
     }

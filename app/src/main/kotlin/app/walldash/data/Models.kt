@@ -185,6 +185,8 @@ data class TsunamiInfo(
 /** 台風。数値はすべて気象庁の文字列表記のまま持つ（単位換算はしない）。 */
 @Serializable
 data class TyphoonInfo(
+    /** 気象庁の熱帯低気圧の識別子（"TC2632" など）。全画面の進路図を取りに行くのに使う。 */
+    val id: String? = null,
     /** 「台風25号」。番号が取れなければ null。 */
     val number: String? = null,
     /** アジア名。例: ドゥージェン */
@@ -201,6 +203,58 @@ data class TyphoonInfo(
     val course: String? = null,
     val speedKmh: String? = null,
     val reportedAt: String? = null,
+)
+
+/**
+ * 台風の進路図（全画面）に描くもの。気象庁の forecast.json（位置・円）と specifications.json（文字の情報）をまとめたもの。
+ * 緯度・経度は度、半径は km。
+ */
+@Serializable
+data class TyphoonTrack(
+    val id: String,
+    val number: String? = null,
+    val name: String? = null,
+    val reportedAt: String? = null,
+    /** 台風になってからの経路（古い順）。 */
+    val track: List<LatLon> = emptyList(),
+    /** 台風になる前（熱帯低気圧）の経路。 */
+    val preTrack: List<LatLon> = emptyList(),
+    /** 実況（[TyphoonPoint.hours] = 0）と、12・24・48…時間後の予報。 */
+    val points: List<TyphoonPoint> = emptyList(),
+    /** 実況の強風域（風速 15 m/s 以上）。中心は台風の中心とずれることがある。 */
+    val gale: Circle? = null,
+    /** 実況の暴風域（風速 25 m/s 以上）。 */
+    val storm: Circle? = null,
+)
+
+@Serializable
+data class LatLon(val lat: Double, val lon: Double)
+
+@Serializable
+data class Circle(val center: LatLon, val radiusKm: Double)
+
+@Serializable
+data class TyphoonPoint(
+    /** 0 = 実況、12 = 12 時間後の予報…。 */
+    val hours: Int,
+    /** その時刻（"2026-09-29T03:00:00+09:00"）。 */
+    val validTime: String? = null,
+    val center: LatLon,
+    /** 予報円の半径（予報だけ）。 */
+    val circleKm: Double? = null,
+    /** 予報は暴風警戒域の半径、実況は暴風域の半径。暴風域が無ければ null。 */
+    val stormKm: Double? = null,
+    val category: String? = null,
+    val scale: String? = null,
+    val intensity: String? = null,
+    val location: String? = null,
+    val pressureHpa: String? = null,
+    val maxWindMps: String? = null,
+    val gustMps: String? = null,
+    val course: String? = null,
+    val speedKmh: String? = null,
+    /** 実況の強風域の書き方（"南東 220km ・ 北西 165km" / "全域 300km"）。 */
+    val galeText: String? = null,
 )
 
 /** 噴火警報・予報が出ている火山 1 つ。 */
@@ -388,6 +442,8 @@ data class DisplayConfig(
     val showSunMoon: Boolean = false,
     val showCountdown: Boolean = false,
     val showAnalogClock: Boolean = false,
+    val showCalculator: Boolean = false,
+    val showPhotos: Boolean = false,
 
     /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
     val todayShowEvent: Boolean = true,
@@ -640,6 +696,50 @@ data class CalendarState(
     val lastError: String? = null,
 )
 
+// ---------------------------------------------------------------- 写真（iCloud の共有アルバム）
+
+/**
+ * 写真カード。iCloud の「共有アルバム」を、公開 Web サイトの URL（https://www.icloud.com/sharedalbum/#B0…）から読む。
+ * [albumUrl] は秘密（URL を知っている人は誰でも写真を見られるため）。
+ * [intervalSec] は写真を切り替える間隔、[shuffle] は順番を混ぜるか。
+ */
+@Serializable
+data class PhotoConfig(
+    val enabled: Boolean = false,
+    val albumUrl: String? = null,
+    val intervalSec: Int = 60,
+    val shuffle: Boolean = true,
+)
+
+@Serializable
+data class PhotoPublic(
+    val enabled: Boolean = false,
+    val albumUrlSet: Boolean = false,
+    val intervalSec: Int = 60,
+    val shuffle: Boolean = true,
+)
+
+/** アルバムの URL は書き込み専用。null は変更しない、空文字は消す。 */
+@Serializable
+data class PhotoPatch(
+    val enabled: Boolean? = null,
+    val albumUrl: String? = null,
+    val intervalSec: Int? = null,
+    val shuffle: Boolean? = null,
+)
+
+/**
+ * 写真の取得状態。写真そのものの URL（署名付きで、知っていれば誰でも開ける）は外に出さず、
+ * [PhotoRepository] の中だけで持つ。
+ */
+@Serializable
+data class PhotoState(
+    val albumName: String? = null,
+    val count: Int = 0,
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
 // ---------------------------------------------------------------- 株価
 
 @Serializable
@@ -744,6 +844,7 @@ data class Config(
     val calendar: CalendarConfig = CalendarConfig(),
     val stocks: StocksConfig = StocksConfig(),
     val countdown: CountdownConfig = CountdownConfig(),
+    val photos: PhotoConfig = PhotoConfig(),
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -785,6 +886,7 @@ data class PublicConfig(
     val calendar: CalendarPublic = CalendarPublic(),
     val stocks: StocksConfig = StocksConfig(),
     val countdown: CountdownConfig = CountdownConfig(),
+    val photos: PhotoPublic = PhotoPublic(),
     /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
     val choices: SettingChoices = SettingChoices.ALL,
 )
@@ -851,6 +953,12 @@ fun Config.toPublic() = PublicConfig(
     ),
     stocks = stocks,
     countdown = countdown,
+    photos = PhotoPublic(
+        enabled = photos.enabled,
+        albumUrlSet = !photos.albumUrl.isNullOrBlank(),
+        intervalSec = photos.intervalSec,
+        shuffle = photos.shuffle,
+    ),
 )
 
 /**
@@ -864,6 +972,7 @@ data class SaveAllRequest(
     val spotify: SpotifyPatch? = null,
     val train: TrainPatch? = null,
     val calendar: CalendarPatch? = null,
+    val photos: PhotoPatch? = null,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -915,6 +1024,7 @@ data class DeviceState(
     val calendar: CalendarState = CalendarState(),
     val stocks: StocksState = StocksState(),
     val holidays: List<Holiday> = emptyList(),
+    val photos: PhotoState = PhotoState(),
     val config: PublicConfig,
 )
 

@@ -65,6 +65,8 @@
 | `data/TodayRepository.kt` | 今日は何の日（Wikipedia の日付の記事の「記念日・年中行事」「できごと」をウィキ記法から地の文にする） |
 | `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
 | `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
+| `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
+| `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る） |
 | `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
 | `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
 | `data/WallpaperStore.kt` | 背景画像（`filesDir/wallpaper.jpg`）。縮小と写真の向きの補正をしてから置く |
@@ -80,6 +82,8 @@
 | `ui/dashboard/DashboardScreen.kt` | カードの並べ方（3-2）、フッター、通知バナー、焼き付き防止のずらし |
 | `ui/dashboard/SimpleCards.kt` / `ChartCards.kt` / `RichCards.kt` | 各カード |
 | `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
+| `ui/dashboard/CalculatorCard.kt` / `PhotoCard.kt` | 計算機（上に横長の表示、下に鍵盤。`Calc` は BigDecimal で掛け算・割り算を先に計算）/ 写真 |
+| `ui/dashboard/NowPlaying.kt` / `BigClock.kt` / `TyphoonScreen.kt` | 全画面: Spotify（ジャケットを押すと歌詞）/ 時刻 / 台風の進路図（気象庁の `forecast.json` と `specifications.json`、`DisasterRepository.typhoonTrack()`） |
 | `ui/dashboard/WeatherIcon.kt` / `Hamster.kt` / `GlobeData.kt` | 天気アイコン、回し車のハムスター、Wi-Fi カードの地球儀の海岸線 |
 | `ui/settings/SettingsScreen.kt` / `SettingsWidgets.kt` | アプリの設定画面と部品 |
 | `ui/browser/BrowserScreen.kt` | ブラウズとお気に入り（3-9） |

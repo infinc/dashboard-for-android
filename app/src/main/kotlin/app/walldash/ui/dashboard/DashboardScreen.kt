@@ -87,6 +87,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
     val wallpaper by vm.wallpaper.collectAsStateWithLifecycle()
     val radar by vm.radar.collectAsStateWithLifecycle()
+    val photo by vm.photo.collectAsStateWithLifecycle()
 
     val d = config.display
     val s = state
@@ -94,6 +95,10 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     var nowPlaying by remember { mutableStateOf(false) }
     /** 時刻を画面いっぱいに出しているか。 */
     var bigClock by remember { mutableStateOf(false) }
+    /** 進路図を画面いっぱいに出している台風の識別子。 */
+    var typhoonId by remember { mutableStateOf<String?>(null) }
+    /** 最後に開いた台風（進路図を閉じるまで、台風が一覧から消えても同じものを出し続ける）。 */
+    var typhoonShown by remember { mutableStateOf<app.walldash.data.TyphoonInfo?>(null) }
     val keepAwake by vm.keepAwake.collectAsStateWithLifecycle()
     // 全画面の間だけ「画面を暗くしない」を効かせる（MainActivity が holdAwake を見る。閉じたら無操作の減光に戻る）
     LaunchedEffect(nowPlaying || bigClock) { vm.setFullscreenOpen(nowPlaying || bigClock) }
@@ -103,7 +108,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         when (slot) {
             Slot.CLOCK -> ClockCard(now, config.units, d, s?.weather, s?.deviceTimezone, { bigClock = true }, modifier)
             Slot.WEATHER -> WeatherCard(s?.weather, d, config.units, now, modifier)
-            Slot.DISASTER -> DisasterCard(s?.disaster, config.disaster.enabled, d, kmoniBase, kmoni, modifier)
+            Slot.DISASTER -> DisasterCard(s?.disaster, config.disaster.enabled, d, kmoniBase, kmoni, { typhoonId = it.id; typhoonShown = it }, modifier)
             Slot.MEMO -> MemoCard(s?.memo, config.memo.enabled, now, modifier)
             Slot.HOURLY -> HourlyCard(s?.weather, d.hourlyMode, modifier)
             Slot.SPOTIFY -> SpotifyCard(
@@ -124,6 +129,8 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.COUNTDOWN -> CountdownCard(config.countdown, s?.holidays.orEmpty(), now, modifier)
             Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
             Slot.STOCKS -> StocksCard(s?.stocks, config.stocks.range, now, modifier)
+            Slot.CALCULATOR -> CalculatorCard(modifier)
+            Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, modifier)
         }
     }
 
@@ -185,10 +192,23 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
 
         AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, onBack = { nowPlaying = false })
+            NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, vm::lyrics, onBack = { nowPlaying = false })
         }
         AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
+        }
+        AnimatedVisibility(typhoonId != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            // 発表が更新されたら新しい方を渡す（進路図を取り直す）
+            val info = s?.disaster?.typhoons?.firstOrNull { it.id == typhoonShown?.id } ?: typhoonShown
+            info?.let {
+                TyphoonScreen(
+                    it,
+                    app.walldash.data.LatLon(config.location.latitude, config.location.longitude),
+                    vm::typhoonTrack,
+                    vm::darkMapTile,
+                    onBack = { typhoonId = null },
+                )
+            }
         }
     }
 }

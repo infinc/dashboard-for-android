@@ -80,9 +80,16 @@ class TrainRepository(context: Context, private val client: HttpClient, private 
         val byRailway = infos.filter { it.railway != null }.associateBy { it.railway }
         val byOperator = infos.filter { it.railway == null }.associateBy { it.operator }
         val railways = catalog.railways.associateBy { it.id }
+        // 事業者ごと運行情報が 1 件も来ていない路線は、取得の失敗ではなく配信の対象外（本番の API に JR 東日本などは無い）
+        val reporting = infos.mapNotNull { it.operator }.toSet()
         fun line(id: String, info: Info?): TrainLine {
             val r = railways[id]
-            val status = info?.status ?: if (info == null) "情報なし" else "平常運転"
+            val operator = r?.operator ?: operatorOf(id)
+            val status = info?.status ?: when {
+                info != null -> "平常運転"
+                operator !in reporting -> NOT_PROVIDED
+                else -> "情報なし"
+            }
             return TrainLine(
                 railway = id,
                 title = r?.title ?: id.substringAfterLast('.'),
@@ -180,11 +187,13 @@ class TrainRepository(context: Context, private val client: HttpClient, private 
         val fetchedAt: Long = 0,
     )
 
-    private companion object {
-        const val TAG = "TrainRepository"
-        const val STANDARD = "https://api.odpt.org/api/v4/"
-        const val CHALLENGE = "https://api-challenge.odpt.org/api/v4/"
-        const val INTERVAL_MS = 300_000L
-        const val CATALOG_MS = 24L * 3600 * 1000
+    companion object {
+        private const val TAG = "TrainRepository"
+        private const val STANDARD = "https://api.odpt.org/api/v4/"
+        private const val CHALLENGE = "https://api-challenge.odpt.org/api/v4/"
+        private const val INTERVAL_MS = 300_000L
+        private const val CATALOG_MS = 24L * 3600 * 1000
+        /** 選んだ路線の事業者が、持っているトークンの API に運行情報を出していない。 */
+        const val NOT_PROVIDED = "配信なし"
     }
 }
