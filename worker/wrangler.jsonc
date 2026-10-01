@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "walldash-line-relay",
+	"name": "dashboard-line-relay",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-09-15",
 	// id を書かないと deploy 時に自動で作成・紐付けされる。

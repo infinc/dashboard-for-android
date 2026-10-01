@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Walldash — 設定</title>
+<title>Dashboard — 設定</title>
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/settings.css">
 </head>
@@ -18,7 +18,7 @@
 
   <nav class="nav">
     <div class="nav-head">
-      <div class="nav-title">Walldash 設定</div>
+      <div class="nav-title">Dashboard 設定</div>
       <div class="nav-sub" id="access">読み込み中…</div>
     </div>
 
@@ -468,7 +468,7 @@
 
       <div class="field">
         <label for="memoEndpoint">中継先の URL</label>
-        <input id="memoEndpoint" placeholder="https://walldash-line-relay.xxxx.workers.dev">
+        <input id="memoEndpoint" placeholder="https://dashboard-line-relay.xxxx.workers.dev">
         <div class="hint">
           Worker の URL を貼ってください。末尾のパスは自動で <code>/memo</code> に直します。
           LINE 側に登録する <code>/line/webhook</code> とは別の入口なので、間違えても補正されます。
@@ -938,8 +938,8 @@
 
       <div class="notice">
         Android 10 以降はバックグラウンドからの画面起動が制限されるため、再起動後にダッシュボードが
-        自動で前面に出るとは限りません。この端末のホームアプリを Walldash にすると確実に前面へ戻ります。
-        有効化したあと、端末側で「ホームアプリ」の選択ダイアログが出たら Walldash を選んでください。
+        自動で前面に出るとは限りません。この端末のホームアプリを Dashboard にすると確実に前面へ戻ります。
+        有効化したあと、端末側で「ホームアプリ」の選択ダイアログが出たら Dashboard を選んでください。
         <strong>無効のままだと、再起動のたびに手動でアプリを開く必要があります</strong>（サービス自体は約 90 秒で自動復帰します）。
       </div>
 

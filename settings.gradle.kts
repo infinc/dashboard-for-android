@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "walldash"
+rootProject.name = "dashboard"
 include(":app")
