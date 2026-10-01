@@ -1,4 +1,4 @@
-# Walldash の構造と、どこを触ると何が動くか
+# Dashboard の構造と、どこを触ると何が動くか
 
 コードと実機の動作の両方を読んだうえでまとめたもの。「あるコードを変えたら他のものも変わる」箇所を
 はっきりさせることを目的にしている。
@@ -12,7 +12,7 @@
 アプリ内蔵の HTTP サーバーは、**PC や他の端末のブラウザから開く設定画面**のためだけにある。
 
 ```
-┌─ Android プロセス (app.walldash) ───────────────────────────────────┐
+┌─ Android プロセス (app.dashboard) ───────────────────────────────────┐
 │                                                                     │
 │  MainActivity（Compose）                                            │
 │   ├ DashboardScreen … カード 12 枚・フッター・通知バナー・ハムスター │
@@ -49,7 +49,7 @@
 
 ## 2. ファイルの役割
 
-### Kotlin（`app/src/main/kotlin/app/walldash/`）
+### Kotlin（`app/src/main/kotlin/app/dashboard/`）
 
 | ファイル | 役割 |
 |---|---|
@@ -65,6 +65,8 @@
 | `data/TodayRepository.kt` | 今日は何の日（Wikipedia の日付の記事の「記念日・年中行事」「できごと」をウィキ記法から地の文にする） |
 | `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
 | `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
+| `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
+| `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る。503 は試し直し、`/api/get` がだめなら `/api/get-cached`、探し方ごとに失敗を切り離す。LRCLIB に時刻付きが無ければ NetEase Cloud Music。見つけた歌詞は `filesDir/lyrics/` に保存） |
 | `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
 | `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
 | `data/WallpaperStore.kt` | 背景画像（`filesDir/wallpaper.jpg`）。縮小と写真の向きの補正をしてから置く |
@@ -80,6 +82,8 @@
 | `ui/dashboard/DashboardScreen.kt` | カードの並べ方（3-2）、フッター、通知バナー、焼き付き防止のずらし |
 | `ui/dashboard/SimpleCards.kt` / `ChartCards.kt` / `RichCards.kt` | 各カード |
 | `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
+| `ui/dashboard/CalculatorCard.kt` / `PhotoCard.kt` | 計算機（上に横長の表示、下に鍵盤。`Calc` は BigDecimal で掛け算・割り算を先に計算）/ 写真 |
+| `ui/dashboard/NowPlaying.kt` / `BigClock.kt` / `TyphoonScreen.kt` | 全画面: Spotify（ジャケットを押すと歌詞）/ 時刻 / 台風の進路図（気象庁の `forecast.json` と `specifications.json`、`DisasterRepository.typhoonTrack()`） |
 | `ui/dashboard/WeatherIcon.kt` / `Hamster.kt` / `GlobeData.kt` | 天気アイコン、回し車のハムスター、Wi-Fi カードの地球儀の海岸線 |
 | `ui/settings/SettingsScreen.kt` / `SettingsWidgets.kt` | アプリの設定画面と部品 |
 | `ui/browser/BrowserScreen.kt` | ブラウズとお気に入り（3-9） |
@@ -153,7 +157,11 @@ Web 側の真偽値は `data-w` を書くだけで保存対象になる（`setti
 カードの右の壁をドラッグして幅を変える（`CardLayout.resize()`。右へは右隣を最小まで縮めてから行末の空きを使い、左へは自分を最小まで縮めて右隣へ渡す）。
 カードを長押しして動かすと、別の行・同じ行の別の位置へ入れ替える（`CardLayout.move()`。行き先の行に空きが足りなければ `squeeze()` でその行のカードを最小の幅まで縮め、それでも入らなければ元に戻して理由を出す）。
 途中の空の行はそのまま保存する（4 行のどこに置いたかを保つ。末尾の空の行だけ `trimEnd()` で落とし、ダッシュボードはカードの無い行を飛ばす）。
-1 度でも動かすと `cardLayout` に行ごとの幅が入り、以後は `rows()` がその幅のまま並べる。行の合計が 24 列に満たなければ右端は空いたまま（`DashboardScreen` が `Spacer` を置く）。
+1 度でも動かすと `cardLayout` に行ごとの幅が入り、以後は `rows()` がその幅のまま並べる。行の合計が 24 列に満たなければ右端は空いたまま。
+カードの下の壁をドラッグすると高さ（`CardSlot.height`、行の単位）が変わる（`CardLayout.setHeight()`）。縦に伸ばしたカードの下の行では、その列を飛ばして左から並べる（`positions()`）。
+右端から押し出されるカードが出るか 4 行を越えるなら、入る所までしか伸ばさない。幅の変更・入れ替え・追加も `positions()` で成り立つかを確かめ、成り立たなければ止める（動かしたカードの高さは 1 に戻して再度試す）。
+`DashboardScreen` は `grid()` の位置（行・列・幅・高さ）で 24 列の格子に置く（カードの掛かっていない行は詰める）。
+カードを枠の外で離すと外し（`remove()` と表示の切り替え `Card.show`）、「使っていないカード」から枠へ動かすと足す（`insert()`）。どちらもアプリの `update()` を通るので `adjust()` の検査が効く。
 空なら自動（上の計算）。「自動の並べ方に戻す」は、自動では収まらないとき（`autoMessage()`）は止める。縦向きでは配置の順番のまま 2 列に並べる。
 
 **カードを増やすとき**（`CardLayout.adjust()`。アプリの `update()`・`/api/layout/check`・`saveAll()` が同じものを使う）:
@@ -191,6 +199,8 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 | 充電の抜き差し | `checkCharging()`（抜いたときは音の高さの並びを逆にする） |
 | タイマー | `tickTimer()` → `NoticePlayer.startRing()`（2 秒ごと、約 40 秒） |
 | 試聴 | アプリの設定画面、Web の設定画面（`POST /api/sound/preview`、タブレットから鳴る） |
+
+音色は 22 種。id は英小文字だけにする（モックが正規表現 `Tone\("([a-z]+)"` で読むため）。
 
 **音量は合成のゲインではなく端末のメディア音量で作る。** ゲインで絞ると端末の音量が小さいときに通知まで
 小さくなるため。鳴らす直前に元の音量を 1 回だけ覚えてメディア音量を設定値へ動かし、
@@ -261,7 +271,7 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 | 高潮 | 19 注意報 | 08 警報 | **48 危険警報** | 38 特別警報 |
 
 それ以外（風・雪・波・雷など）は段階の付かない従来の名前。洪水（04/18）は表に無く、
-気象庁のページでは河川ごとの氾濫情報として別に扱われている（Walldash は未対応）。
+気象庁のページでは河川ごとの氾濫情報として別に扱われている（Dashboard は未対応）。
 表に無いコードは推測せず「コードNN」と出し、赤（警報扱い）にする。
 
 エンドポイントを疑うときは、**気象庁の警報ページをブラウザで開いて通信を見る**のが早い

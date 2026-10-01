@@ -1,5 +1,5 @@
 {
-  "name": "walldash-line-relay",
+  "name": "dashboard-line-relay",
   "private": true,
   "type": "module",
   "scripts": {

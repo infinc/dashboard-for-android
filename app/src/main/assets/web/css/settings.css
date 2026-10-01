@@ -183,10 +183,10 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
 }
 
 /* ---------------------------------------------------------------- カードの配置 */
-/* 横向きのダッシュボードの縮図。各行は 24 列、カードは列の単位で左から並ぶ（位置と幅は JS が % で決める）。 */
-.lay { display: grid; grid-gap: 8px; gap: 8px; }
+/* 横向きのダッシュボードの縮図。各行は 24 列、カードは列の単位で左から並ぶ（位置と幅は JS が % で、行と高さは px で決める）。 */
+.lay { position: relative; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
 .lay-row {
-  position: relative; height: 74px;
+  position: absolute; left: 0; right: 0; height: 74px;
   border: 1px solid var(--border-soft); border-radius: 10px;
   background: var(--bg-2);
   background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / 24 - 1px), var(--border-soft) calc(100% / 24 - 1px), var(--border-soft) calc(100% / 24));
@@ -194,7 +194,7 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
   -webkit-user-select: none; user-select: none; touch-action: pan-y;
 }
 .lay-card {
-  position: absolute; top: 6px; bottom: 6px;
+  position: absolute;
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
   padding: 7px 16px 6px 9px; overflow: hidden;
 }
@@ -208,9 +208,11 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
 .lay-name { font-size: 12.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lay-span { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lay-span.min { color: var(--amber); }
+.lay-span.bad { color: var(--red); }
+.lay-ghost.removing { border-color: var(--red); background: color-mix(in srgb, var(--red) 18%, var(--surface-2)); }
 /* 右の壁のつまみ。見た目は細い棒、掴める範囲は広めにとる。 */
 .lay-grip {
-  position: absolute; top: 6px; bottom: 6px; width: 30px; margin-left: -18px;
+  position: absolute; width: 30px; margin-left: -18px;
   cursor: ew-resize; touch-action: none; z-index: 1;
 }
 .lay-grip::after {
@@ -218,5 +220,22 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
   border-radius: 2px; background: var(--text-3);
 }
 .lay-grip.active::after { background: var(--accent); }
+/* 下の壁のつまみ（高さ）。 */
+.lay-vgrip { position: absolute; width: 40px; height: 20px; cursor: ns-resize; touch-action: none; z-index: 1; }
+.lay-vgrip::after {
+  content: ""; position: absolute; left: 6px; top: 8px; width: 28px; height: 4px;
+  border-radius: 2px; background: var(--text-3);
+}
+.lay-vgrip.active::after { background: var(--accent); }
+/* 使っていないカードの置き場。掴んで上の枠へ動かすと足す。 */
+.lay-tray-label { margin-top: 18px; font-size: 12px; color: var(--text-2); }
+.lay-tray-label.bad { color: var(--red); }
+.lay-tray { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; min-height: 46px; }
+.lay-chip {
+  width: 128px; height: 46px; box-sizing: border-box; padding: 6px 9px;
+  border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-2);
+  cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.lay-chip .lay-name { color: var(--text-2); font-size: 12px; }
 .lay-free { position: absolute; top: 50%; margin-top: -8px; margin-left: 10px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .lay-actions { display: grid; grid-template-columns: auto 1fr; grid-gap: 12px; gap: 12px; align-items: center; }
