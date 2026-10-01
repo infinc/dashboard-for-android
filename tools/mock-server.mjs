@@ -4,7 +4,7 @@
  *
  *   node tools/mock-server.mjs        → http://localhost:8080/settings
  *
- * API は実機（app/src/main/kotlin/app/walldash/server/DashboardServer.kt）と同じ形で返す。
+ * API は実機（app/src/main/kotlin/app/dashboard/server/DashboardServer.kt）と同じ形で返す。
  * アクセント色と通知音の選択肢は、アプリの Choices.kt を読んで作る（二重に書かない）。
  * タブレットのダッシュボード画面はアプリ（Compose）側にあるので、ここでは出ない。
  */
@@ -26,7 +26,7 @@ const MIME = {
 };
 
 function readChoices() {
-  const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/walldash/data/Choices.kt"), "utf8");
+  const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/dashboard/data/Choices.kt"), "utf8");
   const accents = [...kt.matchAll(/Accent\("(#[0-9A-Fa-f]{6})", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
   const tones = [...kt.matchAll(/Tone\("([a-z]+)", "([^"]+)"/g)].map((m) => ({ value: m[1], label: m[2] }));
   return { accents, tones };

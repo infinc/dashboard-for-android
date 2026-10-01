@@ -380,7 +380,7 @@
     var on = device.launcherHomeEnabled;
     $("launcherToggle").textContent = on ? "ホームアプリ登録を解除" : "ホームアプリとして登録";
     setStatus("launcherStatus", on
-      ? "登録済み — 端末の既定ホームアプリに Walldash を選べます"
+      ? "登録済み — 端末の既定ホームアプリに Dashboard を選べます"
       : "未登録 — 再起動後は手動でアプリを開く必要があります");
     $("access").textContent = "待受 " + device.boundHost + ":" + device.port + " ／ 有効セッション " + device.activeSessions;
     renderLan();

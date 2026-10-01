@@ -1,4 +1,4 @@
-# Walldash — LINE メモ中継 Worker
+# Dashboard — LINE メモ中継 Worker
 
 LINE Bot に送ったメッセージを、壁掛けダッシュボードに表示するための中継サーバーです。
 
@@ -65,14 +65,14 @@ npx wrangler secret put DEVICE_TOKEN
 npx wrangler deploy
 ```
 
-表示される `https://walldash-line-relay.<あなた>.workers.dev` を控えます。
+表示される `https://dashboard-line-relay.<あなた>.workers.dev` を控えます。
 
 ### 3. Webhook URL を LINE に登録する
 
 LINE Developers の「Messaging API設定」→ Webhook URL に次を設定して「検証」を押します。
 
 ```
-https://walldash-line-relay.<あなた>.workers.dev/line/webhook
+https://dashboard-line-relay.<あなた>.workers.dev/line/webhook
 ```
 
 ### 4. 自分の LINE ユーザー ID を許可リストに入れる
@@ -101,7 +101,7 @@ PC のブラウザで <http://localhost:8080/settings> を開き、「LINE メ�
 
 | 項目 | 値 |
 |---|---|
-| 中継先の URL | `https://walldash-line-relay.<あなた>.workers.dev/memo` |
+| 中継先の URL | `https://dashboard-line-relay.<あなた>.workers.dev/memo` |
 | 端末トークン | 手順 2 で生成した `DEVICE_TOKEN` と同じ値 |
 
 ## 使い方

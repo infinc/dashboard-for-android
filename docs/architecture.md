@@ -1,4 +1,4 @@
-# Walldash の構造と、どこを触ると何が動くか
+# Dashboard の構造と、どこを触ると何が動くか
 
 コードと実機の動作の両方を読んだうえでまとめたもの。「あるコードを変えたら他のものも変わる」箇所を
 はっきりさせることを目的にしている。
@@ -12,7 +12,7 @@
 アプリ内蔵の HTTP サーバーは、**PC や他の端末のブラウザから開く設定画面**のためだけにある。
 
 ```
-┌─ Android プロセス (app.walldash) ───────────────────────────────────┐
+┌─ Android プロセス (app.dashboard) ───────────────────────────────────┐
 │                                                                     │
 │  MainActivity（Compose）                                            │
 │   ├ DashboardScreen … カード 12 枚・フッター・通知バナー・ハムスター │
@@ -49,7 +49,7 @@
 
 ## 2. ファイルの役割
 
-### Kotlin（`app/src/main/kotlin/app/walldash/`）
+### Kotlin（`app/src/main/kotlin/app/dashboard/`）
 
 | ファイル | 役割 |
 |---|---|
@@ -66,7 +66,7 @@
 | `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
 | `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
 | `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
-| `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る） |
+| `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る。503 は試し直し、`/api/get` がだめなら `/api/get-cached`、探し方ごとに失敗を切り離す。LRCLIB に時刻付きが無ければ NetEase Cloud Music。見つけた歌詞は `filesDir/lyrics/` に保存） |
 | `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
 | `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
 | `data/WallpaperStore.kt` | 背景画像（`filesDir/wallpaper.jpg`）。縮小と写真の向きの補正をしてから置く |
@@ -271,7 +271,7 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 | 高潮 | 19 注意報 | 08 警報 | **48 危険警報** | 38 特別警報 |
 
 それ以外（風・雪・波・雷など）は段階の付かない従来の名前。洪水（04/18）は表に無く、
-気象庁のページでは河川ごとの氾濫情報として別に扱われている（Walldash は未対応）。
+気象庁のページでは河川ごとの氾濫情報として別に扱われている（Dashboard は未対応）。
 表に無いコードは推測せず「コードNN」と出し、赤（警報扱い）にする。
 
 エンドポイントを疑うときは、**気象庁の警報ページをブラウザで開いて通信を見る**のが早い

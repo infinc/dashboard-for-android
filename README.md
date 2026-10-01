@@ -1,4 +1,4 @@
-# Walldash
+# Dashboard
 
 使っていない Android タブレットを、壁に掛けて情報を表示し続けるダッシュボードにするアプリです。
 
@@ -22,12 +22,68 @@
 |---|---|
 | 時刻、天気、防災、ニュース、Wi-Fi、端末状態、タイマー、今日の単語、アナログ時計、雨雲レーダー、日の出・月、カウントダウン、今日は何の日、株価、計算機 | LINE メモ（LINE と Cloudflare）、Spotify、予定表（iCloud）、運行情報（ODPT の登録）、写真（iCloud の共有アルバム） |
 
-アプリストアでは配布していません。PC でこのソースコードからアプリを作り（ビルド）、
-USB ケーブルでタブレットに入れます。Android アプリを作った経験がなくても、下の手順どおりに進めれば入れられます。
+アプリストアでは配布していません。入れ方は 2 通りあります。
+
+| 入れ方 | 向いている場合 |
+|---|---|
+| [APK でインストール](#apk-でインストール) | できあがったアプリのファイル（APK）を入れるだけ。PC にビルド環境を入れる必要はありません。**ふつうはこちら** |
+| [ソースコードからインストール](#ソースコードからインストール) | PC でこのソースコードからアプリを作って（ビルドして）入れる。コードを変えて使いたい場合 |
 
 ---
 
-## インストール
+## APK でインストール
+
+APK は、このリポジトリの GitHub のページの **[Releases](../../releases)**（ページ右側の「Releases」）に置いています。
+いちばん新しいリリースの「Assets」にある **`dashboard.apk`** を使います。
+Android 7.0 以上のタブレットに入ります。
+
+> リポジトリの中（ソースコードの一覧や ZIP）には APK は入っていません。
+> ビルドのたびに変わる 20 MB ほどのファイルなので Git では管理せず、Releases にだけ置いています。
+
+**A と B のどちらか一方**を行います。
+
+### A. タブレットだけで入れる
+
+1. タブレットのブラウザ（Chrome など）で Releases のページを開き、`dashboard.apk` をダウンロードする
+2. ダウンロードの通知、または「Files」（ファイル）アプリの「ダウンロード」から `dashboard.apk` を開く
+3. 「セキュリティ上の理由から、この提供元からの不明なアプリをインストールすることはできません」のように出たら、
+   「設定」を押して「**この提供元のアプリを許可**」を ON にし、戻る
+   （Android 7 では「設定」→「セキュリティ」→「**提供元不明のアプリ**」を ON にします）
+4. 「インストール」を押す。Play プロテクトの確認が出たら「インストールする」を選ぶ
+5. 「開く」を押すか、アプリ一覧から **Dashboard** を開く
+
+PC でダウンロードした `dashboard.apk` を、Google ドライブやメール、USB メモリなどでタブレットに送って開いても同じです。
+
+### B. PC から USB ケーブルで入れる
+
+PC に `adb` が必要です（Mac は `brew install --cask android-platform-tools`、
+Windows / Linux は [SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools) を展開して使います）。
+
+1. 下の「[3. タブレットの USB デバッグを ON にする](#3-タブレットの-usb-デバッグを-on-にする)」を行う
+2. PC で `dashboard.apk` をダウンロードし、そのフォルダでターミナルを開いて実行する
+
+```bash
+adb install -r dashboard.apk
+```
+
+`Success` と出たら完了です。タブレットのアプリ一覧から **Dashboard** を開きます。
+
+### 入れたあと
+
+「[5. タブレットで初期設定をする](#5-タブレットで初期設定をする)」へ進みます。
+
+更新するときは、新しい `dashboard.apk` を同じ手順で入れ直します（上書きされ、**設定はそのまま残ります**）。
+
+> Releases の APK と、自分の PC でビルドしたアプリは署名が違うので、互いに上書きできません
+> （「アプリがインストールされていません」、`adb` では `INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
+> 切り替えるときは一度アンインストールしてから入れ直します。**このとき設定は消えます**。
+
+---
+
+## ソースコードからインストール
+
+PC でこのソースコードからアプリを作り（ビルド）、USB ケーブルでタブレットに入れます。
+Android アプリを作った経験がなくても、下の手順どおりに進めれば入れられます。
 
 全体の流れ:
 
@@ -130,7 +186,7 @@ adb devices
 ./gradlew :app:installDebug
 ```
 
-`BUILD SUCCESSFUL` と出たら完了です。タブレットのアプリ一覧から **Walldash** を開きます。
+`BUILD SUCCESSFUL` と出たら完了です。タブレットのアプリ一覧から **Dashboard** を開きます。
 
 ### 5. タブレットで初期設定をする
 
@@ -168,15 +224,17 @@ PC のブラウザで <http://localhost:8080/settings> を開きます。USB で
 
 ### アプリを更新する
 
-新しいソースコードを取得して（`git pull`、または ZIP を取り直して展開）、手順 4 をもう一度行います。
+APK で入れた場合は、「[APK でインストール](#apk-でインストール)」の手順で新しい APK を入れ直します。
+
+ソースコードから入れた場合は、新しいソースコードを取得して（`git pull`、または ZIP を取り直して展開）、手順 4 をもう一度行います。
 **設定はそのまま残ります**。ZIP を別のフォルダに展開し直した場合は、手順 4-B の `local.properties` も作り直してください。
 
-> 別の PC で作ったアプリで上書きしようとすると、`INSTALL_FAILED_UPDATE_INCOMPATIBLE` で失敗します
+> 別の PC で作ったアプリや Releases の APK で上書きしようとすると、`INSTALL_FAILED_UPDATE_INCOMPATIBLE` で失敗します
 > （開発用の署名が PC ごとに違うため）。その場合は一度アンインストールしてから入れ直します。**このとき設定は消えます**。
 
 ### アンインストール
 
-タブレットの「設定」→「アプリ」→「Walldash」→「アンインストール」。
+タブレットの「設定」→「アプリ」→「Dashboard」→「アンインストール」。
 
 ### うまくいかないとき
 
@@ -186,8 +244,9 @@ PC のブラウザで <http://localhost:8080/settings> を開きます。USB で
 | `adb devices` に何も出ない | データ通信対応のケーブルか、USB デバッグが ON かを確認する。別の USB ポートも試す。Windows ではメーカーの USB ドライバが必要な機種があります |
 | `adb devices` に `unauthorized` と出る | タブレットの画面に出ている「USB デバッグを許可」で「許可」を押す。出ていなければケーブルを抜き差しする |
 | Java（JDK）に関するエラーでビルドが止まる | JDK 17 か 21 を使う。Mac で複数の JDK が入っている場合は `export JAVA_HOME=$(/usr/libexec/java_home -v 17)` を実行してからビルドし直す |
-| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 上の「アプリを更新する」を参照 |
-| Wi-Fi カードに「権限が必要」と出る | タブレットの「設定」→「アプリ」→「Walldash」→「権限」で「付近のデバイス」または「位置情報」を許可する |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE`、「アプリがインストールされていません」 | 上の「アプリを更新する」を参照 |
+| APK を開いても「インストール」が出ない | 「[APK でインストール](#apk-でインストール)」の A-3 の「この提供元のアプリを許可」を ON にする |
+| Wi-Fi カードに「権限が必要」と出る | タブレットの「設定」→「アプリ」→「Dashboard」→「権限」で「付近のデバイス」または「位置情報」を許可する |
 | Wi-Fi カードに「位置情報サービスを ON に」と出る | タブレットの位置情報を ON にする（Android の仕様で、ネットワーク名の取得に必要です） |
 | ブラウズが開かない | Play ストアで「Android System WebView」を有効にして最新にする（ブラウズだけが WebView を使います） |
 | 再起動したり、しばらく置いたりするとアプリが止まっている | 設定画面の「端末 → ホームアプリ」で「電池の最適化から除外する」を押す。下の「[メーカー独自の省電力制御](#メーカー独自の省電力制御)」も確認する |
@@ -196,7 +255,7 @@ PC のブラウザで <http://localhost:8080/settings> を開きます。USB で
 
 ## 仕組み
 
-- タブレットの画面（カード・設定・ブラウズ）は **Jetpack Compose** で描くネイティブアプリ（`app/src/main/kotlin/app/walldash/ui/`）
+- タブレットの画面（カード・設定・ブラウズ）は **Jetpack Compose** で描くネイティブアプリ（`app/src/main/kotlin/app/dashboard/ui/`）
 - データは常駐サービス（`DashboardService`）が各取得先から定期的に集め、画面は同じプロセスの中からそれを読む
 - PC や他の端末のブラウザから開く **Web の設定画面**（`assets/web`）は、アプリ内蔵の Ktor サーバーが配信する。
   既定では USB でつないだ PC からだけ開け、LAN の他の端末から開くには「LAN 公開」を有効にする
@@ -251,7 +310,7 @@ adb shell settings put system screen_off_timeout 2147483647
 ダッシュボード画面が自動で前面に出るとは限らない**。
 
 対策として設定画面の「端末 → ホームアプリ」から **ホームアプリとして登録**できる。
-有効化したあと端末側でホームアプリの選択ダイアログが出たら Walldash を選ぶ。
+有効化したあと端末側でホームアプリの選択ダイアログが出たら Dashboard を選ぶ。
 登録しない場合は、再起動のたびに手動でアプリを開く運用になる。
 
 ### メーカー独自の省電力制御
@@ -289,24 +348,26 @@ node tools/mock-server.mjs
 
 デバッグ版をビルドするたびに（`./gradlew assembleDebug`、Android Studio の「Build → Build APK(s)」）、
 リポジトリの直下に **`dashboard.apk`** ができる（`app/build/outputs/apk/debug/app-debug.apk` の写し）。
-このファイルをタブレットに送って開くか、`adb install -r walldash.apk` で入れられる。
+このファイルをタブレットに送って開くか、`adb install -r dashboard.apk` で入れられる
+（手順は「[APK でインストール](#apk-でインストール)」と同じ）。
 `dashboard.apk` は `.gitignore` 済み（ビルドのたびに変わる 20 MB ほどのファイルのため）。
+リモートのリポジトリには入らないので、配るときは GitHub の Releases に添付する。
 
 ## リリース APK
 
 `./gradlew assembleRelease` だけでは署名されない。先に keystore を作る。
 
 ```bash
-keytool -genkeypair -v -keystore walldash.jks -alias walldash \
+keytool -genkeypair -v -keystore dashboard.jks -alias dashboard \
   -keyalg RSA -keysize 4096 -validity 10000
 ```
 
 プロジェクト直下に `keystore.properties` を作る（`.gitignore` 済み）:
 
 ```properties
-storeFile=walldash.jks
+storeFile=dashboard.jks
 storePassword=***
-keyAlias=walldash
+keyAlias=dashboard
 keyPassword=***
 ```
 
@@ -317,7 +378,7 @@ apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
 
 > **keystore は必ずバックアップすること。** 紛失すると同じ署名で更新できなくなり、
 > 端末から一度アンインストールしないと入れ替えられなくなる。
-> `walldash.jks` とパスワードを別媒体に保管する。
+> `dashboard.jks` とパスワードを別媒体に保管する。
 
 設定には LAN 公開用 PIN のハッシュが含まれるため、`allowBackup="false"` とし、
 `data_extraction_rules.xml` でクラウドバックアップ・端末間転送の両方から除外している。
@@ -357,6 +418,9 @@ Spotify で再生中の曲のジャケットと曲名を出し、再生・一時
 歌詞は再生位置に合わせて流れ、いま歌っている行が真ん中に白く太く出る。Spotify の Web API は歌詞を返さないので、
 有志の歌詞データベース [LRCLIB](https://lrclib.net/)（登録不要）から、曲名・アーティスト名・アルバム名・長さで探す。
 LRCLIB に時刻付きの歌詞が無い曲は、曲の長さから目安の時刻を振って流す（位置は目安）。登録の無い曲は出ない。
+LRCLIB は混み合うと 503 を返すので、間を空けて試し直し、それでも取得できなければ歌詞を開いている間は自動で探し直す。
+LRCLIB に時刻付きの歌詞が無い曲や、LRCLIB が使えないときは、NetEase Cloud Music（網易雲音楽）の公開の API（非公式・登録不要）からも探す。
+見つけた歌詞は端末に保存し（300 曲まで）、次からは通信なしで出す。出典は歌詞の欄の右下に出る。
 
 使うには、自分用の Spotify アプリ登録（無料）が要る:
 
@@ -429,7 +493,7 @@ iCloud 写真のライブラリそのものは、Apple ID の 2 ファクタ認�
 | 今日は何の日 | [Wikipedia 日本語版](https://ja.wikipedia.org/)（日付の記事） | CC BY-SA 4.0 |
 | 株価 | Yahoo Finance（非公式のチャート API） | — |
 | 台風の進路図 | [気象庁](https://www.jma.go.jp/)（台風情報）、地図は Esri（雨雲レーダーと同じ） | 出典の明示により利用可 |
-| Spotify の全画面の歌詞 | [LRCLIB](https://lrclib.net/) | 利用者が登録した歌詞 |
+| Spotify の全画面の歌詞 | [LRCLIB](https://lrclib.net/)、無ければ [NetEase Cloud Music](https://music.163.com/)（非公式の API） | 利用者が登録した歌詞 |
 | 写真 | 利用者の iCloud 共有アルバム | — |
 | 祝日 | [内閣府「国民の祝日」](https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html) | — |
 | 日の出・日の入り | Open-Meteo.com | CC BY 4.0 |
@@ -439,7 +503,7 @@ iCloud 写真のライブラリそのものは、Apple ID の 2 ファクタ認�
 画面下で回し車を走るハムスターの意匠は、[Uiverse.io](https://uiverse.io/) の
 **Nawsome** 作「Loader」によります（MIT License）。
 元の CSS の形・色・動きを Jetpack Compose の描画に移し、走る・休む・外を歩く・立ち止まるの状態遷移を加えて
-`app/src/main/kotlin/app/walldash/ui/dashboard/Hamster.kt` に収めています。
+`app/src/main/kotlin/app/dashboard/ui/dashboard/Hamster.kt` に収めています。
 
 以下は MIT License の全文です。
 

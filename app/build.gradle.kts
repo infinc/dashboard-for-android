@@ -15,11 +15,11 @@ val keystoreProps = Properties().apply {
 }
 
 android {
-    namespace = "app.walldash"
+    namespace = "app.dashboard"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "app.walldash"
+        applicationId = "app.dashboard"
         minSdk = 24
         // targetSdk 35 固定: Android 16 (API 36) の挙動変更を Phase 2 のゲート通過まで踏まない。
         // 通過後に 36 へ上げ、Phase 2 の合格条件を再度流す。
@@ -89,10 +89,10 @@ android {
 }
 
 // デバッグ版の APK を作るたびに（assembleDebug・Android Studio の「Build APK」）、
-// リポジトリの直下に walldash.apk として写す。端末へ入れるときに build/ の奥を探さなくて済むように。
+// リポジトリの直下に dashboard.apk として写す。端末へ入れるときに build/ の奥を探さなくて済むように。
 val apkToRoot = tasks.register("apkToRoot") {
     val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
-    val out = rootProject.layout.projectDirectory.file("walldash.apk")
+    val out = rootProject.layout.projectDirectory.file("dashboard.apk")
     inputs.file(apk)
     outputs.file(out)
     doLast { apk.get().asFile.copyTo(out.asFile, overwrite = true) }
