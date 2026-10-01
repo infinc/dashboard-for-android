@@ -1,5 +1,5 @@
 /**
- * Walldash — LINE メモ中継 Worker
+ * Dashboard — LINE メモ中継 Worker
  *
  * なぜ中継が要るのか:
  *   LINE Messaging API は公開された HTTPS の Webhook にしかメッセージを届けない。

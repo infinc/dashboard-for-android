@@ -107,7 +107,6 @@
     display.clockAlign = $("clockAlign").value;
     display.clockDateFormat = $("clockDateFormat").value;
     display.hourlyMode = $("hourlyMode").value;
-    display.radarZoom = Number($("radarZoom").value);
     display.cardLayout = layoutSaved;
     // data-w の付いたチェックボックスはすべて display の真偽値
     var boxes = document.querySelectorAll("input[data-w]");
@@ -168,6 +167,13 @@
     if ($("calendarPassword").value) calendar.password = $("calendarPassword").value;
     if ($("calendarIcsUrl").value) calendar.icsUrl = $("calendarIcsUrl").value;
 
+    var photos = {
+      enabled: $("photosEnabled").checked,
+      intervalSec: Number($("photosInterval").value) || 60,
+      shuffle: $("photosShuffle").checked
+    };
+    if ($("photosUrl").value) photos.albumUrl = $("photosUrl").value;
+
     var memo = {
       enabled: $("memoEnabled").checked,
       endpoint: $("memoEndpoint").value.trim(),
@@ -189,6 +195,7 @@
       },
       train: train,
       calendar: calendar,
+      photos: photos,
       memo: memo,
       spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim() }
     };
@@ -252,7 +259,6 @@
     $("clockAlign").value = d.clockAlign || "left";
     $("clockDateFormat").value = d.clockDateFormat || "ja";
     $("hourlyMode").value = d.hourlyMode || "both";
-    $("radarZoom").value = String(d.radarZoom || 8);
 
     var st = config.stocks || { symbols: [], range: "1d" };
     $("stocksSymbols").value = st.symbols.map(function (x) { return x.symbol + " " + x.label; }).join("\n");
@@ -281,6 +287,13 @@
     $("calendarIcsUrl").placeholder = cal.icsUrlSet ? "設定済み（変更する場合のみ入力）" : "webcal://p00-caldav.icloud.com/published/2/…";
     $("calendarDays").value = cal.daysAhead || 7;
     renderCalendarMode();
+
+    var ph = config.photos || {};
+    $("photosEnabled").checked = !!ph.enabled;
+    $("photosUrl").value = "";
+    $("photosUrl").placeholder = ph.albumUrlSet ? "設定済み（変更する場合のみ入力）" : "https://www.icloud.com/sharedalbum/#B0…";
+    $("photosInterval").value = String(ph.intervalSec || 60);
+    $("photosShuffle").checked = ph.shuffle !== false;
 
     var wx = document.querySelectorAll("input[data-wx]");
     for (var w = 0; w < wx.length; w++) wx[w].checked = d.weatherFields.indexOf(wx[w].getAttribute("data-wx")) >= 0;
@@ -315,7 +328,7 @@
 
     renderLan();
     updateRangeLabels();
-    layoutSaved = d.cardLayout || [];
+    layoutSaved = copyRows(d.cardLayout || []);
     baseline = JSON.stringify(collect());
     updateDirty();
     checkLayout(collect().settings.display, collect().settings.display, true);
@@ -367,7 +380,7 @@
     var on = device.launcherHomeEnabled;
     $("launcherToggle").textContent = on ? "ホームアプリ登録を解除" : "ホームアプリとして登録";
     setStatus("launcherStatus", on
-      ? "登録済み — 端末の既定ホームアプリに Walldash を選べます"
+      ? "登録済み — 端末の既定ホームアプリに Dashboard を選べます"
       : "未登録 — 再起動後は手動でアプリを開く必要があります");
     $("access").textContent = "待受 " + device.boundHost + ":" + device.port + " ／ 有効セッション " + device.activeSessions;
     renderLan();
@@ -393,6 +406,12 @@
       else if (cal.lastError) setStatus("calendarStatus", "エラー: " + cal.lastError, "err");
       else if (cal.fetchedAt > 0) setStatus("calendarStatus", "取得できています（" + (cal.events || []).length + " 件）", "ok");
       else setStatus("calendarStatus", "まだ取得していません —「全て保存」のあと少し待ってください");
+
+      var ph = (s && s.photos) || {};
+      if (!config.photos || !config.photos.enabled) setStatus("photosStatus", "取得は無効です");
+      else if (ph.lastError) setStatus("photosStatus", "エラー: " + ph.lastError, "err");
+      else if (ph.fetchedAt > 0) setStatus("photosStatus", "取得できています（" + (ph.albumName || "アルバム") + "、" + ph.count + " 枚）", "ok");
+      else setStatus("photosStatus", "まだ取得していません —「全て保存」のあと少し待ってください（カードを表示しているときだけ取得します）");
 
       var tr = (s && s.train) || {};
       if (!config.train || !config.train.enabled) setStatus("trainStatus", "取得は無効です");
@@ -483,7 +502,9 @@
   }
 
   function copyRows(rows) {
-    return rows.map(function (row) { return row.map(function (x) { return { card: x.card, span: x.span }; }); });
+    return rows.map(function (row) {
+      return row.map(function (x) { return { card: x.card, span: x.span, height: x.height || 1 }; });
+    });
   }
 
   /**
@@ -494,8 +515,8 @@
     return api("/api/layout/check", { method: "POST", body: JSON.stringify({ before: before, after: after }) })
       .then(function (r) {
         if (!r.ok) return r;
-        if (!keep) layoutSaved = r.layout || [];
-        layoutRows = r.rows || [];
+        if (!keep) layoutSaved = copyRows(r.layout || []);
+        layoutRows = copyRows(r.rows || []);
         layoutAutoMessage = r.autoMessage || null;
         renderLayout();
         updateDirty();
@@ -503,12 +524,57 @@
       });
   }
 
+  var COLUMNS = 24;
+  function layoutLimit() { return (config.choices && config.choices.layoutRows) || 4; }
+
+  /**
+   * 各カードの位置（アプリの CardLayout.positions と同じ）。行の中では左から詰め、上の行から縦に伸びてきたカードの列は飛ばす。
+   * 右端を越えるカードか、[limit] 行より下へ伸びるカードがあれば null。
+   */
+  function positions(rows, limit) {
+    var blocked = {};
+    var out = [];
+    for (var r = 0; r < rows.length; r++) {
+      var x = 0;
+      for (var i = 0; i < rows[r].length; i++) {
+        var t = rows[r][i];
+        var h = t.height || 1;
+        if (r + h > limit) return null;
+        for (;;) {
+          var hit = -1;
+          for (var q = r; q < r + h; q++) {
+            (blocked[q] || []).forEach(function (b) { if (b[0] < x + t.span && x < b[1]) hit = Math.max(hit, b[1]); });
+          }
+          if (hit < 0) break;
+          x = hit;
+        }
+        if (x + t.span > COLUMNS) return null;
+        out.push({ card: t.card, row: r, index: i, col: x, span: t.span, height: h });
+        for (var below = r + 1; below < r + h; below++) (blocked[below] = blocked[below] || []).push([x, x + t.span]);
+        x += t.span;
+      }
+    }
+    return out;
+  }
+  function fits(rows) { return positions(rows, layoutLimit()) !== null; }
+  function flat(rows) { return copyRows(rows).map(function (row) { return row.map(function (x) { x.height = 1; return x; }); }); }
+  function placedOf(rows) { return positions(rows, Infinity) || positions(flat(rows), Infinity); }
+
+  /** [r] 行目に並べられる列の数（上の行から縦に伸びてきたカードの分を除く）。 */
+  function capacity(rows, r) {
+    var used = 0;
+    for (var q = 0; q < Math.min(r, rows.length); q++) {
+      rows[q].forEach(function (x) { if (q + (x.height || 1) > r) used += x.span; });
+    }
+    return COLUMNS - used;
+  }
+
   /**
    * 行の [index] 番目のカードの右の壁を [delta] 列動かす（アプリの CardLayout.resize と同じ）。
    * 右へ: 右隣を最小の幅まで縮め、足りなければ行の右端の空きを使う。左へ: 自分を最小の幅まで縮め、その分を右隣へ渡す。
    */
   function resizeRow(row, index, delta) {
-    var out = row.map(function (x) { return { card: x.card, span: x.span }; });
+    var out = copyRows([row])[0];
     var next = index + 1;
     var total = function () { return out.reduce(function (a, x) { return a + x.span; }, 0); };
     if (delta > 0) {
@@ -519,13 +585,36 @@
         out[index].span += take;
         grow -= take;
       }
-      out[index].span += Math.max(0, Math.min(grow, 24 - total()));
+      out[index].span += Math.max(0, Math.min(grow, COLUMNS - total()));
     } else if (delta < 0) {
       var shrink = Math.max(0, Math.min(-delta, out[index].span - cardInfo(out[index].card).min));
       out[index].span -= shrink;
       if (next < out.length) out[next].span += shrink;
     }
     return out;
+  }
+
+  /** 幅を変える。縦に伸ばしたカードとぶつかるなら、ぶつからない所までにとどめる。 */
+  function resizeIn(rows, r, index, delta) {
+    for (var step = delta; step !== 0; step -= Math.sign(step)) {
+      var next = copyRows(rows);
+      next[r] = resizeRow(rows[r], index, step);
+      if (fits(next)) return next;
+    }
+    return rows;
+  }
+
+  /** 高さを [height] 行にする（アプリの CardLayout.setHeight と同じ）。下の行に空きが足りなければ、入る所までにとどめる。 */
+  function setHeight(rows, r, index, height) {
+    var now = rows[r][index].height || 1;
+    var h = Math.max(1, Math.min(height, layoutLimit() - r));
+    while (h !== now) {
+      var next = copyRows(rows);
+      next[r][index].height = h;
+      if (fits(next)) return next;
+      h += h > now ? -1 : 1;
+    }
+    return rows;
   }
 
   /** 末尾の空の行を落とす（途中の空の行は、4 行のどこに置いたかを保つため残す）。 */
@@ -539,23 +628,53 @@
    * 行の [at] 番目に [card] を入れる（アプリの CardLayout.squeeze と同じ）。空きが最小の幅に足りなければ、
    * ほかのカードを最小の幅を超えている分の多い順に 1 列ずつ縮め、そのあと [want] 列になるまで少しずつ分けてもらう。
    */
-  function squeezeRow(row, card, want, at) {
-    var out = row.map(function (x) { return { card: x.card, span: x.span }; });
+  function squeezeRow(row, card, want, at, height, cap) {
+    var out = copyRows([row])[0];
     var min = cardInfo(card).min;
     var excess = function (x) { return x.span - cardInfo(x.card).min; };
     var widest = function () { return out.slice().sort(function (p, q) { return excess(q) - excess(p); })[0]; };
     var total = function () { return out.reduce(function (a, x) { return a + x.span; }, 0); };
-    while (24 - total() < min) widest().span--;
+    while (cap - total() < min) widest().span--;
     var span = min;
     while (span < want) {
-      if (24 - total() - span > 0) { span++; continue; }
+      if (cap - total() - span > 0) { span++; continue; }
       var w = widest();
       if (!w || excess(w) <= span - min + 1) break;
       w.span--;
       span++;
     }
-    out.splice(Math.max(0, Math.min(at, out.length)), 0, { card: card, span: span });
+    out.splice(Math.max(0, Math.min(at, out.length)), 0, { card: card, span: span, height: height });
     return out;
+  }
+
+  /** 行 [toRow] の [toIndex] 番目に [tile] を入れる（アプリの CardLayout.putAt と同じ）。入らなければ null。 */
+  function putAt(rows, tile, toRow, toIndex) {
+    var grid = copyRows(rows);
+    while (grid.length <= toRow) grid.push([]);
+    var target = grid[toRow];
+    var at = Math.max(0, Math.min(toIndex, target.length));
+    var cap = capacity(grid, toRow);
+    var used = target.reduce(function (a, x) { return a + x.span; }, 0);
+    var mins = target.reduce(function (a, x) { return a + cardInfo(x.card).min; }, 0);
+    function attempt(t) {
+      var row;
+      if (cap - used >= t.span) { row = copyRows([target])[0]; row.splice(at, 0, t); }
+      else if (cap - mins >= cardInfo(t.card).min) row = squeezeRow(target, t.card, t.span, at, t.height, cap);
+      else return null;
+      var next = copyRows(grid);
+      next[toRow] = row;
+      next = trimRows(next);
+      return fits(next) ? next : null;
+    }
+    var h = Math.max(1, Math.min(tile.height || 1, layoutLimit() - toRow));
+    return attempt({ card: tile.card, span: tile.span, height: h }) ||
+      (h > 1 ? attempt({ card: tile.card, span: tile.span, height: 1 }) : null);
+  }
+
+  function removeCard(rows, r, index) {
+    var grid = copyRows(rows);
+    grid[r].splice(index, 1);
+    return trimRows(grid);
   }
 
   /**
@@ -563,82 +682,143 @@
    * 行き先の行のカードを最小の幅まで縮めても入らなければ null。
    */
   function moveCard(rows, fromRow, fromIndex, toRow, toIndex) {
+    var tile = copyRows(rows)[fromRow][fromIndex];
     var grid = copyRows(rows);
-    while (grid.length <= toRow) grid.push([]);
-    var moving = grid[fromRow].splice(fromIndex, 1)[0];
-    var target = grid[toRow];
-    var at = Math.max(0, Math.min(toIndex, target.length));
-    var used = target.reduce(function (a, x) { return a + x.span; }, 0);
-    var mins = target.reduce(function (a, x) { return a + cardInfo(x.card).min; }, 0);
-    if (toRow === fromRow || 24 - used >= moving.span) target.splice(at, 0, moving);
-    else if (24 - mins >= cardInfo(moving.card).min) grid[toRow] = squeezeRow(target, moving.card, moving.span, at);
-    else return null;
-    return trimRows(grid);
+    grid[fromRow].splice(fromIndex, 1);
+    if (toRow === fromRow) {
+      grid[toRow].splice(Math.max(0, Math.min(toIndex, grid[toRow].length)), 0, tile);
+      grid = trimRows(grid);
+      if (fits(grid)) return grid;
+      return putAt(removeCard(rows, fromRow, fromIndex), { card: tile.card, span: tile.span, height: 1 }, toRow, toIndex);
+    }
+    return putAt(grid, tile, toRow, toIndex);
   }
 
-  // 幅を変えている最中（drag）と、カードを動かしている最中（move）
+  /** 使っていないカードを足す（元の幅で。足りなければほかを縮める）。 */
+  function insertCard(rows, card, toRow, toIndex) {
+    return putAt(rows, { card: card, span: cardInfo(card).span, height: 1 }, toRow, toIndex);
+  }
+
+  /** カードの表示のチェックボックス（「使っていないカード」はここが外れているもの）。 */
+  function cardBox(card) {
+    var flag = cardInfo(card).flag;
+    return flag ? document.querySelector('input[data-w="' + flag + '"]') : null;
+  }
+  function unusedCards() {
+    return (config.choices.cards || []).filter(function (c) { var box = cardBox(c.id); return box && !box.checked; });
+  }
+
+  // 幅・高さを変えている最中（drag）と、カードを動かしている最中（move）
   var drag = null;
   var move = null;
+  var ROW_H = 74, ROW_GAP = 8, INSET = 6;
+
+  function cardEl(info, span, height, removing) {
+    var card = document.createElement("div");
+    card.className = "lay-card";
+    var name = document.createElement("div");
+    name.className = "lay-name";
+    name.textContent = info.label;
+    var width = document.createElement("div");
+    var min = span <= info.min;
+    width.className = "lay-span" + (removing ? " bad" : min ? " min" : "");
+    width.textContent = removing ? "離すと外します" : span + " 列" + (height > 1 ? " × " + height + " 行" : "") + (min ? "（最小）" : "");
+    card.appendChild(name);
+    card.appendChild(width);
+    return card;
+  }
 
   function renderLayout() {
     var root = $("layoutEditor");
-    var columns = (config.choices && config.choices.columns) || 24;
-    var count = Math.max((config.choices && config.choices.layoutRows) || 4, layoutRows.length);
+    var count = Math.max(layoutLimit(), layoutRows.length);
     root.innerHTML = "";
+    root.style.height = (count * ROW_H + (count - 1) * ROW_GAP) + "px";
+    // 動かしている最中は、元の場所からそのカードを抜いて描く（差し込む位置の線と揃えるため）
+    var shown = move && move.started && !move.tray ? removeCard(layoutRows, move.row, move.index) : layoutRows;
+    var placed = placedOf(shown);
     for (var r = 0; r < count; r++) {
-      var row = layoutRows[r] || [];
       var el = document.createElement("div");
-      var target = move && move.drop && move.drop.row === r ? move.drop : null;
+      var target = move && move.drop && !move.drop.remove && move.drop.row === r ? move.drop : null;
       el.className = "lay-row" + (target ? " target" : "");
+      el.style.top = (r * (ROW_H + ROW_GAP)) + "px";
       el.setAttribute("data-row", r);
-      var at = 0;
-      var shownIndex = 0;
-      for (var i = 0; i < row.length; i++) {
-        // 動かしている最中は、元の場所からそのカードを抜いて描く（差し込む位置の線と揃えるため）
-        if (move && move.row === r && move.index === i) continue;
-        var info = cardInfo(row[i].card);
-        var span = row[i].span;
-        var active = drag && drag.row === r && drag.index === i;
-        var card = document.createElement("div");
-        card.className = "lay-card" + (active ? " active" : "");
-        card.style.left = "calc(" + (at / columns * 100) + "% + 3px)";
-        card.style.width = "calc(" + (span / columns * 100) + "% - 6px)";
-        card.setAttribute("data-row", r);
-        card.setAttribute("data-index", i);
-        card.setAttribute("data-shown", shownIndex++);
-        var name = document.createElement("div");
-        name.className = "lay-name";
-        name.textContent = info.label;
-        var width = document.createElement("div");
-        width.className = "lay-span" + (span <= info.min ? " min" : "");
-        width.textContent = span + " 列" + (span <= info.min ? "（最小）" : "");
-        card.appendChild(name);
-        card.appendChild(width);
-        el.appendChild(card);
-        at += span;
-        if (move) continue;
-        var grip = document.createElement("div");
-        grip.className = "lay-grip" + (active ? " active" : "");
-        grip.style.left = (at / columns * 100) + "%";
-        grip.setAttribute("data-row", r);
-        grip.setAttribute("data-index", i);
-        grip.title = "ドラッグして幅を変える";
-        el.appendChild(grip);
-      }
       if (target) {
         var mark = document.createElement("div");
         mark.className = "lay-drop" + (target.fits ? "" : " bad");
-        mark.style.left = (target.x / columns * 100) + "%";
+        mark.style.left = (target.col / COLUMNS * 100) + "%";
         el.appendChild(mark);
-      } else if (columns - at >= 2) {
-        var free = document.createElement("div");
-        free.className = "lay-free";
-        free.style.left = (at / columns * 100) + "%";
-        free.textContent = at ? "余白 " + (columns - at) + " 列" : "空いている行";
-        el.appendChild(free);
+      } else {
+        // いちばん広い空き（上から伸びてきたカードの下も使っている扱い）に、空いている列の数を出す
+        var used = [];
+        placed.forEach(function (p) { if (r >= p.row && r < p.row + p.height) for (var c = p.col; c < p.col + p.span; c++) used[c] = true; });
+        var best = null, start = -1;
+        for (var c = 0; c <= COLUMNS; c++) {
+          var free = c < COLUMNS && !used[c];
+          if (free && start < 0) start = c;
+          if (!free && start >= 0) { if (!best || c - start > best[1]) best = [start, c - start]; start = -1; }
+        }
+        if (best && best[1] >= 2) {
+          var label = document.createElement("div");
+          label.className = "lay-free";
+          label.style.left = (best[0] / COLUMNS * 100) + "%";
+          label.textContent = best[1] === COLUMNS ? "空いている行" : "余白 " + best[1] + " 列";
+          el.appendChild(label);
+        }
       }
       root.appendChild(el);
     }
+    placed.forEach(function (p) {
+      var info = cardInfo(p.card);
+      var active = drag && drag.row === p.row && drag.index === p.index;
+      var card = cardEl(info, p.span, p.height, false);
+      if (active) card.className += " active";
+      card.style.left = "calc(" + (p.col / COLUMNS * 100) + "% + 3px)";
+      card.style.width = "calc(" + (p.span / COLUMNS * 100) + "% - 6px)";
+      card.style.top = (p.row * (ROW_H + ROW_GAP) + INSET) + "px";
+      card.style.height = (p.height * ROW_H + (p.height - 1) * ROW_GAP - INSET * 2) + "px";
+      card.setAttribute("data-row", p.row);
+      card.setAttribute("data-index", p.index);
+      root.appendChild(card);
+      if (move) return;
+      // 右の壁のつまみ（幅）と、下の壁のつまみ（高さ）
+      var grip = document.createElement("div");
+      grip.className = "lay-grip" + (active && drag.axis === "x" ? " active" : "");
+      grip.style.left = ((p.col + p.span) / COLUMNS * 100) + "%";
+      grip.style.top = card.style.top;
+      grip.style.height = card.style.height;
+      grip.setAttribute("data-row", p.row);
+      grip.setAttribute("data-index", p.index);
+      grip.title = "ドラッグして幅を変える";
+      root.appendChild(grip);
+      var vgrip = document.createElement("div");
+      vgrip.className = "lay-vgrip" + (active && drag.axis === "y" ? " active" : "");
+      vgrip.style.left = "calc(" + ((p.col + p.span / 2) / COLUMNS * 100) + "% - 20px)";
+      vgrip.style.top = (p.row * (ROW_H + ROW_GAP) + INSET + p.height * ROW_H + (p.height - 1) * ROW_GAP - INSET * 2 - 10) + "px";
+      vgrip.setAttribute("data-row", p.row);
+      vgrip.setAttribute("data-index", p.index);
+      vgrip.title = "ドラッグして高さを変える";
+      root.appendChild(vgrip);
+    });
+
+    // 使っていないカード
+    var tray = $("layoutTray");
+    tray.innerHTML = "";
+    var unused = unusedCards();
+    $("layoutTrayLabel").textContent = unused.length
+      ? "使っていないカード（掴んで上の枠へ動かすと足せます）"
+      : "使っていないカードはありません";
+    $("layoutTrayLabel").className = "lay-tray-label" + (move && move.drop && move.drop.remove ? " bad" : "");
+    unused.forEach(function (c) {
+      if (move && move.tray && move.card === c.id && move.started) return;
+      var chip = document.createElement("div");
+      chip.className = "lay-chip";
+      chip.setAttribute("data-card", c.id);
+      chip.innerHTML = '<div class="lay-name"></div><div class="lay-span"></div>';
+      chip.firstChild.textContent = c.label;
+      chip.lastChild.textContent = c.span + " 列";
+      tray.appendChild(chip);
+    });
+
     var custom = layoutSaved.length > 0;
     $("layoutAuto").disabled = !custom;
     setStatus("layoutMode", custom ? "自分で決めた配置です" : "いまは自動で並べています（幅や場所を動かすと、自分で決めた配置になります）");
@@ -651,58 +831,74 @@
     updateDirty();
   }
 
-  /** 指やマウスの位置から、離したときに入る行と位置（動かすカードを抜いた並びでの位置）を決める。 */
+  /** 指やマウスの位置から、離したときにどうなるか（入る行と位置、または枠の外で外す）を決める。 */
   function dropAt(x, y) {
-    var rowsEl = $("layoutEditor").querySelectorAll(".lay-row");
-    var r = 0;
-    for (var i = 0; i < rowsEl.length; i++) if (y >= rowsEl[i].getBoundingClientRect().top - 4) r = i;
-    var rect = rowsEl[r].getBoundingClientRect();
-    var col = rect.width / 24;
-    var row = (layoutRows[r] || []).filter(function (_, j) { return !(r === move.row && j === move.index); });
-    var edge = 0, index = 0, mark = 0;
-    row.forEach(function (c) {
-      if (rect.left + (edge + c.span / 2) * col < x) { index++; mark = edge + c.span; }
-      edge += c.span;
+    var rect = $("layoutEditor").getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      return { row: -1, index: 0, col: 0, fits: !move.tray, remove: !move.tray };
+    }
+    var count = Math.max(layoutLimit(), layoutRows.length);
+    var r = Math.max(0, Math.min(count - 1, Math.floor((y - rect.top) / (ROW_H + ROW_GAP))));
+    var col = rect.width / COLUMNS;
+    var base = move.tray ? layoutRows : removeCard(layoutRows, move.row, move.index);
+    var index = 0, mark = 0;
+    placedOf(base).forEach(function (p) {
+      if (p.row !== r) return;
+      if (rect.left + (p.col + p.span / 2) * col < x) { index++; mark = p.col + p.span; }
     });
-    return { row: r, index: index, x: mark, fits: moveCard(layoutRows, move.row, move.index, r, index) !== null };
+    var next = move.tray ? insertCard(layoutRows, move.card, r, index) : moveCard(layoutRows, move.row, move.index, r, index);
+    return { row: r, index: index, col: mark, fits: next !== null, remove: false };
   }
 
-  // つまみを掴んだら幅を変え、カードを掴んで動かしたら置き場所を変える（描き直してもドラッグが切れないよう、動きは document で受ける）
+  // つまみを掴んだら幅・高さを変え、カードを掴んで動かしたら置き場所を変える（描き直してもドラッグが切れないよう、動きは document で受ける）
+  function startMove(e, el, source) {
+    e.preventDefault();
+    var rect = el.getBoundingClientRect();
+    move = source;
+    move.startX = e.clientX; move.startY = e.clientY;
+    move.dx = e.clientX - rect.left; move.dy = e.clientY - rect.top;
+    move.width = rect.width; move.height = rect.height;
+    move.started = false; move.drop = null; move.ghost = null;
+  }
   $("layoutEditor").addEventListener("pointerdown", function (e) {
-    var grip = e.target.closest ? e.target.closest(".lay-grip") : null;
+    var grip = e.target.closest ? e.target.closest(".lay-grip, .lay-vgrip") : null;
     if (grip) {
       e.preventDefault();
       var r = Number(grip.getAttribute("data-row"));
       drag = {
+        axis: grip.classList.contains("lay-vgrip") ? "y" : "x",
         row: r,
         index: Number(grip.getAttribute("data-index")),
         x: e.clientX,
-        column: grip.parentNode.getBoundingClientRect().width / ((config.choices && config.choices.columns) || 24),
-        start: copyRows(layoutRows)[r]
+        y: e.clientY,
+        column: $("layoutEditor").getBoundingClientRect().width / COLUMNS,
+        start: copyRows(layoutRows)
       };
       renderLayout();
       return;
     }
     var card = e.target.closest ? e.target.closest(".lay-card") : null;
     if (!card) return;
-    e.preventDefault();
-    var rect = card.getBoundingClientRect();
-    move = {
-      row: Number(card.getAttribute("data-row")),
-      index: Number(card.getAttribute("data-index")),
-      startX: e.clientX, startY: e.clientY,
-      dx: e.clientX - rect.left, dy: e.clientY - rect.top,
-      width: rect.width, height: rect.height,
-      started: false, drop: null, ghost: null
-    };
+    var row = Number(card.getAttribute("data-row")), index = Number(card.getAttribute("data-index"));
+    startMove(e, card, { tray: false, row: row, index: index, card: layoutRows[row][index].card });
+  });
+  $("layoutTray").addEventListener("pointerdown", function (e) {
+    var chip = e.target.closest ? e.target.closest(".lay-chip") : null;
+    if (!chip) return;
+    var id = chip.getAttribute("data-card");
+    startMove(e, chip, { tray: true, row: -1, index: -1, card: id });
+    // 置き場の札は小さいので、持ち上げたら枠の中の元の幅の大きさにする
+    move.width = $("layoutEditor").getBoundingClientRect().width / COLUMNS * cardInfo(id).span - 6;
+    move.height = ROW_H - INSET * 2;
+    move.dx = Math.min(move.dx, move.width / 2);
   });
   document.addEventListener("pointermove", function (e) {
     if (drag) {
-      var next = resizeRow(drag.start, drag.index, Math.round((e.clientX - drag.x) / drag.column));
-      if (JSON.stringify(next) === JSON.stringify(layoutRows[drag.row])) return;
-      var rows = copyRows(layoutRows);
-      rows[drag.row] = next;
-      commitRows(rows);
+      var next = drag.axis === "x"
+        ? resizeIn(drag.start, drag.row, drag.index, Math.round((e.clientX - drag.x) / drag.column))
+        : setHeight(drag.start, drag.row, drag.index, (drag.start[drag.row][drag.index].height || 1) + Math.round((e.clientY - drag.y) / (ROW_H + ROW_GAP)));
+      if (JSON.stringify(next) === JSON.stringify(layoutRows)) return;
+      commitRows(next);
       return;
     }
     if (!move) return;
@@ -710,20 +906,23 @@
     if (!move.started) {
       if (Math.abs(e.clientX - move.startX) + Math.abs(e.clientY - move.startY) < 6) return;
       move.started = true;
-      var info = cardInfo(layoutRows[move.row][move.index].card);
       var ghost = document.createElement("div");
       ghost.className = "lay-card lay-ghost";
       ghost.style.width = move.width + "px";
       ghost.style.height = move.height + "px";
-      ghost.innerHTML = '<div class="lay-name"></div><div class="lay-span"></div>';
-      ghost.firstChild.textContent = info.label;
-      ghost.lastChild.textContent = layoutRows[move.row][move.index].span + " 列";
       document.body.appendChild(ghost);
       move.ghost = ghost;
     }
-    move.ghost.style.left = (e.clientX - move.dx) + "px";
-    move.ghost.style.top = (e.clientY - move.dy) + "px";
     var drop = dropAt(e.clientX, e.clientY);
+    var info = cardInfo(move.card);
+    var span = move.tray ? info.span : layoutRows[move.row][move.index].span;
+    var height = move.tray || drop.remove ? 1 : layoutRows[move.row][move.index].height || 1;
+    var content = cardEl(info, span, height, drop.remove);
+    move.ghost.innerHTML = content.innerHTML;
+    move.ghost.className = "lay-card lay-ghost" + (drop.remove ? " removing" : "");
+    move.ghost.style.height = (drop.remove || move.tray ? ROW_H - INSET * 2 : move.height) + "px";
+    move.ghost.style.left = (e.clientX - move.dx) + "px";
+    move.ghost.style.top = (e.clientY - Math.min(move.dy, parseFloat(move.ghost.style.height) - 4)) + "px";
     if (!move.drop || JSON.stringify(drop) !== JSON.stringify(move.drop)) {
       move.drop = drop;
       renderLayout();
@@ -740,15 +939,22 @@
     move = null;
     if (m.ghost) m.ghost.parentNode.removeChild(m.ghost);
     var d = m.drop;
-    if (!m.started || !d || (d.row === m.row && d.index === m.index)) { renderLayout(); return; }
-    var next = moveCard(layoutRows, m.row, m.index, d.row, d.index);
+    var info = cardInfo(m.card);
+    if (!m.started || !d || d.row < 0 && !d.remove || (!m.tray && d.row === m.row && d.index === m.index)) { renderLayout(); return; }
+    if (d.remove) {
+      // 枠の外で離したら外す（非表示にする）
+      cardBox(m.card).checked = false;
+      commitRows(removeCard(layoutRows, m.row, m.index));
+      return;
+    }
+    var next = m.tray ? insertCard(layoutRows, m.card, d.row, d.index) : moveCard(layoutRows, m.row, m.index, d.row, d.index);
     if (!next) {
       renderLayout();
-      var info = cardInfo(layoutRows[m.row][m.index].card);
       alert("ここには入りません\n\n「" + info.label + "」は、行き先の行のカードをいちばん狭い幅まで縮めても入りません（最小の幅 " + info.min +
         " 列）。ほかの行を選ぶか、先に行き先の行のカードを動かしてください。");
       return;
     }
+    if (m.tray) cardBox(m.card).checked = true;
     commitRows(next);
   }
   document.addEventListener("pointerup", endDrag);

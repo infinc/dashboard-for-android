@@ -4,7 +4,7 @@
  *
  *   node tools/mock-server.mjs        → http://localhost:8080/settings
  *
- * API は実機（app/src/main/kotlin/app/walldash/server/DashboardServer.kt）と同じ形で返す。
+ * API は実機（app/src/main/kotlin/app/dashboard/server/DashboardServer.kt）と同じ形で返す。
  * アクセント色と通知音の選択肢は、アプリの Choices.kt を読んで作る（二重に書かない）。
  * タブレットのダッシュボード画面はアプリ（Compose）側にあるので、ここでは出ない。
  */
@@ -26,7 +26,7 @@ const MIME = {
 };
 
 function readChoices() {
-  const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/walldash/data/Choices.kt"), "utf8");
+  const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/dashboard/data/Choices.kt"), "utf8");
   const accents = [...kt.matchAll(/Accent\("(#[0-9A-Fa-f]{6})", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
   const tones = [...kt.matchAll(/Tone\("([a-z]+)", "([^"]+)"/g)].map((m) => ({ value: m[1], label: m[2] }));
   return { accents, tones };
@@ -51,7 +51,8 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    radarZoom: 8, todayShowEvent: true, analogSweep: true, analogNumerals: true,
+    showCalculator: false, showPhotos: false,
+    todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
   disaster: { enabled: true, minIntensity: "3" },
@@ -65,6 +66,7 @@ let config = {
   wallpaper: { imageSetAt: 0 },
   train: { enabled: false, tokenSet: false, challengeTokenSet: false, railways: [] },
   calendar: { enabled: false, mode: "caldav", appleId: "", passwordSet: false, icsUrlSet: false, daysAhead: 7 },
+  photos: { enabled: false, albumUrlSet: false, intervalSec: 60, shuffle: true },
   stocks: {
     symbols: [
       { symbol: "^N225", label: "日経平均" }, { symbol: "^DJI", label: "NY ダウ" },
@@ -96,21 +98,22 @@ const CARDS = [
   ["ANALOG_CLOCK", "showAnalogClock", 6, 4, "アナログ時計"], ["CALENDAR", "showCalendar", 9, 6, "予定表"], ["TRAIN", "showTrain", 9, 6, "運行情報"],
   ["RADAR", "showRadar", 8, 5, "雨雲レーダー"], ["SUN_MOON", "showSunMoon", 8, 7, "日の出・月"], ["COUNTDOWN", "showCountdown", 8, 6, "カウントダウン"],
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
+  ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
-config.choices.cards = CARDS.map(({ id, label, span, min }) => ({ id, label, span, min }));
+config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));
 config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks"]);
+const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
 const MOCK_MAX_ROWS = Number(process.env.MOCK_MAX_ROWS ?? 4);
 const LIMIT = Math.min(4, MOCK_MAX_ROWS);
 const sum = (row) => row.reduce((a, x) => a + x.span, 0);
-const slot = (card, span) => ({ card: card.id, span });
+const slot = (card, span) => ({ card: card.id, span, height: 1 });
 // Kotlin の trimEnd(): 末尾の空の行だけ落とす（途中の空の行は置き場所を保つため残す）
 const trimEnd = (rows) => { const out = rows.slice(); while (out.length && !out[out.length - 1].length) out.pop(); return out; };
 
@@ -149,11 +152,12 @@ const autoRows = (d, maxRows = MOCK_MAX_ROWS) => {
   }
   return plain;
 };
-// Kotlin の slots() / fitRow(): 知らないカード・重複を落とし、幅を最小〜24 に、行の合計が 24 を超えたら縮める
+// Kotlin の slots() / fitRow(): 知らないカード・重複を落とし、幅を最小〜24 に、行の合計が 24 を超えたら縮める。
+// 高さ（height）はそのまま通す（縦に伸ばしたカードとぶつかるかの検査は、設定画面の JS と実機の CardLayout に任せる）
 const slots = (layout) => {
   const seen = new Set();
   return (layout || []).map((row) => row.filter((x) => CARD[x.card] && !seen.has(x.card) && seen.add(x.card))
-    .map((x) => ({ card: x.card, span: Math.min(24, Math.max(CARD[x.card].min, x.span)) })));
+    .map((x) => ({ card: x.card, span: Math.min(24, Math.max(CARD[x.card].min, x.span)), height: Math.min(4, Math.max(1, x.height || 1)) })));
 };
 const fitRow = (row) => {
   const out = row.map((x) => ({ ...x }));
@@ -246,6 +250,7 @@ const state = () => ({
   disaster: { available: true, officeName: "東京都", areaName: "新宿区" },
   train: { lines: [], fetchedAt: 0, lastError: null },
   calendar: { events: [], fetchedAt: 0, lastError: null },
+  photos: { albumName: null, count: 0, fetchedAt: 0, lastError: null },
   config,
 });
 
@@ -268,7 +273,7 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && !post) return json(res, 200, config);
     if (path === "/api/settings" && post) {
       // SettingsController.saveAll と同じく、settings の各項目は「まるごと差し替え」
-      const { settings = {}, memo, spotify, train, calendar } = await readBody(req);
+      const { settings = {}, memo, spotify, train, calendar, photos } = await readBody(req);
       if (settings.display) {
         const adjusted = adjust(config.display, settings.display);
         if (adjusted.message) return json(res, 400, { error: "cards_overflow", detail: adjusted.message });
@@ -298,6 +303,10 @@ const server = createServer(async (req, res) => {
           passwordSet: password === undefined ? config.calendar.passwordSet : password !== "",
           icsUrlSet: icsUrl === undefined ? config.calendar.icsUrlSet : icsUrl !== "",
         };
+      }
+      if (photos) {
+        const { albumUrl, ...rest } = photos;
+        config.photos = { ...config.photos, ...rest, albumUrlSet: albumUrl === undefined ? config.photos.albumUrlSet : albumUrl !== "" };
       }
       return json(res, 200, config);
     }

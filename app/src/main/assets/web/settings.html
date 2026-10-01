@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Walldash — 設定</title>
+<title>Dashboard — 設定</title>
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/settings.css">
 </head>
@@ -18,7 +18,7 @@
 
   <nav class="nav">
     <div class="nav-head">
-      <div class="nav-title">Walldash 設定</div>
+      <div class="nav-title">Dashboard 設定</div>
       <div class="nav-sub" id="access">読み込み中…</div>
     </div>
 
@@ -104,6 +104,12 @@
       <button class="nav-item" type="button" data-pane="stocks">
         <i class="dot" data-w="showStocks"></i><span>株価</span>
       </button>
+      <button class="nav-item" type="button" data-pane="calculator">
+        <i class="dot" data-w="showCalculator"></i><span>計算機</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="photos">
+        <i class="dot" data-w="showPhotos"></i><span>写真</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -150,11 +156,13 @@
     <!-- ============================================================ カードの配置 -->
     <section class="pane" data-pane="layout">
       <h1>カードの配置</h1>
-      <p class="lead">横向きのダッシュボードを縮めて描いています。カードの右の壁（つまみ）を左右にドラッグすると幅が、カードそのものを掴んで動かすと置き場所（ほかの行・同じ行の順番）が変わります。</p>
+      <p class="lead">横向きのダッシュボードを縮めて描いています。カードの右の壁（つまみ）を左右にドラッグすると幅が、下の壁を上下にドラッグすると高さが、カードそのものを掴んで動かすと置き場所（ほかの行・同じ行の順番）が変わります。</p>
 
       <div class="field">
         <div id="layoutEditor" class="lay"></div>
-        <div class="hint" id="layoutHint">行は 4 行で固定です。幅は画面を 24 等分した列の単位で変わります。</div>
+        <div class="hint" id="layoutHint">行は 4 行で固定です。幅は画面を 24 等分した列の単位、高さは行の単位で変わります。</div>
+        <div class="lay-tray-label" id="layoutTrayLabel"></div>
+        <div id="layoutTray" class="lay-tray"></div>
       </div>
 
       <div class="field lay-actions">
@@ -171,10 +179,18 @@
         それでも入らない行では、差し込む位置の線が赤くなり、離しても元に戻ります。
       </div>
       <div class="notice info">
+        カードの下の壁を下へ動かすと、カードが下の行まで伸びます。下の行のカードはその列を避けて右へずれるので、下の行に空きがあるときだけ伸ばせます。
+        自動の並べ方では、どのカードも 1 行の高さです。
+      </div>
+      <div class="notice info">
+        カードを枠の外まで動かして離すと、そのカードをダッシュボードから<strong>外します</strong>（非表示になり、「使っていないカード」に移ります）。
+        「使っていないカード」を掴んで枠の中へ動かすと、そのカードを足せます。
+      </div>
+      <div class="notice info">
         カードは、それ以上狭めると中身が崩れる幅（最小の幅）より狭くはできません。カードを表示するとき、空きが足りなければ
         ほかのカードを最小の幅まで縮めて入れます。それでも入らないときは、そのカードは表示できません（理由をお知らせします）。
       </div>
-      <div class="notice info">縦向きの画面では、この配置の順番のまま 2 列に並べます（幅は使いません）。</div>
+      <div class="notice info">縦向きの画面では、この配置の順番のまま 2 列に並べます（幅と高さは使いません）。</div>
     </section>
 
     <!-- ============================================================ テーマ -->
@@ -452,7 +468,7 @@
 
       <div class="field">
         <label for="memoEndpoint">中継先の URL</label>
-        <input id="memoEndpoint" placeholder="https://walldash-line-relay.xxxx.workers.dev">
+        <input id="memoEndpoint" placeholder="https://dashboard-line-relay.xxxx.workers.dev">
         <div class="hint">
           Worker の URL を貼ってください。末尾のパスは自動で <code>/memo</code> に直します。
           LINE 側に登録する <code>/line/webhook</code> とは別の入口なので、間違えても補正されます。
@@ -760,19 +776,11 @@
     <!-- ===================================================== 雨雲レーダー -->
     <section class="pane" data-pane="radar">
       <h1>雨雲レーダー</h1>
-      <p class="lead">気象庁の雨雲の動き（5 分ごと）を、国土地理院の地図に重ねて出すカードです。中心は「場所」で選んだ地点です。</p>
+      <p class="lead">気象庁の雨雲の動き（5 分ごと）を、文字や道路の無い灰色の地図（Esri）に重ねて出すカードです。中心は「場所」で選んだ地点で、ドラッグで別の場所へ動かせます（3 分触らなければ戻ります）。範囲はカードの右上の「＋」「−」で変えられます。</p>
       <div class="field card-switch">
         <label class="toggle"><input type="checkbox" data-w="showRadar" data-card> このカードをダッシュボードに表示する</label>
       </div>
 
-      <div class="field" style="max-width:320px">
-        <label for="radarZoom">範囲</label>
-        <select id="radarZoom">
-          <option value="6">広域（関東全体くらい）</option>
-          <option value="8">地方（県くらい）</option>
-          <option value="10">周辺（市くらい）</option>
-        </select>
-      </div>
       <div class="notice info">カードを表示している間だけ、5 分ごとに地図と雨雲の画像（合わせて 30 枚ほど、1 枚数 KB）を取得します。日本国内の地点だけ雨雲が出ます。</div>
     </section>
 
@@ -855,6 +863,59 @@
       <div class="notice">値は Yahoo Finance の公開されていない API から取っています。数十分の遅れがあり、予告なく取れなくなることがあります。投資の判断には使わないでください。</div>
     </section>
 
+    <!-- ========================================================= 計算機 -->
+    <section class="pane" data-pane="calculator">
+      <h1>計算機</h1>
+      <p class="lead">四則演算の計算機です。掛け算・割り算を先に計算します（12 + 3 × 2 = 18）。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showCalculator" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">カードが横長のときは左に表示・右に鍵盤、「カードの配置」で縦に 2 行ぶんへ伸ばすと上に表示・下に大きな鍵盤になります。</div>
+    </section>
+
+    <!-- =========================================================== 写真 -->
+    <section class="pane" data-pane="photos">
+      <h1>写真（iCloud 共有アルバム）</h1>
+      <p class="lead">iCloud の共有アルバムの写真を、決めた間隔で切り替えて出すカードです。カードを押すと次の写真へ進みます。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showPhotos" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="photosEnabled"> 写真を取得する</label>
+      </div>
+      <div class="field">
+        <label for="photosUrl">共有アルバムの URL</label>
+        <input id="photosUrl" type="password" autocomplete="new-password">
+        <div class="hint">
+          iPhone の「写真」→ 共有アルバムを開く → 人のアイコン →「公開 Web サイト」を ON にして出る <code>https://www.icloud.com/sharedalbum/#…</code> の URL。
+          URL を知っている人は誰でも写真を見られるので、保存済みの値は表示しません。
+        </div>
+      </div>
+      <div class="field" style="max-width:320px">
+        <label for="photosInterval">写真を変える間隔</label>
+        <select id="photosInterval">
+          <option value="10">10 秒</option>
+          <option value="30">30 秒</option>
+          <option value="60">1 分</option>
+          <option value="300">5 分</option>
+          <option value="600">10 分</option>
+          <option value="1800">30 分</option>
+          <option value="3600">1 時間</option>
+          <option value="10800">3 時間</option>
+          <option value="86400">1 日</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="photosShuffle"> 順番を混ぜる（オフなら新しい写真から順に）</label>
+      </div>
+      <div class="status" id="photosStatus"></div>
+      <div class="notice info">
+        iCloud 写真のライブラリそのものは、Apple ID の 2 ファクタ認証が要る非公開の仕組みのため読めません（App 用パスワードも使えません）。
+        出したい写真を共有アルバムに入れてください。写真は 30 分ごとに一覧を取り直し、出すときに 1 枚ずつ読み込みます（1 枚 数百 KB 〜 1 MB）。
+      </div>
+    </section>
+
     <section class="pane" data-pane="hamster">
       <h1>ハムスター</h1>
       <p class="lead">画面の下で回し車を走るハムスターです。カードではないので、並びには影響しません。</p>
@@ -877,8 +938,8 @@
 
       <div class="notice">
         Android 10 以降はバックグラウンドからの画面起動が制限されるため、再起動後にダッシュボードが
-        自動で前面に出るとは限りません。この端末のホームアプリを Walldash にすると確実に前面へ戻ります。
-        有効化したあと、端末側で「ホームアプリ」の選択ダイアログが出たら Walldash を選んでください。
+        自動で前面に出るとは限りません。この端末のホームアプリを Dashboard にすると確実に前面へ戻ります。
+        有効化したあと、端末側で「ホームアプリ」の選択ダイアログが出たら Dashboard を選んでください。
         <strong>無効のままだと、再起動のたびに手動でアプリを開く必要があります</strong>（サービス自体は約 90 秒で自動復帰します）。
       </div>
 
