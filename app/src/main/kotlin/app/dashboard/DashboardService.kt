@@ -66,6 +66,8 @@ class DashboardService : LifecycleService() {
                     .onFailure { Log.w(TAG, "今日は何の日の定期取得でエラー", it) }
                 runCatching { graph.stocks.refreshIfDue(d.showStocks) }
                     .onFailure { Log.w(TAG, "株価の定期取得でエラー", it) }
+                runCatching { graph.crypto.refreshIfDue(d.showCrypto) }
+                    .onFailure { Log.w(TAG, "暗号資産の定期取得でエラー", it) }
                 runCatching { graph.photos.refreshIfDue(d.showPhotos) }
                     .onFailure { Log.w(TAG, "写真の定期取得でエラー", it) }
                 runCatching { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }

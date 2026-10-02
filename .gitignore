@@ -30,3 +30,5 @@ RELATION.md
 CLAUDE.md
 # デバッグ版の APK（ビルドのたびに app/build.gradle.kts の apkToRoot が作る）
 dashboard.apk
+
+screenshots/

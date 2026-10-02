@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.dashboard.AppGraph
+import app.dashboard.data.CRYPTO_RANGES
 import app.dashboard.data.Config
 import app.dashboard.data.DeviceState
 import app.dashboard.data.DisasterState
@@ -258,6 +259,21 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     fun spotifyControl(action: String) {
         viewModelScope.launch(Dispatchers.IO) {
             graph.spotify.control(action).onFailure { showToast("Spotify", it.message ?: "操作できません", false) }
+            poll()
+        }
+    }
+
+    /**
+     * 暗号資産カードの「−」「＋」。チャートの期間（横の幅）を 1 段ずつ短く・長くして、すぐに取り直す。
+     * 設定画面の「チャートの期間」と同じ値を書き換える。
+     */
+    fun stepCryptoRange(step: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = CRYPTO_RANGES.indexOf(graph.config.get().crypto.range).coerceAtLeast(0)
+            val next = CRYPTO_RANGES[(current + step).coerceIn(0, CRYPTO_RANGES.lastIndex)]
+            if (next == CRYPTO_RANGES[current]) return@launch
+            graph.config.update { it.copy(crypto = it.crypto.copy(range = next)) }
+            runCatching { graph.crypto.refreshIfDue(true) }
             poll()
         }
     }

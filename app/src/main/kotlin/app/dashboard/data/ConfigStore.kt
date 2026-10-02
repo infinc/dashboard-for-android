@@ -69,6 +69,16 @@ class ConfigStore(context: Context) {
         notifications = patch.notifications?.let(::sanitizeNotifications) ?: c.notifications,
         stocks = patch.stocks?.let(::sanitizeStocks) ?: c.stocks,
         countdown = patch.countdown?.let(::sanitizeCountdown) ?: c.countdown,
+        crypto = patch.crypto?.let(::sanitizeCrypto) ?: c.crypto,
+    )
+
+    /** 通貨は CoinGecko の ID（英小文字・数字・ハイフン）。形の合わない値は既定に戻す。 */
+    private fun sanitizeCrypto(cr: CryptoConfig) = CryptoConfig(
+        coin = cr.coin.trim().lowercase().takeIf { CRYPTO_ID.matches(it) } ?: CryptoConfig().coin,
+        currency = if (cr.currency in ALLOWED_CRYPTO_CURRENCIES) cr.currency else "jpy",
+        range = if (cr.range in CRYPTO_RANGES) cr.range else "1",
+        chart = if (cr.chart in ALLOWED_CRYPTO_CHARTS) cr.chart else "line",
+        intervalMin = if (cr.intervalMin in CRYPTO_INTERVALS) cr.intervalMin else CryptoConfig().intervalMin,
     )
 
     /** 銘柄は 6 つまで（カードに並べて読める数）。記号は Yahoo Finance の表記（^N225・USDJPY=X など）。 */
@@ -186,6 +196,9 @@ class ConfigStore(context: Context) {
         private val ALLOWED_STOCK_RANGES = setOf("1d", "5d", "1mo", "6mo", "1y")
         val ALLOWED_COUNTDOWNS = listOf("newyear", "christmas", "holiday", "dayoff", "fullmoon", "newmoon")
         private const val MAX_STOCKS = 6
+        private val CRYPTO_ID = Regex("[a-z0-9][a-z0-9_-]{0,63}")
+        private val ALLOWED_CRYPTO_CURRENCIES = setOf("jpy", "usd")
+        private val ALLOWED_CRYPTO_CHARTS = setOf("line", "candle")
         private const val MAX_COUNTDOWNS = 10
         /** 配置の行数の上限。編集できるのは 4 行だが、縦向きで足したカードの分だけ多く持つことがある。 */
         private const val MAX_LAYOUT_ROWS = 12
