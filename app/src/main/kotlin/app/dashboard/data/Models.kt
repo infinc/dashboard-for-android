@@ -444,6 +444,7 @@ data class DisplayConfig(
     val showAnalogClock: Boolean = false,
     val showCalculator: Boolean = false,
     val showPhotos: Boolean = false,
+    val showCrypto: Boolean = false,
 
     /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
     val todayShowEvent: Boolean = true,
@@ -780,6 +781,72 @@ data class StocksState(
     val lastError: String? = null,
 )
 
+// ---------------------------------------------------------------- 暗号資産
+
+/** 設定画面で選べる主な暗号資産（CoinGecko の ID と表示名）。Web の設定画面の選択肢（settings.html の #cryptoCoin）も同じ並び。 */
+val CRYPTO_COINS: List<Pair<String, String>> = listOf(
+    "bitcoin" to "ビットコイン（BTC）",
+    "ethereum" to "イーサリアム（ETH）",
+    "solana" to "ソラナ（SOL）",
+    "ripple" to "エックスアールピー（XRP）",
+    "binancecoin" to "ビルドアンドビルド（BNB）",
+    "dogecoin" to "ドージコイン（DOGE）",
+    "cardano" to "カルダノ（ADA）",
+    "tron" to "トロン（TRX）",
+    "avalanche-2" to "アバランチ（AVAX）",
+    "chainlink" to "チェーンリンク（LINK）",
+    "polkadot" to "ポルカドット（DOT）",
+    "litecoin" to "ライトコイン（LTC）",
+    "sui" to "スイ（SUI）",
+)
+
+/** 暗号資産のチャートの期間（日数）。短い順。カードの「−」「＋」はこの並びを 1 つずつ動く。 */
+val CRYPTO_RANGES: List<String> = listOf("1", "7", "30", "365")
+
+/** 暗号資産の値を取り直す間隔の選択肢（分）。 */
+val CRYPTO_INTERVALS: List<Int> = listOf(1, 3, 5, 10, 30, 60)
+
+/**
+ * 暗号資産カード。チャートは 1 つだけで、[coin]（CoinGecko の ID。"bitcoin" など）の値動きを出す。
+ * [currency] は "jpy" | "usd"、[range] はチャートの期間（日数）"1" | "7" | "30" | "365"、
+ * [chart] はチャートの描き方 "line"（折れ線）| "candle"（ろうそく足）、[intervalMin] は取り直す間隔（分。[CRYPTO_INTERVALS] のどれか）。
+ */
+@Serializable
+data class CryptoConfig(
+    val coin: String = "bitcoin",
+    val currency: String = "jpy",
+    val range: String = "1",
+    val chart: String = "line",
+    val intervalMin: Int = 10,
+)
+
+/** ろうそく足の 1 本（始値・高値・安値・終値）。 */
+@Serializable
+data class CryptoCandle(val open: Double, val high: Double, val low: Double, val close: Double)
+
+/** [coin]・[currency]・[range] は取得したときの設定。設定を変えた直後に、前の通貨の値を新しい通貨として出さないために持つ。 */
+@Serializable
+data class CryptoState(
+    val coin: String = "",
+    val currency: String = "jpy",
+    val range: String = "1",
+    /** 名前（"Bitcoin"）と記号（"BTC"）。 */
+    val name: String? = null,
+    val symbol: String? = null,
+    val price: Double? = null,
+    /** 期間の始まりからの変化率 %。 */
+    val changePercent: Double? = null,
+    /** 期間の高値・安値。 */
+    val high: Double? = null,
+    val low: Double? = null,
+    /** チャート用の値の並び（古い順）。ろうそく足で取ったときは終値の並び。 */
+    val points: List<Double> = emptyList(),
+    /** ろうそく足（古い順）。折れ線で取ったときは空。 */
+    val candles: List<CryptoCandle> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
 // ---------------------------------------------------------------- カウントダウン
 
 @Serializable
@@ -845,6 +912,7 @@ data class Config(
     val stocks: StocksConfig = StocksConfig(),
     val countdown: CountdownConfig = CountdownConfig(),
     val photos: PhotoConfig = PhotoConfig(),
+    val crypto: CryptoConfig = CryptoConfig(),
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -887,6 +955,7 @@ data class PublicConfig(
     val stocks: StocksConfig = StocksConfig(),
     val countdown: CountdownConfig = CountdownConfig(),
     val photos: PhotoPublic = PhotoPublic(),
+    val crypto: CryptoConfig = CryptoConfig(),
     /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
     val choices: SettingChoices = SettingChoices.ALL,
 )
@@ -959,6 +1028,7 @@ fun Config.toPublic() = PublicConfig(
         intervalSec = photos.intervalSec,
         shuffle = photos.shuffle,
     ),
+    crypto = crypto,
 )
 
 /**
@@ -987,6 +1057,7 @@ data class ConfigPatch(
     val notifications: NotificationConfig? = null,
     val stocks: StocksConfig? = null,
     val countdown: CountdownConfig? = null,
+    val crypto: CryptoConfig? = null,
 )
 
 /** Spotify 設定の更新。refreshToken は認可の経路でしか入らない。 */
@@ -1025,6 +1096,7 @@ data class DeviceState(
     val stocks: StocksState = StocksState(),
     val holidays: List<Holiday> = emptyList(),
     val photos: PhotoState = PhotoState(),
+    val crypto: CryptoState = CryptoState(),
     val config: PublicConfig,
 )
 

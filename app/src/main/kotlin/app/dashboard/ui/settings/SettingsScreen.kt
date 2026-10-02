@@ -57,6 +57,9 @@ import app.dashboard.data.Config
 import app.dashboard.data.Countdown
 import app.dashboard.data.CountdownConfig
 import app.dashboard.data.ConfigPatch
+import app.dashboard.data.CRYPTO_COINS
+import app.dashboard.data.CRYPTO_INTERVALS
+import app.dashboard.data.CryptoConfig
 import app.dashboard.data.DEFAULT_WEATHER_FIELDS
 import app.dashboard.data.DisasterConfig
 import app.dashboard.data.DisplayConfig
@@ -74,6 +77,8 @@ import app.dashboard.data.TrainPatch
 import app.dashboard.data.Tones
 import app.dashboard.data.UnitsConfig
 import app.dashboard.server.DashboardServer
+import app.dashboard.ui.dashboard.CRYPTO_CHARTS
+import app.dashboard.ui.dashboard.CRYPTO_RANGE_LABELS
 import app.dashboard.ui.theme.LocalAccent
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
@@ -116,6 +121,13 @@ private data class Draft(
     val photosUrl: String,
     val photosInterval: Int,
     val photosShuffle: Boolean,
+    /** 一覧から選んだ通貨の ID。一覧に無い通貨を自分で入れるときは [CRYPTO_CUSTOM]。 */
+    val cryptoCoin: String,
+    val cryptoCustomId: String,
+    val cryptoCurrency: String,
+    val cryptoRange: String,
+    val cryptoChart: String,
+    val cryptoInterval: Int,
 ) {
     fun toRequest() = SaveAllRequest(
         settings = ConfigPatch(
@@ -127,6 +139,7 @@ private data class Draft(
             notifications = notifications,
             stocks = StocksConfig(parseStocks(stocksText), stocksRange),
             countdown = CountdownConfig(countdownBuiltins, Countdown.parseLines(countdownText)),
+            crypto = CryptoConfig(if (cryptoCoin == CRYPTO_CUSTOM) cryptoCustomId.trim().lowercase() else cryptoCoin, cryptoCurrency, cryptoRange, cryptoChart, cryptoInterval),
         ),
         train = TrainPatch(
             enabled = trainEnabled,
@@ -191,7 +204,15 @@ private data class Draft(
             photosUrl = "",
             photosInterval = c.photos.intervalSec,
             photosShuffle = c.photos.shuffle,
+            cryptoCoin = if (CRYPTO_COINS.any { it.first == c.crypto.coin }) c.crypto.coin else CRYPTO_CUSTOM,
+            cryptoCustomId = if (CRYPTO_COINS.any { it.first == c.crypto.coin }) "" else c.crypto.coin,
+            cryptoCurrency = c.crypto.currency,
+            cryptoRange = c.crypto.range,
+            cryptoChart = c.crypto.chart,
+            cryptoInterval = c.crypto.intervalMin,
         )
+
+        const val CRYPTO_CUSTOM = "custom"
 
         /** 「^N225 日経平均」の行を銘柄にする。名前を省いたら記号をそのまま名前にする。 */
         fun parseStocks(text: String) = text.lines().map { it.trim() }.filter { it.isNotEmpty() }.map { line ->
@@ -230,6 +251,7 @@ private enum class Pane(val label: String, val group: String, val card: ((Displa
     Stocks("株価", "カード", { it.showStocks }),
     Calculator("計算機", "カード", { it.showCalculator }),
     Photos("写真", "カード", { it.showPhotos }),
+    Crypto("暗号資産", "カード", { it.showCrypto }),
     Hamster("ハムスター", "カード", { it.showHamster }),
     Device("ホームアプリ", "端末"),
     Network("ネットワーク", "端末"),
@@ -664,6 +686,43 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
         }
 
         Pane.Photos -> PhotosPane(graph, config, d, set)
+
+        Pane.Crypto -> {
+            PaneTitle("暗号資産", "選んだ 1 つの暗号資産の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。")
+            CardSwitch(disp.showCrypto) { copy(showCrypto = it) }
+            Field("表示する通貨") {
+                Select(CRYPTO_COINS + (Draft.CRYPTO_CUSTOM to "その他（ID を入力）"), d.cryptoCoin, { set(d.copy(cryptoCoin = it)) })
+            }
+            if (d.cryptoCoin == Draft.CRYPTO_CUSTOM) {
+                Field("通貨の ID", "CoinGecko の通貨のページの URL の末尾です（例: coingecko.com/ja/コイン/shiba-inu なら shiba-inu。英小文字・数字・ハイフン）。") {
+                    Input(d.cryptoCustomId, { set(d.copy(cryptoCustomId = it)) }, placeholder = "例: shiba-inu")
+                }
+            }
+            Field("値の通貨") {
+                Select(listOf("jpy" to "日本円（¥）", "usd" to "米ドル（$）"), d.cryptoCurrency, { set(d.copy(cryptoCurrency = it)) })
+            }
+            Field("チャートの期間", "カードの見出しの右の「−」「＋」でも、設定を開かずに変えられます。") {
+                Select(CRYPTO_RANGE_LABELS, d.cryptoRange, { set(d.copy(cryptoRange = it)) })
+            }
+            Field("チャートの描き方", "ろうそく足の 1 本は、24 時間なら 30 分、7 日なら 4 時間、30 日なら 16 時間、1 年なら 8 日ぶんです。緑が値上がり、赤が値下がりです。") {
+                Select(CRYPTO_CHARTS, d.cryptoChart, { set(d.copy(cryptoChart = it)) })
+            }
+            Field("更新の間隔", "短くするほど通信が増えます。取得先の登録なしの枠は 1 分に数回までなので、1 分にすると混み合う時間帯に取れないことがあります。") {
+                Select(CRYPTO_INTERVALS.map { it to if (it < 60) "$it 分" else "${it / 60} 時間" }, d.cryptoInterval, { set(d.copy(cryptoInterval = it)) })
+            }
+            val s = graph.crypto.state
+            StatusText(
+                when {
+                    !config.display.showCrypto -> "カードを表示しているときだけ取得します"
+                    s.lastError != null -> "エラー: ${s.lastError}"
+                    s.fetchedAt > 0 -> "取得できています（${listOfNotNull(s.name, s.symbol).joinToString(" ")}）"
+                    else -> "まだ取得していません —「全て保存」のあと少し待ってください"
+                },
+                if (s.lastError != null && config.display.showCrypto) Wd.Red else Wd.Text2,
+            )
+            Spacer(Modifier.height(18.dp))
+            Notice("値は CoinGecko の公開 API（登録不要）から取っています。数分の遅れがあり、混み合うと一時的に取れないことがあります。Phantom の API は外部のアプリに公開されていないため使っていません。投資の判断には使わないでください。", Wd.Amber)
+        }
 
         Pane.Hamster -> {
             PaneTitle("ハムスター", "画面下で回し車を走るハムスターです。意匠は Uiverse.io の Nawsome 作「Loader」（MIT License）によります。")

@@ -131,6 +131,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.STOCKS -> StocksCard(s?.stocks, config.stocks.range, now, modifier)
             Slot.CALCULATOR -> CalculatorCard(modifier)
             Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, modifier)
+            Slot.CRYPTO -> CryptoCard(s?.crypto, config.crypto, now, vm::stepCryptoRange, modifier)
         }
     }
 
@@ -259,6 +260,7 @@ private fun credits(d: app.dashboard.data.DisplayConfig): String = buildList {
     if (d.showTrain) add("運行情報: 公共交通オープンデータ協議会")
     if (d.showToday) add("今日は何の日: Wikipedia (CC BY-SA)")
     if (d.showStocks) add("株価: Yahoo Finance")
+    if (d.showCrypto) add("暗号資産: CoinGecko")
     if (d.showCountdown) add("祝日: 内閣府")
 }.joinToString(" ・ ")
 

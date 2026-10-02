@@ -51,7 +51,7 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    showCalculator: false, showPhotos: false,
+    showCalculator: false, showPhotos: false, showCrypto: false,
     todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
@@ -75,6 +75,7 @@ let config = {
     range: "1d",
   },
   countdown: { builtins: ["newyear", "christmas", "holiday", "fullmoon"], custom: [] },
+  crypto: { coin: "bitcoin", currency: "jpy", range: "1", chart: "line", intervalMin: 10 },
   choices: readChoices(),
 };
 
@@ -99,6 +100,7 @@ const CARDS = [
   ["RADAR", "showRadar", 8, 5, "雨雲レーダー"], ["SUN_MOON", "showSunMoon", 8, 7, "日の出・月"], ["COUNTDOWN", "showCountdown", 8, 6, "カウントダウン"],
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
   ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
+  ["CRYPTO", "showCrypto", 8, 5, "暗号資産"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));
@@ -106,7 +108,7 @@ config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos"]);
+const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
@@ -280,7 +282,7 @@ const server = createServer(async (req, res) => {
         settings.display = adjusted.display;
       }
       config = { ...config, configVersion: config.configVersion + 1 };
-      for (const key of ["location", "units", "display", "refresh", "disaster", "feed", "notifications", "stocks", "countdown"]) {
+      for (const key of ["location", "units", "display", "refresh", "disaster", "feed", "notifications", "stocks", "countdown", "crypto"]) {
         if (settings[key]) config[key] = settings[key];
       }
       if (memo) {

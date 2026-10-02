@@ -191,7 +191,14 @@
         feed: { enabled: $("feedEnabled").checked, urls: urls, maxItems: Number($("feedMax").value) },
         notifications: notifications,
         stocks: { symbols: stocks, range: $("stocksRange").value },
-        countdown: { builtins: builtins, custom: custom }
+        countdown: { builtins: builtins, custom: custom },
+        crypto: {
+          coin: $("cryptoCoin").value === "custom" ? $("cryptoCustomId").value.trim().toLowerCase() : $("cryptoCoin").value,
+          currency: $("cryptoCurrency").value,
+          range: $("cryptoRange").value,
+          chart: $("cryptoChart").value,
+          intervalMin: Number($("cryptoInterval").value) || 10
+        }
       },
       train: train,
       calendar: calendar,
@@ -263,6 +270,16 @@
     var st = config.stocks || { symbols: [], range: "1d" };
     $("stocksSymbols").value = st.symbols.map(function (x) { return x.symbol + " " + x.label; }).join("\n");
     $("stocksRange").value = st.range;
+    var cr = config.crypto || { coin: "bitcoin", currency: "jpy", range: "1" };
+    // 一覧に無い通貨は「その他」にして ID を入力欄へ
+    var listed = !!$("cryptoCoin").querySelector('option[value="' + cr.coin + '"]') && cr.coin !== "custom";
+    $("cryptoCoin").value = listed ? cr.coin : "custom";
+    $("cryptoCustomId").value = listed ? "" : cr.coin;
+    $("cryptoCustomField").style.display = listed ? "none" : "";
+    $("cryptoCurrency").value = cr.currency;
+    $("cryptoRange").value = cr.range;
+    $("cryptoChart").value = cr.chart || "line";
+    $("cryptoInterval").value = String(cr.intervalMin || 10);
     var cd = config.countdown || { builtins: [], custom: [] };
     var cds = document.querySelectorAll("input[data-cd]");
     for (var c = 0; c < cds.length; c++) cds[c].checked = cd.builtins.indexOf(cds[c].getAttribute("data-cd")) >= 0;
@@ -429,6 +446,11 @@
     $("calendarIcs").style.display = ics ? "" : "none";
   }
   $("calendarMode").addEventListener("change", renderCalendarMode);
+
+  // 暗号資産: 「その他」を選んだときだけ ID の入力欄を出す
+  $("cryptoCoin").addEventListener("change", function () {
+    $("cryptoCustomField").style.display = this.value === "custom" ? "" : "none";
+  });
 
   /** 路線の一覧（事業者ごと）。選んだ路線は trainSelected に持つ。 */
   function renderRailways() {
