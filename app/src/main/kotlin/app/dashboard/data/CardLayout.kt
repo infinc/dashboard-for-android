@@ -49,7 +49,7 @@ object CardLayout {
         STOCKS(10, 6, "株価", "showStocks", { it.showStocks }, { d, on -> d.copy(showStocks = on) }),
         CALCULATOR(6, 5, "計算機", "showCalculator", { it.showCalculator }, { d, on -> d.copy(showCalculator = on) }),
         PHOTOS(8, 5, "写真", "showPhotos", { it.showPhotos }, { d, on -> d.copy(showPhotos = on) }),
-        CRYPTO(8, 5, "暗号資産", "showCrypto", { it.showCrypto }, { d, on -> d.copy(showCrypto = on) }),
+        CRYPTO(8, 5, "暗号通貨", "showCrypto", { it.showCrypto }, { d, on -> d.copy(showCrypto = on) }),
     }
 
     /**

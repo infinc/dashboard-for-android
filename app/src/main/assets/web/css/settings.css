@@ -88,6 +88,7 @@ html, body {
 .pane.active { display: block; }
 
 .pane h1 { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; }
+.pane h2.sub { font-size: 15px; font-weight: 650; margin: 26px 0 14px; }
 .pane .lead { color: var(--text-2); font-size: 13px; line-height: 1.75; margin: 7px 0 22px; }
 
 /* このカードを出すかどうかの一行。各面で最初に目に入る位置に固定する。 */

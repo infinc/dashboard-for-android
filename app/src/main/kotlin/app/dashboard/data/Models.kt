@@ -382,6 +382,8 @@ data class DisplayConfig(
      * 背景画像が無いときは使わない（カードは常に不透明）。
      */
     val cardOpacity: Double = 0.6,
+    /** カードの背景色（[CardColors] のどれか。空文字は既定）。カード全体で 1 色。不透明度は [cardOpacity] のまま。 */
+    val cardColor: String = "",
     /**
      * 操作があるときの画面の明るさ 0.05..1.0。
      * CSS で暗く見せるのではなく、ウィンドウのバックライト輝度として適用する。
@@ -489,7 +491,33 @@ data class NotificationConfig(
     val disasterTone: String = Tones.DEFAULT_DISASTER,
     val chargingTone: String = Tones.DEFAULT_CHARGING,
     val timerTone: String = Tones.DEFAULT_TIMER,
+
+    // ------------------------------------------------ 後から足した通知（音とバナー。切ると両方とも出ない）
+
+    /** 電池の残量が [batteryLowPercent] % を切ったとき（充電中は知らせない）。 */
+    val batteryLowEnabled: Boolean = true,
+    val batteryLowPercent: Int = 20,
+    val batteryLowTone: String = Tones.DEFAULT_BATTERY_LOW,
+    /** LINE メモに新しいメモが届いたとき。 */
+    val memoEnabled: Boolean = true,
+    val memoTone: String = Tones.DEFAULT_MEMO,
+    /** 電池の温度が [batteryHotC] ℃ を超えたとき。 */
+    val batteryHotEnabled: Boolean = true,
+    val batteryHotC: Int = 40,
+    val batteryHotTone: String = Tones.DEFAULT_BATTERY_HOT,
+    /** Wi-Fi の接続が切れたとき。 */
+    val wifiLostEnabled: Boolean = true,
+    val wifiLostTone: String = Tones.DEFAULT_WIFI_LOST,
+    /** [rainMinutes] 分以内に雨が降り始める予報が出たとき（気象庁の降水ナウキャスト。国外の地点は時間別予報）。 */
+    val rainEnabled: Boolean = true,
+    val rainMinutes: Int = 30,
+    val rainTone: String = Tones.DEFAULT_RAIN,
 )
+
+/** 通知のしきい値の選択肢（アプリと Web の設定画面で同じもの）。 */
+val BATTERY_LOW_CHOICES: List<Int> = listOf(5, 10, 15, 20, 25, 30, 40, 50)
+val BATTERY_HOT_CHOICES: List<Int> = listOf(35, 38, 40, 42, 45, 50)
+val RAIN_MINUTE_CHOICES: List<Int> = listOf(10, 15, 20, 30, 45, 60)
 
 /**
  * 防災の設定。
@@ -781,9 +809,9 @@ data class StocksState(
     val lastError: String? = null,
 )
 
-// ---------------------------------------------------------------- 暗号資産
+// ---------------------------------------------------------------- 暗号通貨
 
-/** 設定画面で選べる主な暗号資産（CoinGecko の ID と表示名）。Web の設定画面の選択肢（settings.html の #cryptoCoin）も同じ並び。 */
+/** 設定画面で選べる主な暗号通貨（CoinGecko の ID と表示名）。Web の設定画面の選択肢（settings.html の #cryptoCoin）も同じ並び。 */
 val CRYPTO_COINS: List<Pair<String, String>> = listOf(
     "bitcoin" to "ビットコイン（BTC）",
     "ethereum" to "イーサリアム（ETH）",
@@ -800,14 +828,14 @@ val CRYPTO_COINS: List<Pair<String, String>> = listOf(
     "sui" to "スイ（SUI）",
 )
 
-/** 暗号資産のチャートの期間（日数）。短い順。カードの「−」「＋」はこの並びを 1 つずつ動く。 */
+/** 暗号通貨のチャートの期間（日数）。短い順。カードの「−」「＋」はこの並びを 1 つずつ動く。 */
 val CRYPTO_RANGES: List<String> = listOf("1", "7", "30", "365")
 
-/** 暗号資産の値を取り直す間隔の選択肢（分）。 */
+/** 暗号通貨の値を取り直す間隔の選択肢（分）。 */
 val CRYPTO_INTERVALS: List<Int> = listOf(1, 3, 5, 10, 30, 60)
 
 /**
- * 暗号資産カード。チャートは 1 つだけで、[coin]（CoinGecko の ID。"bitcoin" など）の値動きを出す。
+ * 暗号通貨カード。チャートは 1 つだけで、[coin]（CoinGecko の ID。"bitcoin" など）の値動きを出す。
  * [currency] は "jpy" | "usd"、[range] はチャートの期間（日数）"1" | "7" | "30" | "365"、
  * [chart] はチャートの描き方 "line"（折れ線）| "candle"（ろうそく足）、[intervalMin] は取り直す間隔（分。[CRYPTO_INTERVALS] のどれか）。
  */
@@ -820,9 +848,41 @@ data class CryptoConfig(
     val intervalMin: Int = 10,
 )
 
-/** ろうそく足の 1 本（始値・高値・安値・終値）。 */
+/** ろうそく足の 1 本（始値・高値・安値・終値）。[time] は足の終わりの時刻（epoch ms。カードでは使わず 0 のこともある）。 */
 @Serializable
-data class CryptoCandle(val open: Double, val high: Double, val low: Double, val close: Double)
+data class CryptoCandle(val open: Double, val high: Double, val low: Double, val close: Double, val time: Long = 0)
+
+/** 全画面で選べるチャートの期間（日数）と表示名。カードより 1 つ多い（90 日）。 */
+val CRYPTO_DETAIL_RANGES: List<Pair<String, String>> = listOf("1" to "24 時間", "7" to "7 日", "30" to "30 日", "90" to "90 日", "365" to "1 年")
+
+/**
+ * 暗号通貨の全画面に出す詳しい値とチャート。全画面を開いているときだけ取る（保存はしない）。
+ * [times] / [prices] / [volumes] は同じ長さで古い順（間引いたもの）。[candles] はろうそく足を選んだときだけ。
+ */
+data class CryptoDetail(
+    val coin: String,
+    val currency: String,
+    val days: String,
+    val name: String?,
+    val symbol: String?,
+    val rank: Int?,
+    val price: Double?,
+    /** 期間の始まりからの変化率 %。 */
+    val changePercent: Double?,
+    val change24h: Double?,
+    val high: Double?,
+    val low: Double?,
+    val marketCap: Double?,
+    val volume24h: Double?,
+    /** これまでの最高値と、そこからの下落率 %。 */
+    val ath: Double?,
+    val athChangePercent: Double?,
+    val times: List<Long>,
+    val prices: List<Double>,
+    val volumes: List<Double>,
+    val candles: List<CryptoCandle>,
+    val fetchedAt: Long,
+)
 
 /** [coin]・[currency]・[range] は取得したときの設定。設定を変えた直後に、前の通貨の値を新しい通貨として出さないために持つ。 */
 @Serializable
@@ -971,6 +1031,7 @@ data class CardChoice(val id: String, val label: String, val span: Int, val min:
 data class SettingChoices(
     val accents: List<Choice>,
     val tones: List<Choice>,
+    val cardColors: List<Choice> = emptyList(),
     val cards: List<CardChoice> = emptyList(),
     val layoutRows: Int = CardLayout.LAYOUT_ROWS,
     val columns: Int = CardLayout.COLUMNS,
@@ -979,6 +1040,7 @@ data class SettingChoices(
         val ALL = SettingChoices(
             accents = Accents.ALL.map { Choice(it.hex, it.label) },
             tones = Tones.ALL.map { Choice(it.id, it.label) },
+            cardColors = CardColors.ALL.map { Choice(it.hex, it.label) },
             cards = CardLayout.Card.entries.map { CardChoice(it.name, it.label, it.span, it.min, it.flag) },
         )
     }

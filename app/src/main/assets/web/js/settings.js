@@ -52,6 +52,9 @@
     return out;
   }
 
+  /** 後から足した通知（Models.kt の NotificationConfig の *Enabled / *Tone と同じ名前）。 */
+  var NOTICE_KEYS = ["batteryLow", "batteryHot", "memo", "wifiLost", "rain"];
+
   function fillSelect(id, choices) {
     var el = $(id);
     el.innerHTML = "";
@@ -99,6 +102,7 @@
     display.accent = $("accent").value;
     display.theme = $("theme").value;
     display.cardOpacity = Number($("cardOpacity").value) / 100;
+    display.cardColor = $("cardColor").value;
     display.burnInShiftEnabled = $("burnIn").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
@@ -128,6 +132,13 @@
     notifications.disasterTone = $("disasterTone").value;
     notifications.chargingTone = $("chargingTone").value;
     notifications.timerTone = $("timerTone").value;
+    NOTICE_KEYS.forEach(function (k) {
+      notifications[k + "Enabled"] = $(k + "Enabled").checked;
+      notifications[k + "Tone"] = $(k + "Tone").value;
+    });
+    notifications.batteryLowPercent = Number($("batteryLowPercent").value);
+    notifications.batteryHotC = Number($("batteryHotC").value);
+    notifications.rainMinutes = Number($("rainMinutes").value);
     notifications.volume = Number($("noticeVolume").value) / 100;
 
     var urls = [];
@@ -245,9 +256,19 @@
     fillSelect("disasterTone", config.choices.tones);
     fillSelect("chargingTone", config.choices.tones);
     fillSelect("timerTone", config.choices.tones);
+    fillSelect("cardColor", config.choices.cardColors || [{ value: "", label: "既定" }]);
+    NOTICE_KEYS.forEach(function (k) {
+      fillSelect(k + "Tone", config.choices.tones);
+      $(k + "Enabled").checked = n[k + "Enabled"] !== false;
+      if (n[k + "Tone"]) $(k + "Tone").value = n[k + "Tone"];
+    });
+    $("batteryLowPercent").value = String(n.batteryLowPercent || 20);
+    $("batteryHotC").value = String(n.batteryHotC || 40);
+    $("rainMinutes").value = String(n.rainMinutes || 30);
 
     $("accent").value = d.accent;
     $("theme").value = d.theme || "dark";
+    $("cardColor").value = d.cardColor || "";
     $("cardOpacity").value = Math.round((d.cardOpacity == null ? 0.6 : d.cardOpacity) * 100);
     renderWallpaper();
     $("burnIn").checked = d.burnInShiftEnabled;
@@ -447,7 +468,7 @@
   }
   $("calendarMode").addEventListener("change", renderCalendarMode);
 
-  // 暗号資産: 「その他」を選んだときだけ ID の入力欄を出す
+  // 暗号通貨: 「その他」を選んだときだけ ID の入力欄を出す
   $("cryptoCoin").addEventListener("change", function () {
     $("cryptoCustomField").style.display = this.value === "custom" ? "" : "none";
   });
@@ -1050,6 +1071,7 @@
   bindPreview("previewDisaster", "disasterTone");
   bindPreview("previewCharging", "chargingTone");
   bindPreview("previewTimer", "timerTone");
+  NOTICE_KEYS.forEach(function (k) { bindPreview("preview" + k.charAt(0).toUpperCase() + k.slice(1), k + "Tone"); });
 
   // ---------------------------------------------------------------- 場所
 

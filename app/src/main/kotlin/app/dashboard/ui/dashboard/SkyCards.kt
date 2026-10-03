@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import app.dashboard.data.Astro
@@ -49,6 +51,7 @@ import app.dashboard.data.WeatherState
 import app.dashboard.ui.common.EmptyText
 import app.dashboard.ui.common.Tabular
 import app.dashboard.ui.common.WdCard
+import app.dashboard.ui.common.WdIcons
 import app.dashboard.ui.theme.LocalAccent
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
@@ -75,7 +78,8 @@ private val RAIN_SCALE = listOf(
 
 /**
  * 地図（Esri の灰色の地図。テーマに合わせて明暗を選ぶ）に雨雲を重ねる。ドラッグで別の場所へ動かせる
- * （しばらく触らなければ地点へ戻る）。右上の「＋」「−」で拡大・縮小する。
+ * （しばらく触らなければ地点へ戻る）。右上の「＋」「−」で拡大・縮小、その下のボタンでズームはそのままで地点へ戻る。
+ * 見出しの右のボタンで画面いっぱいに出す（[RadarScreen]）。
  */
 @Composable
 fun RadarCard(
@@ -83,88 +87,100 @@ fun RadarCard(
     place: String,
     onPan: (Float, Float) -> Unit,
     onZoom: (Int) -> Unit,
+    onRecenter: () -> Unit,
+    onExpand: () -> Unit,
     modifier: Modifier,
 ) {
     val note = listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(" ・ ")
-    WdCard("雨雲レーダー", modifier, note = note) {
+    WdCard("雨雲レーダー", modifier, note = note, titleAction = { ExpandButton(onExpand, Wd.Text3) }) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Wd.Bg.copy(alpha = 0.6f))) {
-            val empty = frame.base.isEmpty() && frame.old.isEmpty()
-            if (frame.zoom != 0) {
-                val accent = LocalAccent.current
-                val density = LocalDensity.current.density
-                val pan by rememberUpdatedState(onPan)
-                // 地図が一時的に空になってもドラッグを受け続けるよう、Canvas は出したままにする
-                Canvas(
-                    Modifier.fillMaxSize().clipToBounds().pointerInput(Unit) {
-                        detectDragGestures { change, drag ->
-                            change.consume()
-                            // 指と同じ向きに地図が動くよう、表示の中心は逆へ動かす
-                            pan(-drag.x / density, -drag.y / density)
-                        }
-                    },
-                ) {
-                    val unit = 1.dp.toPx()
-                    // ズーム [z] のタイルを、いまのズームの座標に引き伸ばして（縮めて）描く。端は丸めて隙間を作らない
-                    fun tiles(map: Map<Pair<Int, Int>, ImageBitmap>, z: Int, alpha: Float) {
-                        if (map.isEmpty()) return
-                        val side = 256f * 2f.pow(frame.zoom - z)
-                        map.forEach { (key, img) ->
-                            val l = (size.width / 2 + (key.first * side - frame.centerX) * unit).roundToInt()
-                            val t = (size.height / 2 + (key.second * side - frame.centerY) * unit).roundToInt()
-                            val r = (size.width / 2 + ((key.first + 1) * side - frame.centerX) * unit).roundToInt()
-                            val b = (size.height / 2 + ((key.second + 1) * side - frame.centerY) * unit).roundToInt()
-                            if (r < 0 || b < 0 || l > size.width || t > size.height) return@forEach
-                            drawImage(img, dstOffset = IntOffset(l, t), dstSize = IntSize(r - l, b - t), alpha = alpha, filterQuality = FilterQuality.Low)
-                        }
-                    }
-                    tiles(frame.old, frame.oldZoom, 1f)
-                    tiles(frame.base, frame.zoom, 1f)
-                    // 新しいズームの雨雲が揃うまでは前の雨雲を敷く
-                    tiles(frame.oldRain, frame.oldRainZoom, 0.85f)
-                    tiles(frame.rain, frame.rainZoom, 0.85f)
-                    if (empty) return@Canvas
-                    // 天気の地点
-                    val c = Offset(
-                        size.width / 2 + (frame.homeX - frame.centerX) * unit,
-                        size.height / 2 + (frame.homeY - frame.centerY) * unit,
-                    )
-                    drawCircle(accent.copy(alpha = 0.3f), 7.dp.toPx(), c)
-                    drawCircle(accent, 3.dp.toPx(), c)
-                    drawCircle(Color.White, 3.dp.toPx(), c, style = Stroke(1.dp.toPx()))
-                }
-            }
-            if (empty) {
+            RadarMap(frame, onPan, Modifier.fillMaxSize())
+            if (frame.base.isEmpty() && frame.old.isEmpty()) {
                 Box(Modifier.padding(8.dp)) { EmptyText(if (frame.failed) "地図を取得できません" else "取得中…", if (frame.failed) Wd.Red else Wd.Text3) }
             } else {
-                Legend(Modifier.align(Alignment.BottomStart).padding(6.dp))
+                RainLegend(Modifier.align(Alignment.BottomStart).padding(6.dp))
             }
-            if (frame.zoom != 0) ZoomButtons(frame, onZoom, Modifier.align(Alignment.TopEnd).padding(6.dp))
+            if (frame.zoom != 0) ZoomButtons(frame, onZoom, onRecenter, 30.dp, Modifier.align(Alignment.TopEnd).padding(6.dp))
         }
     }
 }
 
-/** 地図アプリと同じく、上に「＋」、下に「−」。端まで来たほうは薄くして押せなくする。 */
+/** 地図と雨雲と天気の地点。ドラッグで動かす（指と同じ向きに地図が動く）。カードと全画面の両方で使う。 */
 @Composable
-private fun ZoomButtons(frame: DashboardViewModel.RadarFrame, onZoom: (Int) -> Unit, modifier: Modifier) {
-    Column(modifier.clip(RoundedCornerShape(6.dp)).background(Wd.Surface.copy(alpha = 0.85f))) {
-        ZoomButton("＋", "拡大", frame.canZoomIn) { onZoom(1) }
-        Box(Modifier.width(30.dp).height(1.dp).background(Wd.BorderSoft))
-        ZoomButton("−", "縮小", frame.canZoomOut) { onZoom(-1) }
+internal fun RadarMap(frame: DashboardViewModel.RadarFrame, onPan: (Float, Float) -> Unit, modifier: Modifier) {
+    if (frame.zoom == 0) return
+    val empty = frame.base.isEmpty() && frame.old.isEmpty()
+    val accent = LocalAccent.current
+    val density = LocalDensity.current.density
+    val pan by rememberUpdatedState(onPan)
+    // 地図が一時的に空になってもドラッグを受け続けるよう、Canvas は出したままにする
+    Canvas(
+        modifier.clipToBounds().pointerInput(Unit) {
+            detectDragGestures { change, drag ->
+                change.consume()
+                // 指と同じ向きに地図が動くよう、表示の中心は逆へ動かす
+                pan(-drag.x / density, -drag.y / density)
+            }
+        },
+    ) {
+        val unit = 1.dp.toPx()
+        // ズーム [z] のタイルを、いまのズームの座標に引き伸ばして（縮めて）描く。端は丸めて隙間を作らない
+        fun tiles(map: Map<Pair<Int, Int>, ImageBitmap>, z: Int, alpha: Float) {
+            if (map.isEmpty()) return
+            val side = 256f * 2f.pow(frame.zoom - z)
+            map.forEach { (key, img) ->
+                val l = (size.width / 2 + (key.first * side - frame.centerX) * unit).roundToInt()
+                val t = (size.height / 2 + (key.second * side - frame.centerY) * unit).roundToInt()
+                val r = (size.width / 2 + ((key.first + 1) * side - frame.centerX) * unit).roundToInt()
+                val b = (size.height / 2 + ((key.second + 1) * side - frame.centerY) * unit).roundToInt()
+                if (r < 0 || b < 0 || l > size.width || t > size.height) return@forEach
+                drawImage(img, dstOffset = IntOffset(l, t), dstSize = IntSize(r - l, b - t), alpha = alpha, filterQuality = FilterQuality.Low)
+            }
+        }
+        tiles(frame.old, frame.oldZoom, 1f)
+        tiles(frame.base, frame.zoom, 1f)
+        // 新しいズームの雨雲が揃うまでは前の雨雲を敷く
+        tiles(frame.oldRain, frame.oldRainZoom, 0.85f)
+        tiles(frame.rain, frame.rainZoom, 0.85f)
+        if (empty) return@Canvas
+        // 天気の地点
+        val c = Offset(
+            size.width / 2 + (frame.homeX - frame.centerX) * unit,
+            size.height / 2 + (frame.homeY - frame.centerY) * unit,
+        )
+        drawCircle(accent.copy(alpha = 0.3f), 7.dp.toPx(), c)
+        drawCircle(accent, 3.dp.toPx(), c)
+        drawCircle(Color.White, 3.dp.toPx(), c, style = Stroke(1.dp.toPx()))
+    }
+}
+
+/**
+ * 地図アプリと同じく、上に「＋」、下に「−」、その下に「現在地に戻る」（ズームはそのまま）。
+ * 端まで来たほうは薄くして押せなくする。地点から動かしていなければ「現在地に戻る」も薄くする。
+ */
+@Composable
+internal fun ZoomButtons(frame: DashboardViewModel.RadarFrame, onZoom: (Int) -> Unit, onRecenter: () -> Unit, side: Dp, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(side / 5)).background(Wd.Surface.copy(alpha = 0.85f))) {
+        ZoomButton("拡大", frame.canZoomIn, side, { onZoom(1) }) { c -> Text("＋", color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
+        Box(Modifier.width(side).height(1.dp).background(Wd.BorderSoft))
+        ZoomButton("縮小", frame.canZoomOut, side, { onZoom(-1) }) { c -> Text("−", color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
+        Box(Modifier.width(side).height(1.dp).background(Wd.BorderSoft))
+        ZoomButton("現在地に戻る", frame.panned, side, onRecenter) { c -> Icon(WdIcons.Locate, null, tint = c, modifier = Modifier.size(side * 0.52f)) }
     }
 }
 
 @Composable
-private fun ZoomButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ZoomButton(description: String, enabled: Boolean, side: Dp, onClick: () -> Unit, content: @Composable (Color) -> Unit) {
     Box(
-        Modifier.size(30.dp).clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
+        Modifier.size(side).clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (enabled) Wd.Text else Wd.Text3.copy(alpha = 0.5f), fontSize = 16.tu, lineHeight = 16.tu)
+        content(if (enabled) Wd.Text else Wd.Text3.copy(alpha = 0.5f))
     }
 }
 
 @Composable
-private fun Legend(modifier: Modifier) {
+internal fun RainLegend(modifier: Modifier) {
     Row(
         modifier.clip(RoundedCornerShape(6.dp)).background(Wd.Surface.copy(alpha = 0.8f)).padding(horizontal = 5.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,

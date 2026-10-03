@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
                 colorOf(config.display.accent),
                 light = config.display.theme == "light",
                 cardAlpha = if (hasWallpaper) config.display.cardOpacity.toFloat() else 1f,
+                cardTint = config.display.cardColor.takeIf { it.isNotEmpty() }?.let { colorOf(it) },
             ) {
                 Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
                     DashboardScreen(vm, onOpenSettings = { settingsOpen = true }, onOpenBrowser = { browserUrl = "" })

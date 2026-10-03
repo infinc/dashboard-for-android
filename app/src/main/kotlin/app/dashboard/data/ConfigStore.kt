@@ -104,6 +104,15 @@ class ConfigStore(context: Context) {
         disasterTone = n.disasterTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_DISASTER,
         chargingTone = n.chargingTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_CHARGING,
         timerTone = n.timerTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_TIMER,
+        batteryLowPercent = n.batteryLowPercent.coerceIn(5, 80),
+        batteryLowTone = n.batteryLowTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_BATTERY_LOW,
+        memoTone = n.memoTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_MEMO,
+        batteryHotC = n.batteryHotC.coerceIn(30, 60),
+        batteryHotTone = n.batteryHotTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_BATTERY_HOT,
+        wifiLostTone = n.wifiLostTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_WIFI_LOST,
+        // 降水ナウキャストは 5 分刻みで 60 分先まで
+        rainMinutes = (n.rainMinutes / 5 * 5).coerceIn(5, 60),
+        rainTone = n.rainTone.takeIf(Tones::isKnown) ?: Tones.DEFAULT_RAIN,
     )
 
     /** フィードは数と件数に上限を設ける。壁掛けで読める量と、取得にかかる時間の両方のため。 */
@@ -123,6 +132,7 @@ class ConfigStore(context: Context) {
         accent = if (Accents.isKnown(d.accent)) d.accent.uppercase() else Accents.DEFAULT,
         theme = if (d.theme in ALLOWED_THEMES) d.theme else "dark",
         cardOpacity = d.cardOpacity.coerceIn(0.2, 1.0),
+        cardColor = if (CardColors.isKnown(d.cardColor)) d.cardColor.uppercase() else "",
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
         clockDateFormat = if (d.clockDateFormat in ALLOWED_DATE_FORMATS) d.clockDateFormat else "ja",
         hourlyMode = if (d.hourlyMode in ALLOWED_HOURLY_MODES) d.hourlyMode else "both",

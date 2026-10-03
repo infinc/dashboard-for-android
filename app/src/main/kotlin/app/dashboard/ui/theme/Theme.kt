@@ -91,6 +91,9 @@ object Wd {
     /** 背景画像を出しているときのカードの不透明度。背景画像が無いときは 1。 */
     var cardAlpha: Float by mutableFloatStateOf(1f)
 
+    /** カードの背景色（設定の「カードの背景色」）。null なら既定（テーマの面の色）。 */
+    var cardTint: Color? by mutableStateOf(null)
+
     val Bg get() = palette.bg
     val Surface get() = palette.surface
     val Surface2 get() = palette.surface2
@@ -123,6 +126,16 @@ fun colorOf(hex: String, fallback: Color = DarkPalette.cyan): Color =
 fun Color.readable(t: Float = 0.42f): Color = if (Wd.palette.light) darken(t) else
     Color(red + (1 - red) * t, green + (1 - green) * t, blue + (1 - blue) * t, alpha)
 
+/**
+ * カードの面の色。設定の背景色をテーマの面の色に混ぜる（そのままの色にすると、明るい色の上で白い文字が読めなくなるため）。
+ * ダークは 32%、ホワイトは 18% だけ寄せる。
+ */
+fun cardSurface(base: Color): Color {
+    val tint = Wd.cardTint ?: return base
+    val k = if (Wd.palette.light) 0.18f else 0.32f
+    return Color(base.red + (tint.red - base.red) * k, base.green + (tint.green - base.green) * k, base.blue + (tint.blue - base.blue) * k, base.alpha)
+}
+
 fun Color.darken(t: Float): Color = Color(red * (1 - t), green * (1 - t), blue * (1 - t), alpha)
 
 /**
@@ -153,9 +166,10 @@ fun vhText(percent: Float, min: Float, max: Float): TextUnit =
  * ホワイトでは、明るい面の上で線や文字が薄くならないよう強調色を少し濃くして使う。
  */
 @Composable
-fun DashboardTheme(accent: Color, light: Boolean, cardAlpha: Float, content: @Composable () -> Unit) {
+fun DashboardTheme(accent: Color, light: Boolean, cardAlpha: Float, cardTint: Color? = null, content: @Composable () -> Unit) {
     Wd.palette = if (light) LightPalette else DarkPalette
     Wd.cardAlpha = cardAlpha
+    Wd.cardTint = cardTint
     val shown = if (light) accent.darken(0.22f) else accent
     val scheme = if (light) {
         lightColorScheme(
