@@ -13,6 +13,7 @@ import app.dashboard.data.Http
 import app.dashboard.data.LyricsRepository
 import app.dashboard.data.MemoRepository
 import app.dashboard.data.PhotoRepository
+import app.dashboard.data.RainForecast
 import app.dashboard.data.SpotifyRepository
 import app.dashboard.data.StocksRepository
 import app.dashboard.data.TodayRepository
@@ -57,6 +58,7 @@ class AppGraph private constructor(context: Context) {
     val holidays = HolidayRepository(this.context, http)
     val photos = PhotoRepository(config)
     val lyrics = LyricsRepository(this.context, http)
+    val rain = RainForecast(http)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)

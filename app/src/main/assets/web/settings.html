@@ -111,7 +111,7 @@
         <i class="dot" data-w="showPhotos"></i><span>写真</span>
       </button>
       <button class="nav-item" type="button" data-pane="crypto">
-        <i class="dot" data-w="showCrypto"></i><span>暗号資産</span>
+        <i class="dot" data-w="showCrypto"></i><span>暗号通貨</span>
       </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
@@ -221,6 +221,12 @@
         <div class="status" id="wallpaperStatus"></div>
       </div>
 
+      <div class="field" style="max-width:320px">
+        <label for="cardColor">カードの背景色</label>
+        <select id="cardColor"></select>
+        <div class="hint">すべてのカードの面の色です。文字が読めるよう、選んだ色をテーマの面の色に混ぜて使います（ダークは 3 割ほど、ホワイトは 2 割ほど）。背景画像があるときは下の不透明度も効きます。</div>
+      </div>
+
       <div class="field">
         <label for="cardOpacity">カードの不透明度 <b id="cardOpacityValue" class="val"></b></label>
         <input id="cardOpacity" type="range" min="20" max="100" step="5">
@@ -303,6 +309,36 @@
         <label for="timerTone">タイマーの音</label>
         <div class="row"><select id="timerTone" class="tone"></select><button id="previewTimer" class="ghost" type="button">試聴</button></div>
         <div class="hint">タイマーの鳴動は切れません（自分で時間を決めて鳴らすもののため）。</div>
+      </div>
+
+      <h2 class="sub">ほかの通知（切ると音もバナーも出ません）</h2>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="batteryLowEnabled"> 電池の残量が少ないことを知らせる</label>
+        <div class="row"><select id="batteryLowPercent"><option value="5">5% を切ったら</option><option value="10">10% を切ったら</option><option value="15">15% を切ったら</option><option value="20">20% を切ったら</option><option value="25">25% を切ったら</option><option value="30">30% を切ったら</option><option value="40">40% を切ったら</option><option value="50">50% を切ったら</option></select></div>
+        <div class="row"><select id="batteryLowTone" class="tone"></select><button id="previewBatteryLow" class="ghost" type="button">試聴</button></div>
+        <div class="hint">充電していないときに、残量が決めた値を切ったら 1 回知らせます（2% 戻るか充電すると、次も知らせます）。</div>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="batteryHotEnabled"> 電池の温度が高いことを知らせる</label>
+        <div class="row"><select id="batteryHotC"><option value="35">35 ℃ を超えたら</option><option value="38">38 ℃ を超えたら</option><option value="40">40 ℃ を超えたら</option><option value="42">42 ℃ を超えたら</option><option value="45">45 ℃ を超えたら</option><option value="50">50 ℃ を超えたら</option></select></div>
+        <div class="row"><select id="batteryHotTone" class="tone"></select><button id="previewBatteryHot" class="ghost" type="button">試聴</button></div>
+        <div class="hint">電池の温度が決めた値を超えたら 1 回知らせます（1 ℃ 下がると、次も知らせます）。</div>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="memoEnabled"> LINE メモが届いたことを知らせる</label>
+        <div class="row"><select id="memoTone" class="tone"></select><button id="previewMemo" class="ghost" type="button">試聴</button></div>
+        <div class="hint">新しいメモが届いたら、メモの中身をバナーに出します。</div>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="wifiLostEnabled"> Wi-Fi が切れたことを知らせる</label>
+        <div class="row"><select id="wifiLostTone" class="tone"></select><button id="previewWifiLost" class="ghost" type="button">試聴</button></div>
+        <div class="hint">Wi-Fi の接続が 4 秒ほど続けて切れていたら知らせます。</div>
+      </div>
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="rainEnabled"> まもなく雨が降ることを知らせる</label>
+        <div class="row"><select id="rainMinutes"><option value="10">10 分以内に降り始めるとき</option><option value="15">15 分以内に降り始めるとき</option><option value="20">20 分以内に降り始めるとき</option><option value="30">30 分以内に降り始めるとき</option><option value="45">45 分以内に降り始めるとき</option><option value="60">60 分以内に降り始めるとき</option></select></div>
+        <div class="row"><select id="rainTone" class="tone"></select><button id="previewRain" class="ghost" type="button">試聴</button></div>
+        <div class="hint">「場所」の地点で、決めた時間のうちに雨が降り始める予報が出たら知らせます。気象庁の降水ナウキャスト（雨雲レーダーの予報、5 分ごと）で調べ、国外の地点では時間別予報を使います。</div>
       </div>
 
       <div class="field">
@@ -876,10 +912,10 @@
       <div class="notice info">カードが横長のときは左に表示・右に鍵盤、「カードの配置」で縦に 2 行ぶんへ伸ばすと上に表示・下に大きな鍵盤になります。</div>
     </section>
 
-    <!-- ======================================================= 暗号資産 -->
+    <!-- ======================================================= 暗号通貨 -->
     <section class="pane" data-pane="crypto">
-      <h1>暗号資産</h1>
-      <p class="lead">選んだ 1 つの暗号資産の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。</p>
+      <h1>暗号通貨</h1>
+      <p class="lead">選んだ 1 つの暗号通貨の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。</p>
       <div class="field card-switch">
         <label class="toggle"><input type="checkbox" data-w="showCrypto" data-card> このカードをダッシュボードに表示する</label>
       </div>

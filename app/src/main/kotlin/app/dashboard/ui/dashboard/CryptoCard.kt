@@ -53,17 +53,18 @@ val CRYPTO_RANGE_LABELS: List<Pair<String, String>> = listOf("1" to "24 時間",
 val CRYPTO_CHARTS: List<Pair<String, String>> = listOf("line" to "折れ線", "candle" to "ろうそく足")
 
 /**
- * 暗号資産。設定で選んだ 1 つの通貨の値・変化率と、期間のチャート（折れ線かろうそく足）を 1 つだけ出す。
+ * 暗号通貨。設定で選んだ 1 つの通貨の値・変化率と、期間のチャート（折れ線かろうそく足）を 1 つだけ出す。
  * 上の行に記号・名前と変化率、その下に大きく値、残りの高さをチャートに使う。
  * 見出しの右の「−」「＋」で、設定を開かずにチャートの期間（横の幅）を短く・長くできる（[onStep] に −1 / +1）。
+ * 見出しのすぐ右のボタンで画面いっぱいに出す（[CryptoScreen]。いろいろな通貨・期間・描き方のチャートを見られる）。
  */
 @Composable
-fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -> Unit, modifier: Modifier) {
+fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -> Unit, onExpand: () -> Unit, modifier: Modifier) {
     // 設定を変えた直後は、前の通貨の値を出さない
     val c = s?.takeIf { it.coin == config.coin && it.currency == config.currency && it.range == config.range }
     val rangeLabel = CRYPTO_RANGE_LABELS.firstOrNull { it.first == config.range }?.second ?: config.range
     val index = CRYPTO_RANGES.indexOf(config.range)
-    WdCard("暗号資産", modifier, headerEnd = {
+    WdCard("暗号通貨", modifier, titleAction = { ExpandButton(onExpand, Wd.Text3) }, headerEnd = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 幅が足りないときは、取得した時刻のほうを縮める
             if (c != null && c.fetchedAt > 0) {
@@ -141,7 +142,7 @@ private fun StepButton(label: String, description: String, enabled: Boolean, onC
 private const val WIDE_PRICE = 11
 
 /** 値の書き方。大きい値は整数、1 未満の値は有効数字 4 桁まで。 */
-private fun money(v: Double, currency: String): String {
+internal fun money(v: Double, currency: String): String {
     val mark = if (currency == "usd") "$" else "¥"
     val a = abs(v)
     return mark + when {

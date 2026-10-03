@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.withLock
 import java.net.URLEncoder
 
 /**
- * 暗号資産の値とチャート（1 つだけ）。CoinGecko の公開 API（登録不要）から、設定した間隔（既定 10 分）で取る。
+ * 暗号通貨の値とチャート（1 つだけ）。CoinGecko の公開 API（登録不要）から、設定した間隔（既定 10 分）で取る。
  *
  * Phantom の API（api.phantom.app）は公開されておらず、アプリの外からは 403 で断られるので使えない。
  * CoinGecko の登録なしの枠は 1 分に数回までなので、1 回の更新は 2 回の通信（値と、折れ線かろうそく足のどちらか）に留める。
@@ -74,6 +74,78 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
 
     private fun keyOf(config: CryptoConfig) = config.copy(intervalMin = 0)
 
+    /** 全画面の結果（通貨・値の通貨・期間・ろうそく足かどうかごと）。[DETAIL_FRESH_MS] のうちは取り直さない。 */
+    private val details = HashMap<String, CryptoDetail>()
+
+    /**
+     * 全画面に出す詳しい値とチャート。値（`coins/markets`）・折れ線と出来高（`market_chart`）、ろうそく足を選んだら `ohlc` も取る。
+     * カードの見回りと同じ枠を使うので、同時には取りに行かない。
+     */
+    suspend fun detail(coin: String, currency: String, days: String, candle: Boolean): CryptoDetail = lock.withLock {
+        val key = listOf(coin, currency, days, candle).joinToString("/")
+        details[key]?.takeIf { System.currentTimeMillis() - it.fetchedAt < DETAIL_FRESH_MS }?.let { return@withLock it }
+        try {
+            fetchDetail(coin, currency, days, candle).also {
+                if (details.size >= MAX_CACHE) details.minByOrNull { e -> e.value.fetchedAt }?.let { e -> details.remove(e.key) }
+                details[key] = it
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "暗号通貨の詳しい値の取得に失敗: $coin", e)
+            throw IllegalStateException(describe(e), e)
+        }
+    }
+
+    private suspend fun fetchDetail(coin: String, currency: String, days: String, candle: Boolean): CryptoDetail {
+        val period = PERIODS[days]
+        // 変化率は全部の期間を 1 度に頼む（期間を切り替えても同じ問い合わせになり、取り直さずに済む）
+        val market = Http.json.parseToJsonElement(
+            cachedGet("$BASE/coins/markets", "vs_currency" to currency, "ids" to coin, "price_change_percentage" to "24h,7d,30d,1y"),
+        ).jsonArray.firstOrNull()?.jsonObject ?: throw NotFound()
+        val path = "$BASE/coins/" + URLEncoder.encode(coin, "UTF-8")
+        val chart = Http.json.parseToJsonElement(cachedGet("$path/market_chart", "vs_currency" to currency, "days" to days)).jsonObject
+        fun series(name: String) = chart[name]?.jsonArray?.mapNotNull { row ->
+            val t = row.jsonArray.getOrNull(0)?.jsonPrimitive?.doubleOrNull?.toLong()
+            val v = row.jsonArray.getOrNull(1)?.jsonPrimitive?.doubleOrNull
+            if (t != null && v != null) t to v else null
+        }.orEmpty()
+        val prices = series("prices")
+        val volumes = series("total_volumes").toMap()
+        val picked = pick(prices.size, MAX_DETAIL_POINTS).map { prices[it] }
+        val candles = if (!candle) emptyList() else merge(
+            Http.json.parseToJsonElement(cachedGet("$path/ohlc", "vs_currency" to currency, "days" to days)).jsonArray.mapNotNull { row ->
+                val v = row.jsonArray.mapNotNull { it.jsonPrimitive.doubleOrNull }
+                if (v.size == 5) CryptoCandle(v[1], v[2], v[3], v[4], v[0].toLong()) else null
+            },
+            MAX_DETAIL_CANDLES,
+        )
+        val price = market.num("current_price") ?: prices.lastOrNull()?.second
+        val first = candles.firstOrNull()?.open ?: prices.firstOrNull()?.second
+        return CryptoDetail(
+            coin = coin,
+            currency = currency,
+            days = days,
+            name = market["name"]?.jsonPrimitive?.contentOrNull,
+            symbol = market["symbol"]?.jsonPrimitive?.contentOrNull?.uppercase(),
+            rank = market.num("market_cap_rank")?.toInt(),
+            price = price,
+            changePercent = period?.let { market.num("price_change_percentage_${it}_in_currency") }
+                ?: if (price != null && first != null && first != 0.0) (price - first) / first * 100 else null,
+            change24h = market.num("price_change_percentage_24h_in_currency") ?: market.num("price_change_percentage_24h"),
+            high = candles.maxOfOrNull { it.high } ?: prices.maxOfOrNull { it.second },
+            low = candles.minOfOrNull { it.low } ?: prices.minOfOrNull { it.second },
+            marketCap = market.num("market_cap"),
+            volume24h = market.num("total_volume"),
+            ath = market.num("ath"),
+            athChangePercent = market.num("ath_change_percentage"),
+            times = picked.map { it.first },
+            prices = picked.map { it.second },
+            // 出来高は値と同じ時刻のもの（無ければ 0）
+            volumes = picked.map { volumes[it.first] ?: 0.0 },
+            candles = candles,
+            fetchedAt = System.currentTimeMillis(),
+        )
+    }
+
     private suspend fun load(config: CryptoConfig) {
         lastAttemptAt = System.currentTimeMillis()
         val key = keyOf(config)
@@ -83,7 +155,7 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
             cache[key] = fresh
             state = fresh
         } catch (e: Exception) {
-            Log.w(TAG, "暗号資産の取得に失敗: ${config.coin}", e)
+            Log.w(TAG, "暗号通貨の取得に失敗: ${config.coin}", e)
             // 別の通貨・期間の値は、失敗したときに残さない
             val previous = cache[key] ?: CryptoState(config.coin, config.currency, config.range)
             state = previous.copy(lastError = describe(e))
@@ -151,19 +223,34 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
             block()
         }.bodyAsText()
 
-    /** チャートに描く点を [MAX_POINTS] まで等間隔に間引く（最初と最後は残す）。 */
-    private fun thin(points: List<Double>): List<Double> =
-        if (points.size <= MAX_POINTS) points
-        else List(MAX_POINTS) { i -> points[(i.toLong() * (points.size - 1) / (MAX_POINTS - 1)).toInt()] }
+    /** 全画面の応答（URL ごと）。描き方や期間を切り替えても、同じ問い合わせは [DETAIL_FRESH_MS] のうち取り直さない。 */
+    private val bodies = HashMap<String, Pair<Long, String>>()
 
-    /** ろうそく足が多すぎると 1 本が細くて読めないので、隣どうしをまとめて [MAX_CANDLES] 本までにする。 */
-    private fun merge(candles: List<CryptoCandle>): List<CryptoCandle> {
-        if (candles.size <= MAX_CANDLES) return candles
-        val group = (candles.size + MAX_CANDLES - 1) / MAX_CANDLES
+    private suspend fun cachedGet(url: String, vararg params: Pair<String, String>): String {
+        val key = url + params.joinToString("&", "?") { "${it.first}=${it.second}" }
+        val now = System.currentTimeMillis()
+        bodies[key]?.takeIf { now - it.first < DETAIL_FRESH_MS }?.let { return it.second }
+        val body = get(url) { params.forEach { (k, v) -> parameter(k, v) } }
+        if (bodies.size >= 32) bodies.entries.removeAll { now - it.value.first >= DETAIL_FRESH_MS }
+        bodies[key] = now to body
+        return body
+    }
+
+    /** チャートに描く点を [MAX_POINTS] まで等間隔に間引く（最初と最後は残す）。 */
+    private fun thin(points: List<Double>): List<Double> = pick(points.size, MAX_POINTS).map { points[it] }
+
+    /** [size] 個から [max] 個を等間隔に選ぶときの番号（最初と最後は残す）。 */
+    private fun pick(size: Int, max: Int): List<Int> =
+        if (size <= max) List(size) { it } else List(max) { i -> (i.toLong() * (size - 1) / (max - 1)).toInt() }
+
+    /** ろうそく足が多すぎると 1 本が細くて読めないので、隣どうしをまとめて [max] 本までにする。 */
+    private fun merge(candles: List<CryptoCandle>, max: Int = MAX_CANDLES): List<CryptoCandle> {
+        if (candles.size <= max) return candles
+        val group = (candles.size + max - 1) / max
         // 端数は古い側に寄せ、いちばん新しい足が欠けないようにする
         val head = candles.size % group
         return (listOfNotNull(candles.take(head).takeIf { it.isNotEmpty() }) + candles.drop(head).chunked(group)).map { g ->
-            CryptoCandle(g.first().open, g.maxOf { it.high }, g.minOf { it.low }, g.last().close)
+            CryptoCandle(g.first().open, g.maxOf { it.high }, g.minOf { it.low }, g.last().close, g.last().time)
         }
     }
 
@@ -185,7 +272,11 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
         const val MAX_POINTS = 180
         const val MAX_CANDLES = 48
         const val MAX_CACHE = 16
+        const val MAX_DETAIL_POINTS = 360
+        const val MAX_DETAIL_CANDLES = 90
+        const val DETAIL_FRESH_MS = 180_000L
         /** チャートの期間（日数）→ CoinGecko の変化率の期間の名前。 */
         val PERIODS = mapOf("1" to "24h", "7" to "7d", "30" to "30d", "365" to "1y")
+        // 90 日は CoinGecko の変化率に無いので、チャートの始まりの値から求める
     }
 }

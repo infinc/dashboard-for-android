@@ -29,7 +29,8 @@ function readChoices() {
   const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/dashboard/data/Choices.kt"), "utf8");
   const accents = [...kt.matchAll(/Accent\("(#[0-9A-Fa-f]{6})", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
   const tones = [...kt.matchAll(/Tone\("([a-z]+)", "([^"]+)"/g)].map((m) => ({ value: m[1], label: m[2] }));
-  return { accents, tones };
+  const cardColors = [...kt.matchAll(/CardColor\("(#[0-9A-Fa-f]{6}|)", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
+  return { accents, tones, cardColors };
 }
 
 // Kotlin の PublicConfig と同じ形。Models.kt に項目を足したらここにも足すこと
@@ -41,7 +42,7 @@ let config = {
   units: { temperature: "c", wind: "kmh", clock24h: true, showSeconds: true },
   display: {
     showClock: true, showWifi: true, showWeather: true, showHourly: true, showDaily: true, showSun: true,
-    accent: "#4DD4FF", theme: "dark", cardOpacity: 0.6, normalBrightness: 1.0, burnInShiftEnabled: true,
+    accent: "#4DD4FF", theme: "dark", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true,
     idleDimEnabled: true, idleDimAfterSeconds: 300, idleDimBrightness: 0.15,
     showDisaster: true, showFeed: true, showDeviceStats: true, showMemo: true,
     showTimer: true, showWord: true, showSpotify: true, showHamster: true,
@@ -62,6 +63,11 @@ let config = {
   notifications: {
     disasterSound: true, chargingSound: true, volume: 0.7,
     disasterTone: "chime", chargingTone: "rise", timerTone: "beep",
+    batteryLowEnabled: true, batteryLowPercent: 20, batteryLowTone: "descend",
+    memoEnabled: true, memoTone: "notice",
+    batteryHotEnabled: true, batteryHotC: 40, batteryHotTone: "alarm",
+    wifiLostEnabled: true, wifiLostTone: "knock",
+    rainEnabled: true, rainMinutes: 30, rainTone: "soft",
   },
   wallpaper: { imageSetAt: 0 },
   train: { enabled: false, tokenSet: false, challengeTokenSet: false, railways: [] },
@@ -100,7 +106,7 @@ const CARDS = [
   ["RADAR", "showRadar", 8, 5, "雨雲レーダー"], ["SUN_MOON", "showSunMoon", 8, 7, "日の出・月"], ["COUNTDOWN", "showCountdown", 8, 6, "カウントダウン"],
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
   ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
-  ["CRYPTO", "showCrypto", 8, 5, "暗号資産"],
+  ["CRYPTO", "showCrypto", 8, 5, "暗号通貨"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));

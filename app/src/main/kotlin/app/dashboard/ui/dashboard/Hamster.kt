@@ -35,16 +35,98 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.min
+import kotlin.math.sin
 import kotlin.random.Random
 
 /*
  * 画面下の回し車とハムスター。
  * 意匠は Uiverse.io の Nawsome 作「Loader」（MIT License）。形・色・動きの値は元の CSS のまま。
- * 動きは 4 つだけ: 走る・休む（車の中）／歩く・立ち止まる（車の外）。外を歩き終えたら必ず車へ戻る。
+ * 動き: 走る・止まる・休む・走り出す（車の中）／歩く・立ち止まる（車の外）。外を歩き終えたら必ず車へ戻り、走り出す。
+ *
+ * 止まるとき: 足を止めると、回っていた車がそのままハムスターを右へ運び上げ、重みで時計回りに戻る。
+ * そこから振り子のように左右へ揺れ、だんだん小さくなって止まる（[Motion.step] の減衰する振り子）。
+ * 走り出すとき: 足を動かし始めると左の坂を上がり、その重みで車が反時計回りに回り始める。
+ * 車に運ばれて右へ動き、足は動かしたまま、だんだん真ん中へ戻る。
  */
 
-private enum class Mode { RUN, REST, WALK, STAND }
+private enum class Mode { RUN, STOPPING, REST, STARTING, WALK, STAND }
+
+/**
+ * 回し車とハムスターの動きの状態。毎フレーム [step] で進める。
+ * Compose の状態にはしない（描き直しは約 30 コマ/秒の時計の更新に任せ、古い端末の負担を増やさない）。
+ */
+private class Motion {
+    /** 車の角度（度。負が反時計回り）。 */
+    var wheel = 0f
+    /** 車の中でのハムスターの位置（車の中心まわりの角度、度。正 = 左の坂、負 = 右）。 */
+    var tilt = 0f
+    /** [tilt] の速さ（度/秒）。止まるときの振り子に使う。 */
+    var tiltSpeed = 0f
+    /** 足の動きの時計（ms）。足を止めている間は進まない。 */
+    var legs = 0L
+    private var legRate = 1f
+    private var since = 0L
+    /** 止まる・走り出すの動きが終わったか。 */
+    var done = false
+
+    fun begin(mode: Mode, now: Long) {
+        since = now
+        done = false
+        // 足を止めた瞬間の車の勢いのまま、ハムスターは右へ運ばれる
+        if (mode == Mode.STOPPING) tiltSpeed = RUN_SPIN * CARRY
+    }
+
+    fun step(mode: Mode, now: Long, dt: Float) {
+        when (mode) {
+            Mode.RUN -> {
+                legRate = 1f
+                wheel += RUN_SPIN * dt
+                tilt = 0f
+            }
+            Mode.STOPPING -> {
+                legRate = 0f
+                // 車とハムスターがいっしょに動く振り子。重みで真下へ戻ろうとし、軸の摩擦で揺れが小さくなる
+                val acc = -SWING_K * sin(Math.toRadians(tilt.toDouble())).toFloat() * (180f / PI.toFloat()) - SWING_DAMP * tiltSpeed
+                tiltSpeed += acc * dt
+                tilt += tiltSpeed * dt
+                wheel += tiltSpeed * dt
+                val e = now - since
+                if (e > 1500 && abs(tilt) < 0.4f && abs(tiltSpeed) < 4f || e > 9000) {
+                    tilt = 0f
+                    tiltSpeed = 0f
+                    done = true
+                }
+            }
+            Mode.STARTING -> {
+                val e = (now - since) / 1000f
+                if (e < LEAN_S) {
+                    // 足を動かし始めて、左の坂を上がる（車はまだ動かない）
+                    legRate = 0.55f + 0.45f * e / LEAN_S
+                    tilt = LEAN * EASE.transform(e / LEAN_S)
+                } else {
+                    // 重みで車が反時計回りに回り始め、ハムスターは右へ運ばれてから、だんだん真ん中へ戻る
+                    val u = e - LEAN_S
+                    legRate = 1f
+                    wheel += RUN_SPIN * EASE.transform(min(1f, u / SPIN_UP_S)) * dt
+                    tilt = LEAN * exp(-0.7f * u) * cos(2.4f * u)
+                    if (u > 4.5f) {
+                        tilt = 0f
+                        done = true
+                    }
+                }
+            }
+            Mode.REST, Mode.STAND -> legRate = 0f
+            Mode.WALK -> legRate = 1f
+        }
+        legs += (dt * 1000f * legRate).toLong()
+        wheel %= 360f
+    }
+}
 
 private val ORANGE = Color(0xFFF38C25)
 private val ORANGE_LIGHT = Color(0xFFFACC9E)
@@ -59,6 +141,17 @@ private val EASE = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 private const val BASE_X = -5.2f
 private const val BASE_Y = 13f
 private const val WALK_SPEED = 32f
+/** 走っているときの車の速さ（度/秒。負が反時計回り）。元の CSS の 1 回転/秒。 */
+private const val RUN_SPIN = -360f
+/** 足を止めた瞬間に、車の勢いのうちどれだけでハムスターが運ばれるか。 */
+private const val CARRY = 0.8f
+/** 止まるときの振り子の強さ（1/秒²）と、揺れの減り方（1/秒）。揺れ幅は最初 40 度ほど、6〜7 秒で止まる。 */
+private const val SWING_K = 40f
+private const val SWING_DAMP = 1.4f
+/** 走り出すときに左の坂を上がる角度（度）と時間（秒）、車が走る速さに達するまでの時間（秒）。 */
+private const val LEAN = 32f
+private const val LEAN_S = 0.9f
+private const val SPIN_UP_S = 1.4f
 
 @Composable
 fun Hamster(modifier: Modifier = Modifier) {
@@ -66,13 +159,20 @@ fun Hamster(modifier: Modifier = Modifier) {
     var x by remember { mutableFloatStateOf(0f) }
     var dir by remember { mutableIntStateOf(-1) }
     var time by remember { mutableLongStateOf(0L) }
+    val motion = remember { Motion() }
     val width = LocalConfiguration.current.screenWidthDp.toFloat()
     val rest by animateFloatAsState(if (mode == Mode.REST) 1f else 0f, tween(800), label = "rest")
 
     LaunchedEffect(Unit) {
         var last = 0L
+        var prev = 0L
         while (true) {
-            withFrameMillis { if (it - last >= 33) { time = it; last = it } }
+            withFrameMillis {
+                // 動きは毎フレーム進め、描き直しは約 30 コマ/秒にする
+                motion.step(mode, it, if (prev == 0L) 0f else (it - prev).coerceAtMost(100) / 1000f)
+                prev = it
+                if (it - last >= 33) { time = it; last = it }
+            }
         }
     }
 
@@ -97,10 +197,17 @@ fun Hamster(modifier: Modifier = Modifier) {
             }
             return if (x > (lo + hi) / 2) lo else hi
         }
+        /** 止まる・走り出すの動きを、終わるまで見届ける。 */
+        suspend fun play(next: Mode) {
+            motion.begin(next, withFrameMillis { it })
+            mode = next
+            while (!motion.done) withFrameMillis { }
+        }
         x = 0f
         while (true) {
             mode = Mode.RUN
             delay(Random.nextLong(18_000, 40_000))
+            play(Mode.STOPPING)
             if (Random.nextBoolean()) {
                 mode = Mode.REST
                 delay(Random.nextLong(10_000, 24_000))
@@ -112,11 +219,12 @@ fun Hamster(modifier: Modifier = Modifier) {
                 }
                 walkTo(0f)
             }
+            play(Mode.STARTING)
         }
     }
 
     Canvas(modifier.size(78.dp)) {
-        drawHamster(time, mode, x, dir, rest)
+        drawHamster(time, mode, x, dir, rest, motion)
     }
 }
 
@@ -127,21 +235,20 @@ private fun swing(t: Long, periodMs: Long, a: Float, b: Float, eased: Boolean): 
     return a + (b - a) * (if (eased) EASE.transform(f) else f)
 }
 
-private fun DrawScope.drawHamster(t: Long, mode: Mode, x: Float, dir: Int, rest: Float) {
+private fun DrawScope.drawHamster(t: Long, mode: Mode, x: Float, dir: Int, rest: Float, motion: Motion) {
     val em = size.width / 12f
     val outside = mode == Mode.WALK || mode == Mode.STAND
     val dur = if (mode == Mode.WALK) 1700L else 1000L
-    val moving = mode == Mode.RUN || mode == Mode.WALK
+    val moving = mode == Mode.RUN || mode == Mode.WALK || mode == Mode.STARTING
 
-    val spokeTurn = if (mode == Mode.RUN) -360f * (t % 1000L) / 1000f else 0f
     if (!outside) {
-        spoke(em, spokeTurn)
-        hamster(t, mode, dur, moving, em, x, dir, rest)
+        spoke(em, motion.wheel)
+        hamster(t, motion.legs, mode, dur, moving, em, x, dir, rest, motion.tilt)
         wheel(em)
     } else {
-        spoke(em, 0f)
+        spoke(em, motion.wheel)
         wheel(em)
-        hamster(t, mode, dur, moving, em, x, dir, rest)
+        hamster(t, motion.legs, mode, dur, moving, em, x, dir, rest, 0f)
     }
 }
 
@@ -158,7 +265,8 @@ private fun DrawScope.spoke(em: Float, turn: Float) {
     }
 }
 
-private fun DrawScope.hamster(t: Long, mode: Mode, dur: Long, moving: Boolean, em: Float, x: Float, dir: Int, rest: Float) {
+/** [legs] は足の動きの時計（足を止めると進まない）、[tilt] は車の中心まわりにずらす角度（正 = 左の坂）。 */
+private fun DrawScope.hamster(t: Long, legs: Long, mode: Mode, dur: Long, moving: Boolean, em: Float, x: Float, dir: Int, rest: Float, tilt: Float) {
     val boxX = 2.5f * em
     val boxY = 6f * em
     val originX = 3.5f * em
@@ -166,29 +274,31 @@ private fun DrawScope.hamster(t: Long, mode: Mode, dur: Long, moving: Boolean, e
     val walkX = (BASE_X + x).dp.toPx()
     val walkY = BASE_Y.dp.toPx()
     withTransform({
+        if (!outside) rotate(tilt, center)
         translate(boxX + originX, boxY)
         if (outside) {
             translate(walkX, walkY)
             scale(if (dir > 0) -1f else 1f, 1f, Offset.Zero)
         } else {
-            val half = (t % 1000L) / 1000f * 2f
-            val running = 4f + (0f - 4f) * EASE.transform(if (half < 1) half else 2 - half)
+            val half = (legs % 1000L) / 1000f * 2f
+            val running = if (moving) 4f + (0f - 4f) * EASE.transform(if (half < 1) half else 2 - half) else 0f
             rotate(running * (1 - rest), Offset.Zero)
             translate(-0.8f * em, (1.85f + 0.3f * rest) * em)
         }
         translate(-originX, 0f)
     }) {
-        body(t, mode, dur, moving, em)
+        body(t, legs, mode, dur, moving, em)
     }
 }
 
-private fun DrawScope.body(t: Long, mode: Mode, dur: Long, moving: Boolean, em: Float) {
+private fun DrawScope.body(t: Long, legs: Long, mode: Mode, dur: Long, moving: Boolean, em: Float) {
+    // 止まるときは足をその場で止める（足の時計が進まないので、最後の形のまま）
     fun limb(runA: Float, runB: Float, rested: Float, standing: Float): Float = when (mode) {
         Mode.REST -> rested
         Mode.STAND -> standing
-        else -> swing(t, dur, runA, runB, eased = false)
+        else -> swing(legs, dur, runA, runB, eased = false)
     }
-    val bodyRot = if (moving) swing(t, dur, 0f, -2f, eased = true) else 0f
+    val bodyRot = if (moving) swing(legs, dur, 0f, -2f, eased = true) else 0f
     val breath = if (moving) 0f else {
         val half = (t % 2800L) / 2800f * 2f
         EASE.transform(if (half < 1) half else 2 - half)
@@ -202,7 +312,7 @@ private fun DrawScope.body(t: Long, mode: Mode, dur: Long, moving: Boolean, em: 
     }) {
         frontLimb(em, limb(50f, -30f, 18f, 10f), ORANGE_LIGHT, PINK_DARK)
         backLimb(em, limb(-60f, 20f, -18f, -12f), ORANGE_LIGHT, PINK_DARK)
-        tail(em, if (moving) swing(t, dur, 30f, 10f, eased = false) else 18f)
+        tail(em, if (moving) swing(legs, dur, 30f, 10f, eased = false) else 18f)
 
         val bodyBox = RoundRect(
             Rect(0f, 0f, 4.5f * em, 3f * em),
@@ -213,14 +323,14 @@ private fun DrawScope.body(t: Long, mode: Mode, dur: Long, moving: Boolean, em: 
         )
         shape(bodyBox, CREAM, listOf(Triple(0.1f * em, 0.75f * em, ORANGE), Triple(0.15f * em, -0.5f * em, ORANGE_LIGHT)))
 
-        head(t, dur, moving, em)
+        head(t, legs, dur, moving, em)
         frontLimb(em, limb(-30f, 50f, 22f, 14f), CREAM, PINK)
         backLimb(em, limb(20f, -60f, -14f, -8f), CREAM, PINK)
     }
 }
 
-private fun DrawScope.head(t: Long, dur: Long, moving: Boolean, em: Float) {
-    val rot = if (moving) swing(t, dur, 0f, 8f, eased = true) else 0f
+private fun DrawScope.head(t: Long, legs: Long, dur: Long, moving: Boolean, em: Float) {
+    val rot = if (moving) swing(legs, dur, 0f, 8f, eased = true) else 0f
     rotate(rot, Offset(0.75f * em, 1.25f * em)) {
         translate(-2f * em, 0f) {
             val w = 2.75f * em
@@ -234,7 +344,7 @@ private fun DrawScope.head(t: Long, dur: Long, moving: Boolean, em: Float) {
             )
             shape(box, ORANGE, listOf(Triple(0f, -0.25f * em, ORANGE_LIGHT), Triple(0.75f * em, -1.55f * em, CREAM)))
 
-            val earRot = if (moving) swing(t, dur, 0f, 12f, eased = true) else 0f
+            val earRot = if (moving) swing(legs, dur, 0f, 12f, eased = true) else 0f
             rotate(earRot, Offset(2.625f * em, 0.3125f * em)) {
                 val ear = RoundRect(Rect(2.25f * em, -0.25f * em, 3f * em, 0.5f * em), CornerRadius(0.375f * em))
                 shape(ear, PINK, listOf(Triple(-0.25f * em, 0f, ORANGE)))

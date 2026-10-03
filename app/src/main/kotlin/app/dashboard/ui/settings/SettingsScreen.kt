@@ -251,7 +251,7 @@ private enum class Pane(val label: String, val group: String, val card: ((Displa
     Stocks("株価", "カード", { it.showStocks }),
     Calculator("計算機", "カード", { it.showCalculator }),
     Photos("写真", "カード", { it.showPhotos }),
-    Crypto("暗号資産", "カード", { it.showCrypto }),
+    Crypto("暗号通貨", "カード", { it.showCrypto }),
     Hamster("ハムスター", "カード", { it.showHamster }),
     Device("ホームアプリ", "端末"),
     Network("ネットワーク", "端末"),
@@ -479,6 +479,33 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
             ToneField("タイマー", "タイマーの鳴動は切れません（自分で時間を決めて鳴らすもののため）。", null, {}, tones, n.timerTone, { notify { copy(timerTone = it) } }) {
                 graph.notices.play(n.timerTone, Tones.DEFAULT_TIMER, volume = n.volume)
             }
+            Text("ほかの通知（切ると音もバナーも出ません）", color = Wd.Text, fontSize = 15.tu, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
+            ToneField(
+                "電池の残量が少ない", "充電していないときに、残量が決めた値を切ったら 1 回知らせます（2% 戻るか充電すると、次も知らせます）。",
+                n.batteryLowEnabled, { notify { copy(batteryLowEnabled = it) } }, tones, n.batteryLowTone, { notify { copy(batteryLowTone = it) } },
+                switchLabel = "知らせる",
+                threshold = { Select(app.dashboard.data.BATTERY_LOW_CHOICES.map { it to "$it% を切ったら" }, n.batteryLowPercent, { notify { copy(batteryLowPercent = it) } }) },
+            ) { graph.notices.play(n.batteryLowTone, Tones.DEFAULT_BATTERY_LOW, volume = n.volume) }
+            ToneField(
+                "電池の温度が高い", "電池の温度が決めた値を超えたら 1 回知らせます（1 ℃ 下がると、次も知らせます）。",
+                n.batteryHotEnabled, { notify { copy(batteryHotEnabled = it) } }, tones, n.batteryHotTone, { notify { copy(batteryHotTone = it) } },
+                switchLabel = "知らせる",
+                threshold = { Select(app.dashboard.data.BATTERY_HOT_CHOICES.map { it to "$it ℃ を超えたら" }, n.batteryHotC, { notify { copy(batteryHotC = it) } }) },
+            ) { graph.notices.play(n.batteryHotTone, Tones.DEFAULT_BATTERY_HOT, volume = n.volume) }
+            ToneField(
+                "LINE メモが届いた", "新しいメモが届いたら、メモの中身をバナーに出します。",
+                n.memoEnabled, { notify { copy(memoEnabled = it) } }, tones, n.memoTone, { notify { copy(memoTone = it) } }, switchLabel = "知らせる",
+            ) { graph.notices.play(n.memoTone, Tones.DEFAULT_MEMO, volume = n.volume) }
+            ToneField(
+                "Wi-Fi が切れた", "Wi-Fi の接続が 4 秒ほど続けて切れていたら知らせます。",
+                n.wifiLostEnabled, { notify { copy(wifiLostEnabled = it) } }, tones, n.wifiLostTone, { notify { copy(wifiLostTone = it) } }, switchLabel = "知らせる",
+            ) { graph.notices.play(n.wifiLostTone, Tones.DEFAULT_WIFI_LOST, volume = n.volume) }
+            ToneField(
+                "まもなく雨が降る", "「場所」の地点で、決めた時間のうちに雨が降り始める予報が出たら知らせます。気象庁の降水ナウキャスト（雨雲レーダーの予報、5 分ごと）で調べ、国外の地点では時間別予報を使います。",
+                n.rainEnabled, { notify { copy(rainEnabled = it) } }, tones, n.rainTone, { notify { copy(rainTone = it) } },
+                switchLabel = "知らせる",
+                threshold = { Select(app.dashboard.data.RAIN_MINUTE_CHOICES.map { it to "$it 分以内に降り始めるとき" }, n.rainMinutes, { notify { copy(rainMinutes = it) } }) },
+            ) { graph.notices.play(n.rainTone, Tones.DEFAULT_RAIN, volume = n.volume) }
             PercentSlider(
                 "通知音の音量", (n.volume * 100).roundToInt(), 0, 100, 5, { notify { copy(volume = it / 100.0) } },
                 "鳴らす直前に端末のメディア音量をこの大きさまで動かし、鳴り終わったら元に戻します。0% にすると鳴りません。",
@@ -688,7 +715,7 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
         Pane.Photos -> PhotosPane(graph, config, d, set)
 
         Pane.Crypto -> {
-            PaneTitle("暗号資産", "選んだ 1 つの暗号資産の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。")
+            PaneTitle("暗号通貨", "選んだ 1 つの暗号通貨の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。")
             CardSwitch(disp.showCrypto) { copy(showCrypto = it) }
             Field("表示する通貨") {
                 Select(CRYPTO_COINS + (Draft.CRYPTO_CUSTOM to "その他（ID を入力）"), d.cryptoCoin, { set(d.copy(cryptoCoin = it)) })
@@ -772,6 +799,9 @@ private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
             ActionButton("背景画像を外す", { report("背景画像を外しました") { graph.settings.clearWallpaper() } }, enabled = hasImage)
         }
         StatusText(if (status.isNotEmpty()) status else if (hasImage) "背景画像を表示中" else "背景画像なし", if (status.isNotEmpty()) statusColor else Wd.Text2)
+    }
+    Field("カードの背景色", "すべてのカードの面の色です。文字が読めるよう、選んだ色をテーマの面の色に混ぜて使います（ダークは 3 割ほど、ホワイトは 2 割ほど）。背景画像があるときは下の不透明度も効きます。") {
+        ColorSwatches(app.dashboard.data.CardColors.ALL.map { it.hex to it.label }, disp.cardColor) { set(d.copy(display = disp.copy(cardColor = it))) }
     }
     PercentSlider(
         "カードの不透明度", (disp.cardOpacity * 100).roundToInt(), 20, 100, 5, { set(d.copy(display = disp.copy(cardOpacity = it / 100.0))) },
@@ -926,10 +956,16 @@ private fun ToneField(
     tones: List<Pair<String, String>>,
     tone: String,
     onTone: (String) -> Unit,
+    switchLabel: String = "鳴らす",
+    threshold: (@Composable () -> Unit)? = null,
     onPreview: () -> Unit,
 ) {
     Field(title, hint) {
-        if (enabled != null) SwitchRow("鳴らす", enabled, onEnabled)
+        if (enabled != null) SwitchRow(switchLabel, enabled, onEnabled)
+        threshold?.let {
+            it()
+            Spacer(Modifier.height(8.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Select(tones, tone, onTone, Modifier.weight(1f))
             Spacer(Modifier.width(10.dp))
