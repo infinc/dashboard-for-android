@@ -27,6 +27,9 @@ import java.util.concurrent.TimeUnit
  * 2. webasseturls … checksum → 画像の URL（署名付きで、数時間で切れる）
  *
  * アルバムの置き場（p23 など）は URL の記号から決まるが、2024 年からは違う置き場を 330 と本文の X-Apple-MMe-Host で教えてくる。
+ *
+ * 2026 年からの新しい共有アルバム（https://photos.icloud.com/shared/album/01b… の URL）は sharedstreams に無く、
+ * CloudKit（ckdatabasews）から読む。[loadCloudKit] を参照。
  * Ktor の共有クライアントは 3xx を例外にするので、ここは OkHttp で送る。
  * URL が切れるので [INTERVAL_MS] ごとに一覧から取り直す。
  */
@@ -80,8 +83,11 @@ class PhotoRepository(private val configStore: ConfigStore) {
         if (url != lastUrl) photos = emptyList()
         lastUrl = url
         try {
-            val token = tokenOf(url) ?: error("共有アルバムの URL の形ではありません（https://www.icloud.com/sharedalbum/#B0… の形）")
-            val (name, list) = withContext(Dispatchers.IO) { load(token) }
+            val key = cloudKeyOf(url)
+            val token = if (key == null) tokenOf(url) ?: error(
+                "共有アルバムの URL の形ではありません（https://photos.icloud.com/shared/album/… か https://www.icloud.com/sharedalbum/#B0… の形）"
+            ) else null
+            val (name, list) = withContext(Dispatchers.IO) { if (key != null) loadCloudKit(key) else load(token!!) }
             photos = list
             state = PhotoState(name, list.size, System.currentTimeMillis(), if (list.isEmpty()) "アルバムに写真がありません" else null)
         } catch (e: Exception) {
@@ -141,10 +147,103 @@ class PhotoRepository(private val configStore: ConfigStore) {
         return name to list
     }
 
-    private fun post(url: String, body: String): Pair<Int, String> {
+    /**
+     * 新しい共有アルバム（photos.icloud.com/shared/album/{key}）。photos.icloud.com の Web 版と同じ手順で読む。
+     *
+     * 1. public/records/resolve … key → アルバムの名前、zoneID、匿名で読むためのトークン（20 分有効）と置き場（p50 など）
+     * 2. shared/records/query（CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted）… 写真ごとに CPLMaster（元の画像）と CPLAsset（日付・編集後の画像など）が対で来る。
+     *    startRank から古い順に読み、来た CPLAsset の数だけ startRank を進める
+     *
+     * 画像の URL（downloadURL）は署名付きで、`${f}` をファイル名に置き換えて開く。
+     */
+    private fun loadCloudKit(key: String): Pair<String?, List<Photo>> {
+        val resolve = post(
+            "https://ckdatabasews.icloud.com/database/1/com.apple.photos.cloud/production/public/records/resolve?remapEnums=true&getCurrentSyncToken=true&sharing_url_key=$key",
+            buildJsonObject { put("shortGUIDs", buildJsonArray { add(buildJsonObject { put("value", key) }) }) }.toString(),
+            CK_ORIGIN,
+        )
+        if (resolve.first == 404) error("アルバムが見つかりません。共有アルバムの「公開 Web サイト」が ON か確かめてください")
+        if (resolve.first != 200) error("iCloud が ${resolve.first} を返しました")
+        val result = (Http.json.parseToJsonElement(resolve.second).jsonObject["results"] as? JsonArray)?.firstOrNull() as? JsonObject
+            ?: error("アルバムを読めません")
+        val access = result["anonymousPublicAccess"] as? JsonObject
+            ?: error("アルバムが公開されていません。共有アルバムの「公開 Web サイト」が ON か確かめてください")
+        val token = access.text("token") ?: error("アルバムを読むためのトークンがありません")
+        val partition = access.text("databasePartition")?.removeSuffix(":443") ?: "https://ckdatabasews.icloud.com"
+        val zoneID = result["zoneID"] as? JsonObject ?: error("アルバムの置き場を決められません")
+        val name = ((result["share"] as? JsonObject)?.get("fields") as? JsonObject)?.field("cloudkit.title")?.text("value")
+        val queryUrl = "$partition/database/1/com.apple.photos.cloud/production/shared/records/query?remapEnums=true&getCurrentSyncToken=true" +
+            "&sharing_url_key=$key&publicAccessAuthToken=${java.net.URLEncoder.encode(token, "UTF-8")}"
+
+        val masters = HashMap<String, JsonObject>()
+        val assets = ArrayList<Pair<String, JsonObject>>()
+        var rank = 0
+        while (assets.size < MAX_PHOTOS) {
+            val body = buildJsonObject {
+                put("query", buildJsonObject {
+                    put("recordType", "CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted")
+                    put("filterBy", buildJsonArray {
+                        add(buildJsonObject {
+                            put("fieldName", "startRank"); put("comparator", "EQUALS")
+                            put("fieldValue", buildJsonObject { put("type", "INT64"); put("value", rank) })
+                        })
+                        add(buildJsonObject {
+                            put("fieldName", "direction"); put("comparator", "EQUALS")
+                            put("fieldValue", buildJsonObject { put("type", "STRING"); put("value", "ASCENDING") })
+                        })
+                    })
+                })
+                put("zoneID", zoneID)
+                put("resultsLimit", PAGE)
+            }.toString()
+            val res = post(queryUrl, body, CK_ORIGIN)
+            if (res.first != 200) error("写真の一覧を取得できません（${res.first}）")
+            val records = (Http.json.parseToJsonElement(res.second).jsonObject["records"] as? JsonArray).orEmpty()
+            var added = 0
+            records.forEach { e ->
+                val r = e as? JsonObject ?: return@forEach
+                val id = r.text("recordName") ?: return@forEach
+                val fields = r["fields"] as? JsonObject ?: return@forEach
+                when (r.text("recordType")) {
+                    "CPLMaster" -> masters[id] = fields
+                    "CPLAsset" -> { assets += id to fields; added++ }
+                }
+            }
+            if (added == 0) break
+            rank += added
+        }
+
+        // 写真ごとに、画面に出すのにちょうどよい大きさの JPEG を 1 つ選ぶ。編集した写真は CPLAsset の resJPEGFullRes が編集後の画像
+        val list = assets.mapNotNull { (id, a) ->
+            val masterId = (a.field("masterRef")?.get("value") as? JsonObject)?.text("recordName")
+            val m = masterId?.let { masters[it] } ?: return@mapNotNull null
+            val candidates = listOf(a to "resJPEGFull", m to "resJPEGFull", m to "resJPEGMed", m to "resJPEGThumb").mapNotNull { (f, res) ->
+                val u = (f.field("${res}Res")?.get("value") as? JsonObject)?.text("downloadURL") ?: return@mapNotNull null
+                val w = f.field("${res}Width")?.text("value")?.toIntOrNull() ?: 0
+                val h = f.field("${res}Height")?.text("value")?.toIntOrNull() ?: 0
+                Triple(u.replace("\${f}", "photo.jpg"), w, h)
+            }
+            val best = candidates.filter { maxOf(it.second, it.third) <= MAX_SIDE }.maxByOrNull { it.second * it.third }
+                ?: candidates.minByOrNull { it.second * it.third }
+                ?: return@mapNotNull null
+            val takenAt = a.field("assetDate")?.text("value")?.toLongOrNull()?.let { java.time.Instant.ofEpochMilli(it).toString() }
+            Photo(id, best.first, best.second, best.third, a.field("captionEnc")?.text("value")?.let(::decodeCaption), takenAt)
+        }.reversed()
+        return name to list
+    }
+
+    /** captionEnc は UTF-8 の文字を Base64 にしたもの。plist（bplist）で来たら読まない。 */
+    private fun decodeCaption(b64: String): String? = runCatching {
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        String(bytes, Charsets.UTF_8).takeIf { !it.startsWith("bplist") && it.isNotBlank() }
+    }.getOrNull()
+
+    private fun JsonObject.field(key: String): JsonObject? = this[key] as? JsonObject
+
+    private fun post(url: String, body: String, origin: String = "https://www.icloud.com"): Pair<Int, String> {
         val request = Request.Builder().url(url)
-            .header("Origin", "https://www.icloud.com")
-            .header("Referer", "https://www.icloud.com/sharedalbum/")
+            .header("Origin", origin)
+            .header("Referer", "$origin/")
             .post(body.toRequestBody("text/plain".toMediaType()))
             .build()
         return http.newCall(request).execute().use { it.code to (it.body?.string().orEmpty()) }
@@ -159,6 +258,10 @@ class PhotoRepository(private val configStore: ConfigStore) {
         private const val INTERVAL_MS = 30 * 60_000L
         /** 画面（1280 x 800 程度）に出すのに十分な大きさ。これより大きい元の画像は取らない。 */
         private const val MAX_SIDE = 2100
+        private const val CK_ORIGIN = "https://photos.icloud.com"
+        /** CloudKit の 1 回の問い合わせで読む数と、読む写真の上限。 */
+        private const val PAGE = 200
+        private const val MAX_PHOTOS = 5000
 
         /** 切り替えの間隔として選べる秒数。 */
         val INTERVALS = listOf(10, 30, 60, 300, 600, 1800, 3600, 10800, 86400)
@@ -170,6 +273,16 @@ class PhotoRepository(private val configStore: ConfigStore) {
         fun tokenOf(url: String): String? {
             val raw = url.trim().substringAfterLast('#').substringBefore(';').trim()
             return raw.takeIf { it.length in 10..40 && it.all { c -> c.isLetterOrDigit() } }
+        }
+
+        /**
+         * 新しい共有アルバムの URL（https://photos.icloud.com/shared/album/01b…、https://share.icloud.com/photos/01b… も）から key を取り出す。
+         * key だけ（0 で始まる）を貼られても受け付ける。古い形（#B0…）なら null。
+         */
+        fun cloudKeyOf(url: String): String? {
+            val s = url.trim()
+            Regex("""(?:/shared/album/|share\.icloud\.com/photos/)([A-Za-z0-9_-]{10,40})""").find(s)?.let { return it.groupValues[1] }
+            return s.takeIf { it.startsWith("0") && it.length in 20..40 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' } }
         }
 
         /** 記号の 2〜3 文字目（62 進数）がアルバムの置き場の番号（p01〜）。 */

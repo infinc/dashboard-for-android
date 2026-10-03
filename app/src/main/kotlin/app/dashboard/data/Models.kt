@@ -728,7 +728,7 @@ data class CalendarState(
 // ---------------------------------------------------------------- 写真（iCloud の共有アルバム）
 
 /**
- * 写真カード。iCloud の「共有アルバム」を、公開 Web サイトの URL（https://www.icloud.com/sharedalbum/#B0…）から読む。
+ * 写真カード。iCloud の「共有アルバム」を、公開 Web サイトの URL（https://photos.icloud.com/shared/album/… か https://www.icloud.com/sharedalbum/#B0…）から読む。
  * [albumUrl] は秘密（URL を知っている人は誰でも写真を見られるため）。
  * [intervalSec] は写真を切り替える間隔、[shuffle] は順番を混ぜるか。
  */

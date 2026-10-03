@@ -66,7 +66,7 @@
 | `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
 | `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
 | `data/CryptoRepository.kt` | 暗号通貨（CoinGecko の公開 API。値は `coins/markets`、チャートは折れ線なら `market_chart`・ろうそく足なら `ohlc`。期間・描き方ごとの結果を覚え、更新の間隔のうちは取り直さない） |
-| `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
+| `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを、新しい URL（photos.icloud.com/shared/album/…）は CloudKit の `records/resolve` → `records/query` で、古い URL は `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
 | `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る。503 は試し直し、`/api/get` がだめなら `/api/get-cached`、探し方ごとに失敗を切り離す。LRCLIB に時刻付きが無ければ NetEase Cloud Music。見つけた歌詞は `filesDir/lyrics/` に保存） |
 | `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
 | `data/Astro.kt` / `data/Countdown.kt` | 月の満ち欠け（Meeus の式）/ カウントダウンの行事の日時 |
