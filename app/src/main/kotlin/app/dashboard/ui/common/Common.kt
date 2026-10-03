@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.dashboard.ui.theme.Wd
+import app.dashboard.ui.theme.cardSurface
 import app.dashboard.ui.theme.tu
 
 private val CardShape = RoundedCornerShape(18.dp)
@@ -56,7 +57,7 @@ fun WdCard(
     Column(
         modifier
             .clip(CardShape)
-            .background(Brush.verticalGradient(listOf(Wd.Surface2.copy(alpha = alpha), Wd.Surface.copy(alpha = alpha))))
+            .background(Brush.verticalGradient(listOf(cardSurface(Wd.Surface2).copy(alpha = alpha), cardSurface(Wd.Surface).copy(alpha = alpha))))
             .border(1.dp, borderColor, CardShape)
             .drawWithContent {
                 drawContent()
@@ -188,6 +189,10 @@ object WdIcons {
     val More = icon("M12 7.5a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 13.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM12 20.1a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z")
     val Menu = icon("M4 6.5h16v1.8H4zM4 11.1h16v1.8H4zM4 15.7h16v1.8H4z")
     /** 画面いっぱいに広げる（四隅のかぎ）。 */
+    /** 現在地へ戻る（照準）。 */
+    val Locate = icon(
+        "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM20.9 11A9 9 0 0 0 13 3.1V1h-2v2.1A9 9 0 0 0 3.1 11H1v2h2.1A9 9 0 0 0 11 20.9V23h2v-2.1A9 9 0 0 0 20.9 13H23v-2zM12 19a7 7 0 1 1 0-14 7 7 0 0 1 0 14z",
+    )
     val Expand = icon("M4 4h6v2H6v4H4zM14 4h6v6h-2V6h-4zM4 14h2v4h4v2H4zM18 14h2v6h-6v-2h4z")
     /** 太陽（Spotify の全画面の「画面を暗くしない」）。subpath はすべて絶対の M で始める。 */
     val Sun = icon(

@@ -221,14 +221,15 @@ fun ColorSwatches(options: List<Pair<String, String>>, value: String, onChange: 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { (hex, label) ->
                     val selected = hex.equals(value, ignoreCase = true)
-                    val color = app.dashboard.ui.theme.colorOf(hex)
+                    // 空文字は「既定」（テーマの面の色）
+                    val color = if (hex.isEmpty()) Wd.Surface else app.dashboard.ui.theme.colorOf(hex)
                     Column(
                         Modifier.width(76.dp).clip(RoundedCornerShape(10.dp))
                             .border(1.dp, if (selected) color else Wd.Border, RoundedCornerShape(10.dp))
                             .clickable { onChange(hex) }.padding(vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Box(Modifier.size(26.dp).clip(RoundedCornerShape(13.dp)).background(color))
+                        Box(Modifier.size(26.dp).clip(RoundedCornerShape(13.dp)).background(color).border(1.dp, Wd.Border, RoundedCornerShape(13.dp)))
                         Spacer(Modifier.height(6.dp))
                         Text(label, fontSize = 11.5f.tu, color = if (selected) Wd.Text else Wd.Text2)
                     }

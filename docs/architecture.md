@@ -65,6 +65,7 @@
 | `data/TodayRepository.kt` | 今日は何の日（Wikipedia の日付の記事の「記念日・年中行事」「できごと」をウィキ記法から地の文にする） |
 | `data/CalendarRepository.kt` / `data/Ics.kt` | 予定表（iCloud の CalDAV か公開 URL）/ iCalendar の読み取りと繰り返しの展開 |
 | `data/StocksRepository.kt` | 株価（Yahoo Finance のチャート API、非公式） |
+| `data/CryptoRepository.kt` | 暗号通貨（CoinGecko の公開 API。値は `coins/markets`、チャートは折れ線なら `market_chart`・ろうそく足なら `ohlc`。期間・描き方ごとの結果を覚え、更新の間隔のうちは取り直さない） |
 | `data/PhotoRepository.kt` | 写真（iCloud の共有アルバムを `sharedstreams` の `webstream` / `webasseturls` で読む。330 の置き場の変更に従う。画像の URL は署名付きで切れるので 30 分ごとに取り直し、`/api/state` には出さない） |
 | `data/LyricsRepository.kt` | Spotify の全画面の歌詞（LRCLIB。時刻付きを優先し、無ければ曲の長さから目安の時刻を振る。503 は試し直し、`/api/get` がだめなら `/api/get-cached`、探し方ごとに失敗を切り離す。LRCLIB に時刻付きが無ければ NetEase Cloud Music。見つけた歌詞は `filesDir/lyrics/` に保存） |
 | `data/HolidayRepository.kt` | 国民の祝日（内閣府の CSV、`holidays.csv`、週 1 回） |
@@ -81,6 +82,9 @@
 | `ui/dashboard/DashboardViewModel.kt` | 2 秒ごとの取得、防災通知・充電の検知、タイマー、強震モニタとジャケット画像 |
 | `ui/dashboard/DashboardScreen.kt` | カードの並べ方（3-2）、フッター、通知バナー、焼き付き防止のずらし |
 | `ui/dashboard/SimpleCards.kt` / `ChartCards.kt` / `RichCards.kt` | 各カード |
+| `ui/dashboard/RadarScreen.kt` / `CryptoScreen.kt` / `Fullscreen.kt` | 雨雲レーダー・暗号通貨の全画面と、その共通の枠（戻る・「暗くしない」） |
+| `data/RainForecast.kt` | 降り始めの予報（気象庁の降水ナウキャストの地点の画素。読めなければ時間別予報）。通知に使う |
+| `ui/dashboard/CryptoCard.kt` | 暗号通貨（値・変化率・高値と安値、折れ線かろうそく足のチャートを 1 つ。見出しの右の「−」「＋」で期間を変える） |
 | `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
 | `ui/dashboard/CalculatorCard.kt` / `PhotoCard.kt` | 計算機（上に横長の表示、下に鍵盤。`Calc` は BigDecimal で掛け算・割り算を先に計算）/ 写真 |
 | `ui/dashboard/NowPlaying.kt` / `BigClock.kt` / `TyphoonScreen.kt` | 全画面: Spotify（ジャケットを押すと歌詞）/ 時刻 / 台風の進路図（気象庁の `forecast.json` と `specifications.json`、`DisasterRepository.typhoonTrack()`） |
@@ -124,7 +128,7 @@ Web 側の真偽値は `data-w` を書くだけで保存対象になる（`setti
 | 2 | LINE メモ 10 ・ 時間別予報 9 ・ Spotify 5 |
 | 3 | Wi-Fi 6 ・ 端末 10 ・ ニュース 8 |
 | 4 | 週間予報 12 ・ タイマー 6 ・ 今日の単語 6 |
-| （追加） | アナログ時計 6 ・ 予定表 9 ・ 運行情報 9 ・ 雨雲レーダー 8 ・ 日の出と月 8 ・ カウントダウン 8 ・ 今日は何の日 8 ・ 株価 10 |
+| （追加） | アナログ時計 6 ・ 予定表 9 ・ 運行情報 9 ・ 雨雲レーダー 8 ・ 日の出と月 8 ・ カウントダウン 8 ・ 今日は何の日 8 ・ 株価 10 ・ 暗号通貨 8 |
 
 追加のカードは既定で非表示（`DisplayConfig.show*` の既定が false）。既定の 12 枚で横向きの画面がちょうど 4 行埋まるため、
 既定で出すと更新しただけで画面に収まらなくなる。表示するには、先にほかのカードを非表示にする。
@@ -224,9 +228,9 @@ Web の設定画面は `/api/settings` の `choices.accents` から選択肢を�
 - `display` などは差分ではなく**置き換え**。だから送る側は常に全項目を組み立てる
 - LINE メモのトークンは書き込み専用。入力されたときだけ送り、読み出す経路は無い
 - その場で効かせる操作（背景画像・ホームアプリ登録・PIN・LAN 公開・Spotify の連携と解除・再取得）は「全て保存」に含めない
-- 取得先に関わる値（地点・単位・防災・ニュース・メモ・Spotify・運行情報・予定表・株価）が変わったら、`saveAll()` が待たずに取り直す
+- 取得先に関わる値（地点・単位・防災・ニュース・メモ・Spotify・運行情報・予定表・株価・暗号通貨）が変わったら、`saveAll()` が待たずに取り直す
 - 秘密の値（メモの端末トークン、ODPT のトークン、iCloud の App 用パスワードと公開 URL）は書き込み専用。`PublicConfig` には「設定済みか」だけを出す
-- アカウントの要らない取得先（今日は何の日・株価・祝日）は、そのカードを表示しているときだけ通信する
+- アカウントの要らない取得先（今日は何の日・株価・暗号通貨・祝日）は、そのカードを表示しているときだけ通信する
 - 値域は `ConfigStore.sanitize*` が固定する。許可リストに無い値は黙って既定に戻る
 
 ### 3-6. 設定の変化の伝わり方
@@ -359,7 +363,7 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 全体   … 配色 / テーマ（色の基調・背景画像・カードの不透明度）/ 画面の明るさ / 場所 / 通知
 カード … 時刻 天気 防災 LINE メモ 時間別予報 Spotify
          Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語
-         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 ハムスター
+         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 暗号通貨 ハムスター
 端末   … ホームアプリ（電池の最適化を含む）/ ネットワーク（LAN 公開）
 ```
 

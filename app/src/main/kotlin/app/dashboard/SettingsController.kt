@@ -103,6 +103,7 @@ class SettingsController(private val graph: AppGraph) {
         val c = graph.config.get()
         if (c.display.showToday) runCatching { graph.today.refreshNow() }
         if (c.display.showStocks) runCatching { graph.stocks.refreshNow() }
+        if (c.display.showCrypto) runCatching { graph.crypto.refreshNow() }
         if (c.display.showCountdown) runCatching { graph.holidays.refreshNow() }
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
     }
@@ -114,7 +115,7 @@ class SettingsController(private val graph: AppGraph) {
     private fun sourcesChanged(a: Config, b: Config): Boolean =
         a.location != b.location || a.units != b.units || a.disaster != b.disaster ||
             a.feed != b.feed || a.memo != b.memo || a.spotify.enabled != b.spotify.enabled ||
-            a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks ||
+            a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks || a.crypto != b.crypto ||
             a.photos.enabled != b.photos.enabled || a.photos.albumUrl != b.photos.albumUrl
 
     private fun applyMemo(current: MemoConfig, patch: MemoPatch) = current.copy(

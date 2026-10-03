@@ -52,6 +52,9 @@
     return out;
   }
 
+  /** 後から足した通知（Models.kt の NotificationConfig の *Enabled / *Tone と同じ名前）。 */
+  var NOTICE_KEYS = ["batteryLow", "batteryHot", "memo", "wifiLost", "rain"];
+
   function fillSelect(id, choices) {
     var el = $(id);
     el.innerHTML = "";
@@ -99,6 +102,7 @@
     display.accent = $("accent").value;
     display.theme = $("theme").value;
     display.cardOpacity = Number($("cardOpacity").value) / 100;
+    display.cardColor = $("cardColor").value;
     display.burnInShiftEnabled = $("burnIn").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
@@ -128,6 +132,13 @@
     notifications.disasterTone = $("disasterTone").value;
     notifications.chargingTone = $("chargingTone").value;
     notifications.timerTone = $("timerTone").value;
+    NOTICE_KEYS.forEach(function (k) {
+      notifications[k + "Enabled"] = $(k + "Enabled").checked;
+      notifications[k + "Tone"] = $(k + "Tone").value;
+    });
+    notifications.batteryLowPercent = Number($("batteryLowPercent").value);
+    notifications.batteryHotC = Number($("batteryHotC").value);
+    notifications.rainMinutes = Number($("rainMinutes").value);
     notifications.volume = Number($("noticeVolume").value) / 100;
 
     var urls = [];
@@ -191,7 +202,14 @@
         feed: { enabled: $("feedEnabled").checked, urls: urls, maxItems: Number($("feedMax").value) },
         notifications: notifications,
         stocks: { symbols: stocks, range: $("stocksRange").value },
-        countdown: { builtins: builtins, custom: custom }
+        countdown: { builtins: builtins, custom: custom },
+        crypto: {
+          coin: $("cryptoCoin").value === "custom" ? $("cryptoCustomId").value.trim().toLowerCase() : $("cryptoCoin").value,
+          currency: $("cryptoCurrency").value,
+          range: $("cryptoRange").value,
+          chart: $("cryptoChart").value,
+          intervalMin: Number($("cryptoInterval").value) || 10
+        }
       },
       train: train,
       calendar: calendar,
@@ -238,9 +256,19 @@
     fillSelect("disasterTone", config.choices.tones);
     fillSelect("chargingTone", config.choices.tones);
     fillSelect("timerTone", config.choices.tones);
+    fillSelect("cardColor", config.choices.cardColors || [{ value: "", label: "既定" }]);
+    NOTICE_KEYS.forEach(function (k) {
+      fillSelect(k + "Tone", config.choices.tones);
+      $(k + "Enabled").checked = n[k + "Enabled"] !== false;
+      if (n[k + "Tone"]) $(k + "Tone").value = n[k + "Tone"];
+    });
+    $("batteryLowPercent").value = String(n.batteryLowPercent || 20);
+    $("batteryHotC").value = String(n.batteryHotC || 40);
+    $("rainMinutes").value = String(n.rainMinutes || 30);
 
     $("accent").value = d.accent;
     $("theme").value = d.theme || "dark";
+    $("cardColor").value = d.cardColor || "";
     $("cardOpacity").value = Math.round((d.cardOpacity == null ? 0.6 : d.cardOpacity) * 100);
     renderWallpaper();
     $("burnIn").checked = d.burnInShiftEnabled;
@@ -263,6 +291,16 @@
     var st = config.stocks || { symbols: [], range: "1d" };
     $("stocksSymbols").value = st.symbols.map(function (x) { return x.symbol + " " + x.label; }).join("\n");
     $("stocksRange").value = st.range;
+    var cr = config.crypto || { coin: "bitcoin", currency: "jpy", range: "1" };
+    // 一覧に無い通貨は「その他」にして ID を入力欄へ
+    var listed = !!$("cryptoCoin").querySelector('option[value="' + cr.coin + '"]') && cr.coin !== "custom";
+    $("cryptoCoin").value = listed ? cr.coin : "custom";
+    $("cryptoCustomId").value = listed ? "" : cr.coin;
+    $("cryptoCustomField").style.display = listed ? "none" : "";
+    $("cryptoCurrency").value = cr.currency;
+    $("cryptoRange").value = cr.range;
+    $("cryptoChart").value = cr.chart || "line";
+    $("cryptoInterval").value = String(cr.intervalMin || 10);
     var cd = config.countdown || { builtins: [], custom: [] };
     var cds = document.querySelectorAll("input[data-cd]");
     for (var c = 0; c < cds.length; c++) cds[c].checked = cd.builtins.indexOf(cds[c].getAttribute("data-cd")) >= 0;
@@ -429,6 +467,11 @@
     $("calendarIcs").style.display = ics ? "" : "none";
   }
   $("calendarMode").addEventListener("change", renderCalendarMode);
+
+  // 暗号通貨: 「その他」を選んだときだけ ID の入力欄を出す
+  $("cryptoCoin").addEventListener("change", function () {
+    $("cryptoCustomField").style.display = this.value === "custom" ? "" : "none";
+  });
 
   /** 路線の一覧（事業者ごと）。選んだ路線は trainSelected に持つ。 */
   function renderRailways() {
@@ -1028,6 +1071,7 @@
   bindPreview("previewDisaster", "disasterTone");
   bindPreview("previewCharging", "chargingTone");
   bindPreview("previewTimer", "timerTone");
+  NOTICE_KEYS.forEach(function (k) { bindPreview("preview" + k.charAt(0).toUpperCase() + k.slice(1), k + "Tone"); });
 
   // ---------------------------------------------------------------- 場所
 

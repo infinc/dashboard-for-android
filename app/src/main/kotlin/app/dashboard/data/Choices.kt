@@ -27,6 +27,31 @@ object Accents {
 }
 
 /**
+ * カードの背景色の候補。カード全体で 1 色。色そのものではなく、テーマの面の色に混ぜて使う
+ * （ダークでもホワイトでも文字が読めるように。混ぜる割合は ui/theme の [app.dashboard.ui.theme.cardSurface]）。
+ * 空文字は「既定」（テーマの面の色のまま）。
+ */
+object CardColors {
+    data class CardColor(val hex: String, val label: String)
+
+    val ALL = listOf(
+        CardColor("", "既定"),
+        CardColor("#3B6FB6", "ネイビー"),
+        CardColor("#2F9E8F", "ティール"),
+        CardColor("#3E9B4F", "グリーン"),
+        CardColor("#7A5BD0", "パープル"),
+        CardColor("#C0508A", "ローズ"),
+        CardColor("#C0563E", "レッド"),
+        CardColor("#B8862F", "ブラウン"),
+        CardColor("#6B7A8F", "スレート"),
+        CardColor("#000000", "ブラック"),
+        CardColor("#FFFFFF", "ホワイト"),
+    )
+
+    fun isKnown(hex: String): Boolean = ALL.any { it.hex.equals(hex, ignoreCase = true) }
+}
+
+/**
  * 通知音の候補。[Note] の並びをその場で合成して鳴らす。
  * 充電の抜き差しでは同じ音色を、挿したときはそのまま・抜いたときは音の高さを逆順にして鳴らす。
  */
@@ -41,6 +66,11 @@ object Tones {
     const val DEFAULT_DISASTER = "chime"
     const val DEFAULT_CHARGING = "rise"
     const val DEFAULT_TIMER = "beep"
+    const val DEFAULT_BATTERY_LOW = "descend"
+    const val DEFAULT_MEMO = "notice"
+    const val DEFAULT_BATTERY_HOT = "alarm"
+    const val DEFAULT_WIFI_LOST = "knock"
+    const val DEFAULT_RAIN = "soft"
 
     val ALL = listOf(
         Tone("chime", "チャイム", Wave.TRIANGLE, listOf(Note(1318.5, 0.0, 0.20), Note(987.8, 0.17, 0.36))),
