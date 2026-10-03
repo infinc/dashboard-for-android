@@ -329,7 +329,7 @@
     var ph = config.photos || {};
     $("photosEnabled").checked = !!ph.enabled;
     $("photosUrl").value = "";
-    $("photosUrl").placeholder = ph.albumUrlSet ? "設定済み（変更する場合のみ入力）" : "https://www.icloud.com/sharedalbum/#B0…";
+    $("photosUrl").placeholder = ph.albumUrlSet ? "設定済み（変更する場合のみ入力）" : "https://photos.icloud.com/shared/album/…";
     $("photosInterval").value = String(ph.intervalSec || 60);
     $("photosShuffle").checked = ph.shuffle !== false;
 

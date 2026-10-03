@@ -829,10 +829,10 @@ private fun PhotosPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -
     Field { SwitchRow("写真を取得する", d.photosEnabled, { set(d.copy(photosEnabled = it)) }) }
     Field(
         "共有アルバムの URL",
-        "iPhone の「写真」→ 共有アルバムを開く → 人のアイコン →「公開 Web サイト」を ON にして出る https://www.icloud.com/sharedalbum/#… の URL。" +
+        "iPhone の「写真」→ 共有アルバムを開く → 人のアイコン →「公開 Web サイト」を ON にして出る URL（https://photos.icloud.com/shared/album/… か、古い https://www.icloud.com/sharedalbum/#…）。" +
             "URL を知っている人は誰でも写真を見られるので、保存済みの値は表示しません。",
     ) {
-        Input(d.photosUrl, { set(d.copy(photosUrl = it)) }, placeholder = if (c.albumUrl.isNullOrBlank()) "https://www.icloud.com/sharedalbum/#B0…" else "設定済み（変更する場合のみ入力）", password = true)
+        Input(d.photosUrl, { set(d.copy(photosUrl = it)) }, placeholder = if (c.albumUrl.isNullOrBlank()) "https://photos.icloud.com/shared/album/…" else "設定済み（変更する場合のみ入力）", password = true)
     }
     Field("写真を変える間隔") {
         Select(app.dashboard.data.PhotoRepository.INTERVALS.map { it to photoIntervalLabel(it) }, d.photosInterval, { set(d.copy(photosInterval = it)) })
