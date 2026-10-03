@@ -95,13 +95,17 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     var nowPlaying by remember { mutableStateOf(false) }
     /** 時刻を画面いっぱいに出しているか。 */
     var bigClock by remember { mutableStateOf(false) }
+    /** 雨雲レーダー・暗号通貨を画面いっぱいに出しているか。 */
+    var radarFull by remember { mutableStateOf(false) }
+    var cryptoFull by remember { mutableStateOf(false) }
     /** 進路図を画面いっぱいに出している台風の識別子。 */
     var typhoonId by remember { mutableStateOf<String?>(null) }
     /** 最後に開いた台風（進路図を閉じるまで、台風が一覧から消えても同じものを出し続ける）。 */
     var typhoonShown by remember { mutableStateOf<app.dashboard.data.TyphoonInfo?>(null) }
     val keepAwake by vm.keepAwake.collectAsStateWithLifecycle()
     // 全画面の間だけ「画面を暗くしない」を効かせる（MainActivity が holdAwake を見る。閉じたら無操作の減光に戻る）
-    LaunchedEffect(nowPlaying || bigClock) { vm.setFullscreenOpen(nowPlaying || bigClock) }
+    val fullscreen = nowPlaying || bigClock || radarFull || cryptoFull
+    LaunchedEffect(fullscreen) { vm.setFullscreenOpen(fullscreen) }
 
     @Composable
     fun Card(slot: Slot, modifier: Modifier) {
@@ -124,13 +128,14 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.ANALOG_CLOCK -> AnalogClockCard(now, d.analogSweep, d.analogNumerals, modifier)
             Slot.CALENDAR -> CalendarCard(s?.calendar, config.calendar.enabled, calendarConfigured(config), now, modifier)
             Slot.TRAIN -> TrainCard(s?.train, config.train.enabled, !config.train.token.isNullOrBlank() || !config.train.challengeToken.isNullOrBlank(), now, modifier)
-            Slot.RADAR -> RadarCard(radar, config.location.name, vm::panRadar, vm::zoomRadar, modifier)
+            Slot.RADAR -> RadarCard(radar, config.location.name, vm::panRadar, vm::zoomRadar, vm::recenterRadar, { radarFull = true }, modifier)
             Slot.SUN_MOON -> SunMoonCard(s?.weather, now, modifier)
             Slot.COUNTDOWN -> CountdownCard(config.countdown, s?.holidays.orEmpty(), now, modifier)
             Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
             Slot.STOCKS -> StocksCard(s?.stocks, config.stocks.range, now, modifier)
             Slot.CALCULATOR -> CalculatorCard(modifier)
             Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, modifier)
+            Slot.CRYPTO -> CryptoCard(s?.crypto, config.crypto, now, vm::stepCryptoRange, { cryptoFull = true }, modifier)
         }
     }
 
@@ -180,15 +185,6 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser)
         }
 
-        AnimatedVisibility(
-            visible = toast != null,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
-            enter = slideInVertically { -it * 2 },
-            exit = slideOutVertically { -it * 2 },
-        ) {
-            toast?.let { ToastBanner(it) }
-        }
-
         if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
 
         AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
@@ -196,6 +192,15 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         }
         AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
+        }
+        AnimatedVisibility(radarFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            RadarScreen(
+                radar, config.location.name, keepAwake, vm::setKeepAwake,
+                vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
+            )
+        }
+        AnimatedVisibility(cryptoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            CryptoScreen(s?.crypto, config.crypto, now, keepAwake, vm::setKeepAwake, vm::cryptoDetail, onBack = { cryptoFull = false })
         }
         AnimatedVisibility(typhoonId != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             // 発表が更新されたら新しい方を渡す（進路図を取り直す）
@@ -209,6 +214,15 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                     onBack = { typhoonId = null },
                 )
             }
+        }
+        // 通知のバナーは全画面の上にも出す
+        AnimatedVisibility(
+            visible = toast != null,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+            enter = slideInVertically { -it * 2 },
+            exit = slideOutVertically { -it * 2 },
+        ) {
+            toast?.let { ToastBanner(it) }
         }
     }
 }
@@ -259,6 +273,7 @@ private fun credits(d: app.dashboard.data.DisplayConfig): String = buildList {
     if (d.showTrain) add("運行情報: 公共交通オープンデータ協議会")
     if (d.showToday) add("今日は何の日: Wikipedia (CC BY-SA)")
     if (d.showStocks) add("株価: Yahoo Finance")
+    if (d.showCrypto) add("暗号通貨: CoinGecko")
     if (d.showCountdown) add("祝日: 内閣府")
 }.joinToString(" ・ ")
 

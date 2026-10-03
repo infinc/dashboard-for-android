@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.dashboard.AppGraph
+import app.dashboard.data.CRYPTO_RANGES
+import app.dashboard.data.CryptoDetail
 import app.dashboard.data.Config
 import app.dashboard.data.DeviceState
 import app.dashboard.data.DisasterState
@@ -209,6 +211,14 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
+            // 降り始めの予報（降水ナウキャストは 5 分ごとに出る）。起動直後は天気が揃うのを少し待つ
+            delay(20_000)
+            while (true) {
+                if (active) try { rainTick() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+                delay(RAIN_CHECK_MS)
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 if (active && wantsKmoni()) kmoniTick()
                 delay(KMONI_MS)
@@ -262,6 +272,25 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 暗号通貨カードの「−」「＋」。チャートの期間（横の幅）を 1 段ずつ短く・長くして、すぐに取り直す。
+     * 設定画面の「チャートの期間」と同じ値を書き換える。
+     */
+    fun stepCryptoRange(step: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = CRYPTO_RANGES.indexOf(graph.config.get().crypto.range).coerceAtLeast(0)
+            val next = CRYPTO_RANGES[(current + step).coerceIn(0, CRYPTO_RANGES.lastIndex)]
+            if (next == CRYPTO_RANGES[current]) return@launch
+            graph.config.update { it.copy(crypto = it.crypto.copy(range = next)) }
+            runCatching { graph.crypto.refreshIfDue(true) }
+            poll()
+        }
+    }
+
+    /** 暗号通貨の全画面のチャート。全画面で通貨・期間・描き方を変えるたびに呼ぶ（設定は変えない）。 */
+    suspend fun cryptoDetail(coin: String, currency: String, days: String, candle: Boolean): Result<CryptoDetail> =
+        runCatching { graph.crypto.detail(coin, currency, days, candle) }
+
     fun showToast(title: String, body: String, severe: Boolean) {
         _toast.value = Toast(title, body, severe)
         toastJob?.cancel()
@@ -280,6 +309,9 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         s.deviceStats.cpuPercent?.let { c -> _cpu.update { (it + c).takeLast(HISTORY) } }
         checkCharging(s.deviceStats.charging)
         if (s.config.disaster.enabled && s.disaster.available) checkDisaster(s.disaster)
+        checkBattery(s.deviceStats)
+        checkMemo(s.memo)
+        checkWifi(s.wifi.connected)
         loadAlbum(s.spotify.albumImageUrl)
     }
 
@@ -290,6 +322,103 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         if (before == null || before == charging) return
         val n = graph.config.get().notifications
         if (n.chargingSound) graph.notices.play(n.chargingTone, Tones.DEFAULT_CHARGING, reversed = !charging)
+    }
+
+    // ------------------------------------------------------------ 通知（電池・LINE メモ・Wi-Fi・降り始め）
+    // どれも「状態が変わった瞬間」に 1 回だけ、音とバナーで知らせる。設定で切ったものは音もバナーも出さない。
+
+    /** 電池の残量が少ない・温度が高いの通知を、もう一度出してよいか（戻ったら true に戻す）。 */
+    private var batteryLowArmed = true
+    private var batteryHotArmed = true
+    /** 最後に知らせた LINE メモの受信時刻（再起動しても同じメモで鳴らないよう保存する）。 */
+    private var memoSeenAt = prefs.getLong(MEMO_SEEN, -1L)
+    private var wifiWasConnected: Boolean? = null
+    private var wifiDownPolls = 0
+    private var rainArmed = true
+    private var rainDryChecks = 0
+
+    private fun notify(title: String, body: String, tone: String, fallback: String, severe: Boolean = false) {
+        showToast(title, body, severe)
+        graph.notices.play(tone, fallback)
+    }
+
+    private fun checkBattery(stats: app.dashboard.data.DeviceStats) {
+        val n = graph.config.get().notifications
+        stats.batteryPercent?.let { p ->
+            // 境目で 19 と 20 を行き来しても鳴り続けないよう、2% 戻るまで次を出さない
+            if (p >= n.batteryLowPercent + 2 || stats.charging) batteryLowArmed = true
+            if (n.batteryLowEnabled && batteryLowArmed && !stats.charging && p < n.batteryLowPercent) {
+                batteryLowArmed = false
+                notify("電池の残量", "残りが $p% になりました（${n.batteryLowPercent}% を切りました）。充電してください。", n.batteryLowTone, Tones.DEFAULT_BATTERY_LOW)
+            }
+        }
+        stats.batteryTemperatureC?.let { t ->
+            if (t <= n.batteryHotC - 1) batteryHotArmed = true
+            if (n.batteryHotEnabled && batteryHotArmed && t > n.batteryHotC) {
+                batteryHotArmed = false
+                notify("電池の温度", "電池が %.1f ℃ になりました（%d ℃ を超えました）。直射日光や充電のしすぎに気をつけてください。".format(t, n.batteryHotC), n.batteryHotTone, Tones.DEFAULT_BATTERY_HOT, severe = true)
+            }
+        }
+    }
+
+    private fun checkMemo(m: app.dashboard.data.MemoState) {
+        if (m.fetchedAt == 0L) return
+        val newest = m.items.maxOfOrNull { it.receivedAt } ?: m.receivedAt
+        // 初めて読んだときは、すでにあるメモを知らせない
+        if (memoSeenAt < 0) {
+            memoSeenAt = newest
+            prefs.edit().putLong(MEMO_SEEN, newest).apply()
+            return
+        }
+        if (newest <= memoSeenAt) return
+        val fresh = m.items.filter { it.receivedAt > memoSeenAt }.maxByOrNull { it.receivedAt }
+        memoSeenAt = newest
+        prefs.edit().putLong(MEMO_SEEN, newest).apply()
+        val n = graph.config.get().notifications
+        if (!n.memoEnabled) return
+        val text = (fresh?.text ?: m.text).orEmpty().replace('\n', ' ').let { if (it.length > 60) it.take(60) + "…" else it }
+        val from = fresh?.senderName ?: m.senderName
+        notify("LINE メモ" + (from?.let { "（$it）" } ?: ""), text.ifEmpty { "新しいメモが届きました" }, n.memoTone, Tones.DEFAULT_MEMO)
+    }
+
+    private fun checkWifi(connected: Boolean) {
+        val n = graph.config.get().notifications
+        if (connected) {
+            wifiWasConnected = true
+            wifiDownPolls = 0
+            return
+        }
+        // 一瞬の切り替え（ローミングなど）で鳴らないよう、2 回続けて（約 4 秒）切れていたら知らせる
+        if (wifiWasConnected == true && ++wifiDownPolls >= 2) {
+            wifiWasConnected = false
+            if (n.wifiLostEnabled) notify("Wi-Fi", "Wi-Fi の接続が切れました。天気などが更新されなくなります。", n.wifiLostTone, Tones.DEFAULT_WIFI_LOST, severe = true)
+        }
+    }
+
+    /**
+     * 天気の地点で [NotificationConfig.rainMinutes] 分以内に雨が降り始める予報が出たら知らせる（5 分ごと）。
+     * 知らせたあとは、降らない（予報にも無い）状態が 2 回続くまで次を出さない。
+     */
+    private suspend fun rainTick() {
+        val c = graph.config.get()
+        if (!c.notifications.rainEnabled) return
+        val weather = _state.value?.weather ?: return
+        when (val r = graph.rain.check(c.location.latitude, c.location.longitude, c.notifications.rainMinutes, weather)) {
+            is app.dashboard.data.RainForecast.Result.Starts -> {
+                rainDryChecks = 0
+                if (rainArmed) {
+                    rainArmed = false
+                    val n = graph.config.get().notifications
+                    notify("まもなく雨", "${c.location.name}で、約 ${r.minutes} 分後に雨が降り始める予報です（${r.source}）。", n.rainTone, Tones.DEFAULT_RAIN)
+                }
+            }
+            app.dashboard.data.RainForecast.Result.Raining -> {
+                rainDryChecks = 0
+                rainArmed = false
+            }
+            app.dashboard.data.RainForecast.Result.Dry -> if (++rainDryChecks >= 2) rainArmed = true
+            app.dashboard.data.RainForecast.Result.Unknown -> {}
+        }
     }
 
     /**
@@ -417,6 +546,20 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         return x to y
     }
 
+    /** 雨雲レーダーを画面いっぱいに出しているか。出している間は広い範囲のタイルを取る。 */
+    @Volatile private var radarWide = false
+
+    fun setRadarFullscreen(open: Boolean) {
+        radarWide = open
+        if (open) radarWake.trySend(Unit)
+    }
+
+    /** 「現在地に戻る」。ズームはそのままで、表示の中心を天気の地点へ戻す。 */
+    fun recenterRadar() {
+        _radar.update { if (it.zoom == 0) it else it.copy(centerX = it.homeX, centerY = it.homeY) }
+        radarWake.trySend(Unit)
+    }
+
     /** ドラッグで地図を動かす。[dx] / [dy] は表示の中心を動かす量（タイル 1 枚 = 256）。足りないタイルは取りに行く。 */
     fun panRadar(dx: Float, dy: Float) {
         _radar.update {
@@ -531,8 +674,10 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val n = 1 shl f.zoom
         val tx = kotlin.math.floor(f.centerX / 256).toInt()
         val ty = (f.centerY / 256).toInt()
-        // 真ん中から外へ向かって取る（ドラッグした先が早く埋まる）。東西は折り返すので、x は範囲の外でもよい
-        return (-2..2).flatMap { dx -> (-1..1).map { dy -> Pair(tx + dx, ty + dy) } }
+        // 真ん中から外へ向かって取る（ドラッグした先が早く埋まる）。東西は折り返すので、x は範囲の外でもよい。
+        // 全画面では画面の端まで埋まるよう広く取る
+        val (wx, wy) = if (radarWide) 3 to 2 else 2 to 1
+        return (-wx..wx).flatMap { dx -> (-wy..wy).map { dy -> Pair(tx + dx, ty + dy) } }
             .filter { it.second in 0 until n }
             .sortedBy { abs(it.first - tx) + abs(it.second - ty) }
     }
@@ -732,6 +877,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         private const val SEEN_INIT = "disasterSeenInit"
         private const val SEEN_PREFIX = "disasterSeen."
         private const val TIMER_END = "timerEndAt"
+        private const val MEMO_SEEN = "memoSeenAt"
+        private const val RAIN_CHECK_MS = 300_000L
         private const val KEEP_AWAKE = "nowPlayingKeepAwake"
         private const val KMONI_URL = "http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/acmap_s/"
         private const val KMONI_BASE_URL = "http://www.kmoni.bosai.go.jp/data/map_img/CommonImg/base_map_w.gif"

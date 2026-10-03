@@ -3,6 +3,7 @@ package app.dashboard
 import android.content.Context
 import app.dashboard.data.CalendarRepository
 import app.dashboard.data.ConfigStore
+import app.dashboard.data.CryptoRepository
 import app.dashboard.data.DeviceState
 import app.dashboard.data.DeviceStatsMonitor
 import app.dashboard.data.DisasterRepository
@@ -12,6 +13,7 @@ import app.dashboard.data.Http
 import app.dashboard.data.LyricsRepository
 import app.dashboard.data.MemoRepository
 import app.dashboard.data.PhotoRepository
+import app.dashboard.data.RainForecast
 import app.dashboard.data.SpotifyRepository
 import app.dashboard.data.StocksRepository
 import app.dashboard.data.TodayRepository
@@ -52,9 +54,11 @@ class AppGraph private constructor(context: Context) {
     val today = TodayRepository(this.context, http)
     val calendar = CalendarRepository(http, config)
     val stocks = StocksRepository(http, config)
+    val crypto = CryptoRepository(http, config)
     val holidays = HolidayRepository(this.context, http)
     val photos = PhotoRepository(config)
     val lyrics = LyricsRepository(this.context, http)
+    val rain = RainForecast(http)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
@@ -79,6 +83,7 @@ class AppGraph private constructor(context: Context) {
         stocks = stocks.state,
         holidays = holidays.upcoming(),
         photos = photos.state,
+        crypto = crypto.state,
         config = config.get().toPublic(),
     )
 
