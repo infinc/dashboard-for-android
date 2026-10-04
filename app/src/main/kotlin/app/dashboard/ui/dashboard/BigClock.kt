@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -148,7 +149,7 @@ fun BigClockScreen(
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(WdIcons.Back, "戻る", tint = Color.White, modifier = Modifier.size(30.dp))
+            Icon(WdIcons.Back, L("戻る", "Back"), tint = Color.White, modifier = Modifier.size(30.dp))
         }
 
         // 画面を暗くしない（右上に小さく）。消えている間は押せない

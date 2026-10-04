@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dashboard.data.CardLayout
+import app.dashboard.data.toPublic
+import app.dashboard.i18n.L
 import app.dashboard.ui.common.WdIcons
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
@@ -88,6 +90,11 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val wallpaper by vm.wallpaper.collectAsStateWithLifecycle()
     val radar by vm.radar.collectAsStateWithLifecycle()
     val photo by vm.photo.collectAsStateWithLifecycle()
+    val flightFrame by vm.flightMap.frame.collectAsStateWithLifecycle()
+    val flights by vm.flights.state.collectAsStateWithLifecycle()
+    val shipFrame by vm.shipMap.frame.collectAsStateWithLifecycle()
+    val ships by vm.ships.collectAsStateWithLifecycle()
+    val shipStatus by vm.shipStatus.collectAsStateWithLifecycle()
 
     val d = config.display
     val s = state
@@ -98,20 +105,25 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     /** 雨雲レーダー・暗号通貨を画面いっぱいに出しているか。 */
     var radarFull by remember { mutableStateOf(false) }
     var cryptoFull by remember { mutableStateOf(false) }
+    var flightFull by remember { mutableStateOf(false) }
+    var shipFull by remember { mutableStateOf(false) }
     /** 進路図を画面いっぱいに出している台風の識別子。 */
     var typhoonId by remember { mutableStateOf<String?>(null) }
     /** 最後に開いた台風（進路図を閉じるまで、台風が一覧から消えても同じものを出し続ける）。 */
     var typhoonShown by remember { mutableStateOf<app.dashboard.data.TyphoonInfo?>(null) }
     val keepAwake by vm.keepAwake.collectAsStateWithLifecycle()
     // 全画面の間だけ「画面を暗くしない」を効かせる（MainActivity が holdAwake を見る。閉じたら無操作の減光に戻る）
-    val fullscreen = nowPlaying || bigClock || radarFull || cryptoFull
+    val fullscreen = nowPlaying || bigClock || radarFull || cryptoFull || flightFull || shipFull
     LaunchedEffect(fullscreen) { vm.setFullscreenOpen(fullscreen) }
+
+    // 地点の名前は設定の言語で（英語の名前を持たない古い設定では、気象庁の市町村の英語名）
+    val weather = s?.weather?.let { w -> w.copy(placeName = config.location.displayName(s.disaster.areaNameEn)) }
 
     @Composable
     fun Card(slot: Slot, modifier: Modifier) {
         when (slot) {
-            Slot.CLOCK -> ClockCard(now, config.units, d, s?.weather, s?.deviceTimezone, { bigClock = true }, modifier)
-            Slot.WEATHER -> WeatherCard(s?.weather, d, config.units, now, modifier)
+            Slot.CLOCK -> ClockCard(now, config.units, d, weather, s?.deviceTimezone, { bigClock = true }, modifier)
+            Slot.WEATHER -> WeatherCard(weather, d, config.units, now, modifier)
             Slot.DISASTER -> DisasterCard(s?.disaster, config.disaster.enabled, d, kmoniBase, kmoni, { typhoonId = it.id; typhoonShown = it }, modifier)
             Slot.MEMO -> MemoCard(s?.memo, config.memo.enabled, now, modifier)
             Slot.HOURLY -> HourlyCard(s?.weather, d.hourlyMode, modifier)
@@ -128,7 +140,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.ANALOG_CLOCK -> AnalogClockCard(now, d.analogSweep, d.analogNumerals, modifier)
             Slot.CALENDAR -> CalendarCard(s?.calendar, config.calendar.enabled, calendarConfigured(config), now, modifier)
             Slot.TRAIN -> TrainCard(s?.train, config.train.enabled, !config.train.token.isNullOrBlank() || !config.train.challengeToken.isNullOrBlank(), now, modifier)
-            Slot.RADAR -> RadarCard(radar, config.location.name, vm::panRadar, vm::zoomRadar, vm::recenterRadar, { radarFull = true }, modifier)
+            Slot.RADAR -> RadarCard(radar, config.location.displayName(s?.disaster?.areaNameEn), vm::panRadar, vm::zoomRadar, vm::recenterRadar, { radarFull = true }, modifier)
             Slot.SUN_MOON -> SunMoonCard(s?.weather, now, modifier)
             Slot.COUNTDOWN -> CountdownCard(config.countdown, s?.holidays.orEmpty(), now, modifier)
             Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
@@ -136,6 +148,13 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.CALCULATOR -> CalculatorCard(modifier)
             Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, modifier)
             Slot.CRYPTO -> CryptoCard(s?.crypto, config.crypto, now, vm::stepCryptoRange, { cryptoFull = true }, modifier)
+            Slot.FLIGHTS -> FlightCard(
+                flightFrame, flights, now, vm.flightMap::pan, vm.flightMap::zoom, vm.flightMap::recenter, { flightFull = true }, modifier,
+            )
+            Slot.SHIPS -> ShipCard(
+                shipFrame, ships, shipStatus, now, vm.shipMap::pan, vm.shipMap::zoom, vm.shipMap::recenter, { shipFull = true }, modifier,
+            )
+            Slot.GITHUB -> GithubCard(s?.github, remember(config.github) { config.toPublic().github }, now, modifier)
         }
     }
 
@@ -195,12 +214,45 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         }
         AnimatedVisibility(radarFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             RadarScreen(
-                radar, config.location.name, keepAwake, vm::setKeepAwake,
+                radar, config.location.displayName(s?.disaster?.areaNameEn), keepAwake, vm::setKeepAwake,
                 vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
             )
         }
         AnimatedVisibility(cryptoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             CryptoScreen(s?.crypto, config.crypto, now, keepAwake, vm::setKeepAwake, vm::cryptoDetail, onBack = { cryptoFull = false })
+        }
+        AnimatedVisibility(flightFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            var selected by remember { mutableStateOf<Any?>(null) }
+            TrackerScreen(
+                L("飛行機", "Flights") + if (flights.fetchedAt > 0) L(" ・ ${flights.aircraft.size} 機", " · ${flights.aircraft.size} aircraft") else "",
+                flightFrame, keepAwake, vm::setKeepAwake, vm.flightMap::zoom, vm.flightMap::recenter, vm::setFlightFullscreen,
+                onBack = { flightFull = false },
+                map = { FlightMap(flightFrame, flights, now, selected, { selected = it }, vm.flightMap::pan, true, it) },
+                footer = { AltitudeLegend(Modifier) },
+                info = { m ->
+                    flights.aircraft.firstOrNull { it.hex == selected }?.let { a ->
+                        InfoBox(a.callsign ?: a.registration ?: a.hex.uppercase(), aircraftLines(a), true, m)
+                    }
+                },
+            )
+        }
+        AnimatedVisibility(shipFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+            var selected by remember { mutableStateOf<Any?>(null) }
+            TrackerScreen(
+                L("船舶", "Ships") + L(" ・ ${ships.size} 隻", " · ${ships.size} ships"),
+                shipFrame, keepAwake, vm::setKeepAwake, vm.shipMap::zoom, vm.shipMap::recenter, vm::setShipFullscreen,
+                onBack = { shipFull = false },
+                map = { ShipMap(shipFrame, ships, selected, { selected = it }, vm.shipMap::pan, true, it) },
+                footer = {
+                    Column {
+                        ShipLegend(Modifier)
+                        ShipStatusText(shipStatus, ships.isEmpty(), true, Modifier.padding(top = 6.dp))
+                    }
+                },
+                info = { m ->
+                    ships.firstOrNull { it.mmsi == selected }?.let { sh -> InfoBox(sh.name ?: "MMSI ${sh.mmsi}", shipLines(sh, now), true, m) }
+                },
+            )
         }
         AnimatedVisibility(typhoonId != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
             // 発表が更新されたら新しい方を渡す（進路図を取り直す）
@@ -267,15 +319,18 @@ private fun calendarConfigured(c: app.dashboard.data.Config) = c.calendar.let {
 /** フッターに出す出典。表示しているカードの分だけ並べる（全部並べると 1 行に収まらない）。 */
 private fun credits(d: app.dashboard.data.DisplayConfig): String = buildList {
     add("Weather data by Open-Meteo.com (CC BY 4.0)")
-    if (d.showDisaster || d.showRadar) add("防災情報・雨雲: 気象庁")
-    if (d.showDisaster && d.disasterShowKmoni) add("強震モニタ: 防災科学技術研究所")
-    if (d.showRadar) add("地図: Esri, HERE, Garmin, © OpenStreetMap")
-    if (d.showTrain) add("運行情報: 公共交通オープンデータ協議会")
-    if (d.showToday) add("今日は何の日: Wikipedia (CC BY-SA)")
-    if (d.showStocks) add("株価: Yahoo Finance")
-    if (d.showCrypto) add("暗号通貨: CoinGecko")
-    if (d.showCountdown) add("祝日: 内閣府")
-}.joinToString(" ・ ")
+    if (d.showDisaster || d.showRadar) add(L("防災情報・雨雲: 気象庁", "Alerts & rain: JMA"))
+    if (d.showDisaster && d.disasterShowKmoni) add(L("強震モニタ: 防災科学技術研究所", "Seismic monitor: NIED"))
+    if (d.showRadar) add(L("地図: Esri, HERE, Garmin, © OpenStreetMap", "Map: Esri, HERE, Garmin, © OpenStreetMap"))
+    if (d.showTrain) add(L("運行情報: 公共交通オープンデータ協議会", "Trains: Association for Open Data of Public Transportation"))
+    if (d.showToday) add(L("今日は何の日: Wikipedia (CC BY-SA)", "On this day: Wikipedia (CC BY-SA)"))
+    if (d.showStocks) add(L("株価: Yahoo Finance", "Stocks: Yahoo Finance"))
+    if (d.showCrypto) add(L("暗号通貨: CoinGecko", "Crypto: CoinGecko"))
+    if (d.showCountdown) add(L("祝日: 内閣府", "Holidays: Cabinet Office, Japan"))
+    if (d.showFlights) add("Flights: adsb.lol (ODbL)")
+    if (d.showShips) add("AIS: aisstream.io")
+    if (d.showFlights || d.showShips) if (!d.showRadar) add(L("地図: Esri, HERE, Garmin, © OpenStreetMap", "Map: Esri, HERE, Garmin, © OpenStreetMap"))
+}.joinToString(L(" ・ ", " · "))
 
 @Composable
 private fun Footer(
@@ -305,12 +360,12 @@ private fun Footer(
             modifier = Modifier.weight(1f),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            FooterButton(WdIcons.Refresh, "更新", onRefresh, Modifier.rotate(if (refreshing) spin else 0f))
-            FooterButton(WdIcons.Gear, "設定", onSettings)
-            FooterButton(WdIcons.Browse, "ブラウズ", onBrowse)
+            FooterButton(WdIcons.Refresh, L("更新", "Refresh"), onRefresh, Modifier.rotate(if (refreshing) spin else 0f))
+            FooterButton(WdIcons.Gear, L("設定", "Settings"), onSettings)
+            FooterButton(WdIcons.Browse, L("ブラウズ", "Browse"), onBrowse)
         }
-        if (overflow) Text("カードが画面に収まりません（設定でカードを減らしてください）", color = Wd.Amber, fontSize = 11.tu, maxLines = 1)
-        Text("更新 " + relative(updatedAt, now), color = Wd.Text3, fontSize = 11.tu)
+        if (overflow) Text(L("カードが画面に収まりません（設定でカードを減らしてください）", "Cards don't fit on the screen (hide some cards in Settings)"), color = Wd.Amber, fontSize = 11.tu, maxLines = 1)
+        Text(L("更新 ", "Updated ") + relative(updatedAt, now), color = Wd.Text3, fontSize = 11.tu)
     }
 }
 

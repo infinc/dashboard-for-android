@@ -107,11 +107,11 @@
 ### 3-1. 新しいカードを足すとき
 
 1. `Models.kt` … `DisplayConfig` に `showFoo: Boolean = true`
-2. `CardLayout.kt` … `Card` に `FOO(幅, "名前", { it.showFoo })` を足す。`DashboardScreen.kt` の `Card()` の `when` に 1 行
-3. `SettingsScreen.kt` … `Pane` に項目を足し、`PaneContent()` に面を書く
+2. `CardLayout.kt` … `Card` に `FOO(幅, 最小の幅, "名前", "English name", "showFoo", …)` を足す。`DashboardScreen.kt` の `Card()` の `when` に 1 行
+3. `SettingsScreen.kt` … `Pane` に項目（日本語と英語の名前）を足し、`PaneContent()` に面を書く（文はすべて `L("日本語", "English")`）
 4. `settings.html` … メニュー（`<i class="dot" data-w="showFoo">`）と面、面の中に `<input type="checkbox" data-w="showFoo" data-card>`
-   （`data-card` を付けると、表示に切り替えたときに画面に収まるかを確かめる）
-5. `tools/mock-server.mjs` … `config.display` に `showFoo`、`CARDS` に幅と名前
+   （`data-card` を付けると、表示に切り替えたときに画面に収まるかを確かめる）。書いた日本語の対訳を `js/i18n-en.js` に足す
+5. `tools/mock-server.mjs` … `config.display` に `showFoo`、`CARDS` に幅と名前、`CARD_EN` に英語の名前
 
 Web 側の真偽値は `data-w` を書くだけで保存対象になる（`settings.js` の `collect()` が全部拾う）。
 `select` と配列は `collect()` と `render()` の両方に 1 行ずつ足す。
@@ -352,6 +352,38 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 メーカー独自の省電力（自動起動の管理など）は OS の版と関係なく常駐を止め得る。設定画面の
 「電池の最適化から除外する」と、README の「メーカー独自の省電力制御」で扱う。
 
+### 3-13. 表示の言語（日本語 / 英語）
+
+`DisplayConfig.language`（"ja" | "en"）を `ConfigStore` が読み込み・保存のたびに `Lang.current` に入れる。
+
+- **アプリ（Kotlin）** … 文は `L("日本語", "English")` で、使う場所に両方を並べて書く（strings.xml は使わない）。
+  画面だけでなく、取得先のエラー・通知・Web の設定画面へ返す選択肢の名前（`SettingChoices.ALL`）も同じ仕組みで切り替えるため。
+  `Lang` の値は Compose の状態なので、`L` を呼んだ画面は言語を変えると描き直される。
+  **トップレベルや `object` の `val` に `L(...)` を入れた一覧を持たせない**（最初の 1 回の言語で固まる）。`val X get() = listOf(...)` にする
+- **気象庁の値** … 判定（警報か注意報か・通知の比較）は日本語のまま行い、出す直前に `Jma` で英語に直す。
+  震央（`en_anm`）・市町村と府県（`area.json` の `enName`）・台風の名前（`name.en`）は気象庁の英語を別の項目に持つ。
+  台風の位置の表現（「小笠原近海」）は英語が無いので、英語では緯度経度にする
+- **英語の名前を持つ取得先** … 運行情報（ODPT の `{ja, en}`）・地名検索（Open-Meteo を日英両方で引き、`LocationConfig.nameEn` に入れる）・
+  今日は何の日（英語では英語版 Wikipedia の onthisday）
+- **Web の設定画面** … サーバーが `<html lang>` に言語を入れて返し、`js/i18n.js` が HTML に書いた日本語を `js/i18n-en.js` の対訳で置き換える
+  （置き換えの単位は「文字と文中の要素だけを含む要素」の innerHTML）。`settings.js` が組み立てる文は `L("日本語", "English")`
+- 言語を変えて保存すると、取得先を取り直す（`SettingsController.sourcesChanged`）。常駐の通知も出し直す
+
+### 3-14. 動かせる地図（飛行機・船舶）
+
+`ui/map/TileMap.kt` の `TileMapController` が、ドラッグ・「＋」「−」・「現在地に戻る」・タイルの取得を受け持つ（雨雲レーダーと同じ動き）。
+画面に依らない作りなので単体テストしてある。飛行機は `FlightTracker`（地図の中心のまわりを 15 秒ごと、大きく動かしたらすぐ）、
+船舶は `ShipStream`（aisstream.io の WebSocket に地図の範囲を伝える）。どちらもカードが見えている間だけ動く（`DashboardViewModel.mapTick()`）。
+雨雲レーダーは雨雲の重ね方が違うので、いまは `DashboardViewModel` の中の別の実装のまま。
+
+### 3-15. 設計の方針（2026-10-04 の見直し）
+
+| 案 | 判断 | 理由 |
+|---|---|---|
+| Jetpack Compose への統一 | 済（元から） | XML のレイアウトは無い（`res/layout` が無い）。残る XML はアイコン・テーマ・ネットワーク設定だけ |
+| MVVM + Clean Architecture、Hilt による DI | Hilt は入れない。新しい機能は「取得（Repository）・状態（Controller / Tracker）・画面」に分け、依存はコンストラクタで渡す | 部品は `AppGraph`（手書きの DI）がサービス・画面・内蔵サーバーで同じ実体を共有しており、Hilt に移しても得るものが少ない（1 つのプロセス・1 人の開発）。KSP とアノテーション処理でビルドが重くなり、古いタブレットに向けた構成を崩す危険が大きい |
+| テストの拡充 | 済 | 単体テスト（JUnit・Coroutines Test・Turbine・Ktor MockEngine）と Compose UI テスト。README の「テスト」 |
+
 ---
 
 ## 4. 設定画面の構造
@@ -360,10 +392,11 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 そのカードに効く設定を同じ面に置く。メニュー項目の左の点は、いまそのカードを表示しているかを表す。
 
 ```
-全体   … 配色 / テーマ（色の基調・背景画像・カードの不透明度）/ 画面の明るさ / 場所 / 通知
+全体   … 言語 / 配色 / テーマ（色の基調・背景画像・カードの不透明度）/ 画面の明るさ / 場所 / 通知
 カード … 時刻 天気 防災 LINE メモ 時間別予報 Spotify
          Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語
-         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 暗号通貨 ハムスター
+         アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 暗号通貨
+         飛行機 船舶 GitHub ハムスター
 端末   … ホームアプリ（電池の最適化を含む）/ ネットワーク（LAN 公開）
 ```
 
@@ -372,7 +405,7 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 
 | Web の API | 扱うもの |
 |---|---|
-| `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify） |
+| `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify・運行情報・予定表・写真・船舶（API キー）・GitHub） |
 | `POST /api/layout/check` | カードの表示を切り替える前の「画面に収まるか」の確認と、合わせ直した配置・「カードの配置」に描く並び（3-2） |
 | `POST /api/wallpaper` / `POST /api/wallpaper/clear` | 背景画像の設定（本文は画像ファイル、25 MB まで）・解除 |
 | `GET /api/train/railways` / `POST /api/train/railways/reload` | 運行情報の路線の一覧（設定画面で選ぶ）/ 読み直し |

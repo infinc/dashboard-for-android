@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -48,6 +50,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import app.dashboard.data.Astro
 import app.dashboard.data.WeatherState
+import app.dashboard.i18n.L
 import app.dashboard.ui.common.EmptyText
 import app.dashboard.ui.common.Tabular
 import app.dashboard.ui.common.WdCard
@@ -91,12 +94,12 @@ fun RadarCard(
     onExpand: () -> Unit,
     modifier: Modifier,
 ) {
-    val note = listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(" ・ ")
-    WdCard("雨雲レーダー", modifier, note = note, titleAction = { ExpandButton(onExpand, Wd.Text3) }) {
+    val note = listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(L(" ・ ", " · "))
+    WdCard(L("雨雲レーダー", "Rain radar"), modifier, note = note, titleAction = { ExpandButton(onExpand, Wd.Text3) }) {
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Wd.Bg.copy(alpha = 0.6f))) {
             RadarMap(frame, onPan, Modifier.fillMaxSize())
             if (frame.base.isEmpty() && frame.old.isEmpty()) {
-                Box(Modifier.padding(8.dp)) { EmptyText(if (frame.failed) "地図を取得できません" else "取得中…", if (frame.failed) Wd.Red else Wd.Text3) }
+                Box(Modifier.padding(8.dp)) { EmptyText(if (frame.failed) L("地図を取得できません", "Couldn't load the map") else L("取得中…", "Loading…"), if (frame.failed) Wd.Red else Wd.Text3) }
             } else {
                 RainLegend(Modifier.align(Alignment.BottomStart).padding(6.dp))
             }
@@ -159,20 +162,27 @@ internal fun RadarMap(frame: DashboardViewModel.RadarFrame, onPan: (Float, Float
  * 端まで来たほうは薄くして押せなくする。地点から動かしていなければ「現在地に戻る」も薄くする。
  */
 @Composable
-internal fun ZoomButtons(frame: DashboardViewModel.RadarFrame, onZoom: (Int) -> Unit, onRecenter: () -> Unit, side: Dp, modifier: Modifier) {
+internal fun ZoomButtons(frame: DashboardViewModel.RadarFrame, onZoom: (Int) -> Unit, onRecenter: () -> Unit, side: Dp, modifier: Modifier) =
+    ZoomButtons(frame.canZoomIn, frame.canZoomOut, frame.panned, onZoom, onRecenter, side, modifier)
+
+/** [ZoomButtons] の中身（雨雲レーダー・飛行機・船舶の地図で共通）。 */
+@Composable
+internal fun ZoomButtons(canZoomIn: Boolean, canZoomOut: Boolean, panned: Boolean, onZoom: (Int) -> Unit, onRecenter: () -> Unit, side: Dp, modifier: Modifier) {
     Column(modifier.clip(RoundedCornerShape(side / 5)).background(Wd.Surface.copy(alpha = 0.85f))) {
-        ZoomButton("拡大", frame.canZoomIn, side, { onZoom(1) }) { c -> Text("＋", color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
+        ZoomButton(L("拡大", "Zoom in"), canZoomIn, side, { onZoom(1) }) { c -> Text(L("＋", "+"), color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
         Box(Modifier.width(side).height(1.dp).background(Wd.BorderSoft))
-        ZoomButton("縮小", frame.canZoomOut, side, { onZoom(-1) }) { c -> Text("−", color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
+        ZoomButton(L("縮小", "Zoom out"), canZoomOut, side, { onZoom(-1) }) { c -> Text("−", color = c, fontSize = (side.value * 0.53f).tu, lineHeight = (side.value * 0.53f).tu) }
         Box(Modifier.width(side).height(1.dp).background(Wd.BorderSoft))
-        ZoomButton("現在地に戻る", frame.panned, side, onRecenter) { c -> Icon(WdIcons.Locate, null, tint = c, modifier = Modifier.size(side * 0.52f)) }
+        ZoomButton(L("現在地に戻る", "Back to my location"), panned, side, onRecenter) { c -> Icon(WdIcons.Locate, null, tint = c, modifier = Modifier.size(side * 0.52f)) }
     }
 }
 
 @Composable
 private fun ZoomButton(description: String, enabled: Boolean, side: Dp, onClick: () -> Unit, content: @Composable (Color) -> Unit) {
     Box(
-        Modifier.size(side).clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
+        // 読み上げ・UI テストで見つけられるよう、ボタンの名前を付ける（「＋」の文字や照準の絵だけでは伝わらない）
+        Modifier.size(side).clickable(enabled = enabled, onClickLabel = description, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         content(if (enabled) Wd.Text else Wd.Text3.copy(alpha = 0.5f))
@@ -198,7 +208,7 @@ internal fun RainLegend(modifier: Modifier) {
 @Composable
 fun SunMoonCard(w: WeatherState?, now: Long, modifier: Modifier) {
     val moon = remember(now / 60_000L) { Astro.moon(now) }
-    WdCard("日の出・日の入り ／ 月", modifier) {
+    WdCard(L("日の出・日の入り ／ 月", "Sunrise / sunset & Moon"), modifier) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Sun(w, now, Modifier.weight(1.15f).fillMaxHeight())
             Box(Modifier.width(1.dp).fillMaxHeight().background(Wd.BorderSoft))
@@ -217,7 +227,7 @@ private fun Sun(w: WeatherState?, now: Long, modifier: Modifier) {
     val set = ms(day?.sunset)
     Column(modifier) {
         if (rise == null || set == null) {
-            EmptyText("日の出・日の入りは天気の取得後に出ます。")
+            EmptyText(L("日の出・日の入りは天気の取得後に出ます。", "Sunrise and sunset appear after the weather is fetched."))
             return@Column
         }
         val t = ((now - rise).toDouble() / (set - rise)).toFloat()
@@ -237,11 +247,11 @@ private fun Sun(w: WeatherState?, now: Long, modifier: Modifier) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            TimeLabel("日の出", rise, zone, Modifier.weight(1f))
-            TimeLabel("日の入り", set, zone, Modifier.weight(1f), end = true)
+            TimeLabel(L("日の出", "Sunrise"), rise, zone, Modifier.weight(1f))
+            TimeLabel(L("日の入り", "Sunset"), set, zone, Modifier.weight(1f), end = true)
         }
         val len = Duration.ofMillis(set - rise)
-        Text("昼の長さ ${len.toHours()}時間${len.toMinutes() % 60}分", color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(top = 2.dp))
+        Text(L("昼の長さ ${len.toHours()}時間${len.toMinutes() % 60}分", "Daylight ${len.toHours()}h ${len.toMinutes() % 60}m"), color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -269,13 +279,13 @@ private fun Moon(m: Astro.MoonPhase, now: Long, modifier: Modifier) {
             Column(Modifier.weight(1f)) {
                 Text(m.name, fontSize = vhText(2.3f, 15f, 19f), fontWeight = FontWeight.SemiBold, maxLines = 1)
                 Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 2.dp)) {
-                    Text("月齢 ", color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
+                    Text(L("月齢 ", "Moon age "), color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
                     Text("%.1f".format(Locale.US, m.age), fontSize = vhText(2.6f, 16f, 22f), fontWeight = FontWeight.SemiBold, style = Tabular)
                 }
-                Text("輝いている面 ${(m.illumination * 100).roundToInt()}%", color = Wd.Text2, fontSize = 11.5f.tu)
+                Text(L("輝いている面 ${(m.illumination * 100).roundToInt()}%", "Illuminated ${(m.illumination * 100).roundToInt()}%"), color = Wd.Text2, fontSize = 11.5f.tu)
                 Spacer(Modifier.height(4.dp))
-                Text("満月 ${date(m.nextFull)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
-                Text("新月 ${date(m.nextNew)}", color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
+                Text(L("満月 ${date(m.nextFull)}", "Full moon ${date(m.nextFull)}"), color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
+                Text(L("新月 ${date(m.nextNew)}", "New moon ${date(m.nextNew)}"), color = Wd.Text3, fontSize = 11.tu, style = Tabular, maxLines = 1)
             }
         }
     }

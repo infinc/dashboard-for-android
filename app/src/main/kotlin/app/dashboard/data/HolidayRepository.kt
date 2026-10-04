@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.content.Context
 import android.util.Log
 import io.ktor.client.HttpClient
@@ -42,7 +43,7 @@ class HolidayRepository(context: Context, private val client: HttpClient) {
         try {
             val text = String(client.get(URL).readRawBytes(), Charset.forName("Shift_JIS"))
             val parsed = parse(text)
-            if (parsed.isEmpty()) error("祝日の CSV を読めませんでした")
+            if (parsed.isEmpty()) error(L("祝日の CSV を読めませんでした", "Couldn't read the holiday CSV"))
             all = parsed
             runCatching { cacheFile.writeText(text) }
         } catch (e: Exception) {

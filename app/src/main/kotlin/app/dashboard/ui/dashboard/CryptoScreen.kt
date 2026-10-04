@@ -1,5 +1,7 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.Lang
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -93,7 +95,7 @@ fun CryptoScreen(
             loading = true
             val r = load(coin, currency, days, candle)
             loading = false
-            r.onSuccess { detail = it; error = null }.onFailure { error = it.message ?: "取得できません" }
+            r.onSuccess { detail = it; error = null }.onFailure { error = it.message ?: L("取得できません", "Unavailable") }
             if (r.isSuccess) break
             delay(RETRY_MS)
         }
@@ -116,14 +118,14 @@ fun CryptoScreen(
                 Spacer(Modifier.width(14.dp))
                 Segmented(CRYPTO_DETAIL_RANGES, days) { days = it }
                 Spacer(Modifier.width(10.dp))
-                Segmented(listOf("line" to "折れ線", "candle" to "ろうそく足"), if (candle) "candle" else "line") { candle = it == "candle" }
+                Segmented(listOf("line" to L("折れ線", "Line"), "candle" to L("ろうそく足", "Candlestick")), if (candle) "candle" else "line") { candle = it == "candle" }
                 Spacer(Modifier.width(10.dp))
                 Segmented(listOf("jpy" to "¥", "usd" to "$"), currency) { currency = it }
             }
             Spacer(Modifier.height(12.dp))
             if (d == null) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(error?.let { "取得できません: $it" } ?: "取得中…", color = if (error != null) Wd.Red else Wd.Text3, fontSize = 16.tu)
+                    Text(error?.let { L("取得できません: $it", "Unavailable: $it") } ?: L("取得中…", "Loading…"), color = if (error != null) Wd.Red else Wd.Text3, fontSize = 16.tu)
                 }
             } else {
                 DetailChart(d, candle, Modifier.weight(1f).fillMaxWidth())
@@ -133,7 +135,7 @@ fun CryptoScreen(
 }
 
 /** 「ビットコイン（BTC）」から「BTC」を取り出す。 */
-private fun symbolOf(label: String): String = Regex("（(.+)）").find(label)?.groupValues?.get(1) ?: label
+private fun symbolOf(label: String): String = Regex("[（(]([^）)]+)[）)]").find(label)?.groupValues?.get(1) ?: label
 
 @Composable
 private fun Header(d: CryptoDetail?, coin: String, days: String, currency: String, now: Long, loading: Boolean, error: String?, modifier: Modifier) {
@@ -142,13 +144,13 @@ private fun Header(d: CryptoDetail?, coin: String, days: String, currency: Strin
         Row(verticalAlignment = Alignment.Bottom) {
             Text(d?.symbol ?: coin.uppercase(), color = Wd.Text, fontSize = 30.tu, fontWeight = FontWeight.Bold, maxLines = 1)
             Text("  " + (d?.name ?: ""), color = Wd.Text3, fontSize = 16.tu, maxLines = 1, modifier = Modifier.padding(bottom = 4.dp))
-            d?.rank?.let { Text("  時価総額 $it 位", color = Wd.Text3, fontSize = 13.tu, modifier = Modifier.padding(bottom = 5.dp)) }
+            d?.rank?.let { Text(L("  時価総額 $it 位", "  Market cap #$it"), color = Wd.Text3, fontSize = 13.tu, modifier = Modifier.padding(bottom = 5.dp)) }
             Spacer(Modifier.weight(1f))
             Text(
                 when {
-                    loading -> "読み込み中…"
-                    error != null && d != null -> "更新できません: $error"
-                    d != null -> "${relative(d.fetchedAt, now)}に取得"
+                    loading -> L("読み込み中…", "Loading…")
+                    error != null && d != null -> L("更新できません: $error", "Couldn't update: $error")
+                    d != null -> L("${relative(d.fetchedAt, now)}に取得", "Fetched ${relative(d.fetchedAt, now)}")
                     else -> ""
                 },
                 color = if (error != null && !loading) Wd.Amber else Wd.Text3, fontSize = 12.tu, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -160,19 +162,19 @@ private fun Header(d: CryptoDetail?, coin: String, days: String, currency: Strin
             Text(money(d.price, currency), color = Wd.Text, fontSize = 44.tu, fontWeight = FontWeight.SemiBold, style = Tabular, maxLines = 1)
             d.changePercent?.let {
                 Text("  ${signed(it)}", color = trend(it), fontSize = 22.tu, fontWeight = FontWeight.SemiBold, style = Tabular, modifier = Modifier.padding(bottom = 6.dp))
-                Text("（$range）", color = Wd.Text3, fontSize = 14.tu, modifier = Modifier.padding(bottom = 8.dp))
+                Text(L("（$range）", " ($range)"), color = Wd.Text3, fontSize = 14.tu, modifier = Modifier.padding(bottom = 8.dp))
             }
             if (days != "1") d.change24h?.let {
-                Text("  24 時間 ", color = Wd.Text3, fontSize = 14.tu, modifier = Modifier.padding(bottom = 8.dp))
+                Text(L("  24 時間 ", "  24 h "), color = Wd.Text3, fontSize = 14.tu, modifier = Modifier.padding(bottom = 8.dp))
                 Text(signed(it), color = trend(it), fontSize = 14.tu, style = Tabular, modifier = Modifier.padding(bottom = 8.dp))
             }
         }
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            Stat("時価総額", d.marketCap?.let { compact(it, currency) })
-            Stat("24 時間の出来高", d.volume24h?.let { compact(it, currency) })
-            Stat("期間の高値", d.high?.let { money(it, currency) })
-            Stat("期間の安値", d.low?.let { money(it, currency) })
-            Stat("最高値", d.ath?.let { money(it, currency) + (d.athChangePercent?.let { p -> "（${signed(p)}）" } ?: "") })
+            Stat(L("時価総額", "Market cap"), d.marketCap?.let { compact(it, currency) })
+            Stat(L("24 時間の出来高", "24 h volume"), d.volume24h?.let { compact(it, currency) })
+            Stat(L("期間の高値", "Period high"), d.high?.let { money(it, currency) })
+            Stat(L("期間の安値", "Period low"), d.low?.let { money(it, currency) })
+            Stat(L("最高値", "All-time high"), d.ath?.let { money(it, currency) + (d.athChangePercent?.let { p -> L("（${signed(p)}）", " (${signed(p)})") } ?: "") })
         }
     }
 }
@@ -242,7 +244,7 @@ private fun DetailChart(d: CryptoDetail, candle: Boolean, modifier: Modifier) {
     val t1 = maxOf(d.times.lastOrNull() ?: 0L, candles.lastOrNull()?.time ?: 0L)
     val values = if (candles.isNotEmpty()) candles.flatMap { listOf(it.high, it.low) } else d.prices
     if (values.size < 2 || t1 <= t0) {
-        Box(modifier, contentAlignment = Alignment.Center) { Text("チャートのデータがありません", color = Wd.Text3, fontSize = 16.tu) }
+        Box(modifier, contentAlignment = Alignment.Center) { Text(L("チャートのデータがありません", "No chart data"), color = Wd.Text3, fontSize = 16.tu) }
         return
     }
     val lo = values.min()
@@ -347,7 +349,7 @@ private fun DetailChart(d: CryptoDetail, candle: Boolean, modifier: Modifier) {
                 }
             }
         }
-        Text("24 時間の出来高", color = axis, fontSize = 11.tu, modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 40.dp))
+        Text(L("24 時間の出来高", "24 h volume"), color = axis, fontSize = 11.tu, modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 40.dp))
         // 触れている点の値（左上）
         touchX?.let { tx ->
             val t = t0 + ((tx.coerceIn(0f, plotWidth) / plotWidth) * (t1 - t0)).toLong()
@@ -366,7 +368,7 @@ private fun TouchLabel(d: CryptoDetail, candles: List<CryptoCandle>, hit: Pair<L
         Text(timeLabel(hit.first, "full", zone), color = Wd.Text3, fontSize = 12.tu)
         if (c != null) {
             Text(
-                "始 ${money(c.open, d.currency)}  高 ${money(c.high, d.currency)}  安 ${money(c.low, d.currency)}  終 ${money(c.close, d.currency)}",
+                L("始 ${money(c.open, d.currency)}  高 ${money(c.high, d.currency)}  安 ${money(c.low, d.currency)}  終 ${money(c.close, d.currency)}", "O ${money(c.open, d.currency)}  H ${money(c.high, d.currency)}  L ${money(c.low, d.currency)}  C ${money(c.close, d.currency)}"),
                 color = Wd.Text, fontSize = 14.tu, style = Tabular,
             )
         } else {
@@ -398,7 +400,7 @@ private fun signed(p: Double): String = (if (p >= 0) "+" else "−") + "%.2f%%".
 /** 大きな金額を「1.23 兆」「4.5 億」（米ドルは T / B / M）で短く書く。 */
 private fun compact(v: Double, currency: String): String {
     val mark = if (currency == "usd") "$" else "¥"
-    return mark + if (currency == "usd") when {
+    return mark + if (currency == "usd" || Lang.en) when {
         v >= 1e12 -> "%.2fT".format(Locale.US, v / 1e12)
         v >= 1e9 -> "%.2fB".format(Locale.US, v / 1e9)
         v >= 1e6 -> "%.2fM".format(Locale.US, v / 1e6)

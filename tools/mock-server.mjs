@@ -27,10 +27,17 @@ const MIME = {
 
 function readChoices() {
   const kt = readFileSync(join(REPO, "app/src/main/kotlin/app/dashboard/data/Choices.kt"), "utf8");
-  const accents = [...kt.matchAll(/Accent\("(#[0-9A-Fa-f]{6})", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
-  const tones = [...kt.matchAll(/Tone\("([a-z]+)", "([^"]+)"/g)].map((m) => ({ value: m[1], label: m[2] }));
-  const cardColors = [...kt.matchAll(/CardColor\("(#[0-9A-Fa-f]{6}|)", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: m[2] }));
-  return { accents, tones, cardColors };
+  // Choices.kt は ("値", "日本語", "英語") の形。表示の言語（config.display.language）の名前を使う
+  const en = () => config?.display?.language === "en";
+  const pick = (m) => (en() ? m[3] : m[2]);
+  const accents = () => [...kt.matchAll(/Accent\("(#[0-9A-Fa-f]{6})", "([^"]+)", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: pick(m) }));
+  const tones = () => [...kt.matchAll(/Tone\("([a-z]+)", "([^"]+)", "([^"]+)"/g)].map((m) => ({ value: m[1], label: pick(m) }));
+  const cardColors = () => [...kt.matchAll(/CardColor\("(#[0-9A-Fa-f]{6}|)", "([^"]+)", "([^"]+)"\)/g)].map((m) => ({ value: m[1], label: pick(m) }));
+  return {
+    get accents() { return accents(); },
+    get tones() { return tones(); },
+    get cardColors() { return cardColors(); },
+  };
 }
 
 // Kotlin の PublicConfig と同じ形。Models.kt に項目を足したらここにも足すこと
@@ -42,7 +49,7 @@ let config = {
   units: { temperature: "c", wind: "kmh", clock24h: true, showSeconds: true },
   display: {
     showClock: true, showWifi: true, showWeather: true, showHourly: true, showDaily: true, showSun: true,
-    accent: "#4DD4FF", theme: "dark", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true,
+    accent: "#4DD4FF", theme: "dark", language: process.env.MOCK_LANG === "en" ? "en" : "ja", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true,
     idleDimEnabled: true, idleDimAfterSeconds: 300, idleDimBrightness: 0.15,
     showDisaster: true, showFeed: true, showDeviceStats: true, showMemo: true,
     showTimer: true, showWord: true, showSpotify: true, showHamster: true,
@@ -52,7 +59,7 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    showCalculator: false, showPhotos: false, showCrypto: false,
+    showCalculator: false, showPhotos: false, showCrypto: false, showFlights: false, showShips: false, showGithub: false,
     todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
   refresh: { wifiIntervalMs: 2000, weatherIntervalMs: 600000 },
@@ -82,6 +89,8 @@ let config = {
   },
   countdown: { builtins: ["newyear", "christmas", "holiday", "fullmoon"], custom: [] },
   crypto: { coin: "bitcoin", currency: "jpy", range: "1", chart: "line", intervalMin: 10 },
+  ships: { apiKeySet: false },
+  github: { user: "", tokenSet: false, days: 30, showGraph: true, showCommits: true, showPulls: true, showIssues: false, showRepos: true, showProfile: true },
   choices: readChoices(),
 };
 
@@ -107,14 +116,25 @@ const CARDS = [
   ["TODAY", "showToday", 8, 6, "今日は何の日"], ["STOCKS", "showStocks", 10, 6, "株価"],
   ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
   ["CRYPTO", "showCrypto", 8, 5, "暗号通貨"],
+  ["FLIGHTS", "showFlights", 8, 5, "飛行機"], ["SHIPS", "showShips", 8, 5, "船舶"], ["GITHUB", "showGithub", 10, 6, "GitHub"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
-config.choices.cards = CARDS.map(({ id, key, label, span, min }) => ({ id, label, span, min, flag: key }));
+// 英語の名前（CardLayout.Card と同じ）
+const CARD_EN = {
+  CLOCK: "Clock", WEATHER: "Weather", DISASTER: "Alerts", MEMO: "LINE memo", HOURLY: "Hourly", SPOTIFY: "Spotify", WIFI: "Wi-Fi",
+  STATS: "Device", NEWS: "News", DAILY: "Weekly", TIMER: "Timer", WORD: "Word of the hour", ANALOG_CLOCK: "Analog clock",
+  CALENDAR: "Calendar", TRAIN: "Trains", RADAR: "Rain radar", SUN_MOON: "Sun & Moon", COUNTDOWN: "Countdown", TODAY: "On this day",
+  STOCKS: "Stocks", CALCULATOR: "Calculator", PHOTOS: "Photos", CRYPTO: "Crypto", FLIGHTS: "Flights", SHIPS: "Ships", GITHUB: "GitHub",
+};
+Object.defineProperty(config.choices, "cards", {
+  enumerable: true,
+  get: () => CARDS.map(({ id, key, label, span, min }) => ({ id, label: config.display.language === "en" ? CARD_EN[id] : label, span, min, flag: key })),
+});
 config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto"]);
+const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto", "showFlights", "showShips", "showGithub"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
@@ -281,7 +301,7 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && !post) return json(res, 200, config);
     if (path === "/api/settings" && post) {
       // SettingsController.saveAll と同じく、settings の各項目は「まるごと差し替え」
-      const { settings = {}, memo, spotify, train, calendar, photos } = await readBody(req);
+      const { settings = {}, memo, spotify, train, calendar, photos, ships, github } = await readBody(req);
       if (settings.display) {
         const adjusted = adjust(config.display, settings.display);
         if (adjusted.message) return json(res, 400, { error: "cards_overflow", detail: adjusted.message });
@@ -311,6 +331,11 @@ const server = createServer(async (req, res) => {
           passwordSet: password === undefined ? config.calendar.passwordSet : password !== "",
           icsUrlSet: icsUrl === undefined ? config.calendar.icsUrlSet : icsUrl !== "",
         };
+      }
+      if (ships && ships.apiKey !== undefined) config.ships = { apiKeySet: ships.apiKey !== "" };
+      if (github) {
+        const { token, ...rest } = github;
+        config.github = { ...config.github, ...rest, tokenSet: token === undefined ? config.github.tokenSet : token !== "" };
       }
       if (photos) {
         const { albumUrl, ...rest } = photos;
@@ -373,12 +398,21 @@ const server = createServer(async (req, res) => {
       const q = url.searchParams.get("q") ?? "";
       try {
         const g = new URL("https://geocoding-api.open-meteo.com/v1/search");
-        g.search = new URLSearchParams({ name: q, count: "8", language: "ja", format: "json" }).toString();
-        const d = await (await fetch(g, { signal: AbortSignal.timeout(8000) })).json();
-        return json(res, 200, (d.results ?? []).map((x) => ({
-          name: x.name, admin: x.admin1, country: x.country,
-          latitude: x.latitude, longitude: x.longitude, timezone: x.timezone ?? "auto",
-        })));
+        // 実機と同じく日本語と英語の両方で引き、同じ地点の英語の名前を nameEn に入れる
+        const search = async (language) => {
+          g.search = new URLSearchParams({ name: q, count: "8", language, format: "json" }).toString();
+          return (await (await fetch(g, { signal: AbortSignal.timeout(8000) })).json()).results ?? [];
+        };
+        const ja = await search("ja");
+        const enList = await search("en").catch(() => []);
+        const isEn = config.display.language === "en";
+        return json(res, 200, ja.map((x) => {
+          const e = enList.find((y) => y.latitude === x.latitude && y.longitude === x.longitude);
+          return {
+            name: isEn && e ? e.name : x.name, admin: isEn && e ? e.admin1 : x.admin1, country: isEn && e ? e.country : x.country,
+            latitude: x.latitude, longitude: x.longitude, timezone: x.timezone ?? "auto", nameJa: x.name, nameEn: e?.name ?? null,
+          };
+        }));
       } catch {
         return json(res, 200, [{ name: q || "モック地点", admin: null, country: "JP", latitude: 35.0, longitude: 135.0, timezone: "Asia/Tokyo" }]);
       }
@@ -387,7 +421,9 @@ const server = createServer(async (req, res) => {
     let rel = path === "/" || path === "/settings" ? "settings.html" : path.replace(/^\/static\//, "");
     rel = normalize(rel).replace(/^(\.\.[/\\])+/, "");
     const file = join(ROOT, rel);
-    const body = await readFile(file);
+    let body = await readFile(file);
+    // 実機と同じく、HTML には表示の言語を <html lang> に入れて返す
+    if (extname(file) === ".html") body = body.toString("utf8").replace('<html lang="ja">', `<html lang="${config.display.language === "en" ? "en" : "ja"}">`);
     res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
     res.end(body);
   } catch {

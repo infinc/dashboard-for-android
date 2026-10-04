@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Base64
 import android.util.Log
 import io.ktor.client.HttpClient
@@ -72,7 +73,7 @@ class SpotifyRepository(
         }
         try {
             val token = validAccessToken(config) ?: run {
-                state = state.copy(available = false, lastError = "トークンを更新できません")
+                state = state.copy(available = false, lastError = L("トークンを更新できません", "Couldn't refresh the token"))
                 return
             }
             val response: HttpResponse = client.get(NOW_PLAYING_URL) {
@@ -100,7 +101,7 @@ class SpotifyRepository(
                     // 期限切れなら次回に取り直す。権限を取り消された場合もここに来る。
                     accessToken = null
                     accessTokenExpiresAt = 0
-                    throw IllegalStateException("認可が無効です（再連携が必要かもしれません）")
+                    throw IllegalStateException(L("認可が無効です（再連携が必要かもしれません）", "Authorization is invalid (you may need to reconnect)"))
                 }
 
                 else -> throw IllegalStateException("HTTP ${response.status.value}")
@@ -164,9 +165,9 @@ class SpotifyRepository(
      */
     suspend fun exchangeCode(code: String, redirectUri: String): Result<Unit> {
         val verifier = pendingVerifier
-            ?: return Result.failure(IllegalStateException("認可の途中経過が見つかりません。設定画面からやり直してください。"))
+            ?: return Result.failure(IllegalStateException(L("認可の途中経過が見つかりません。設定画面からやり直してください。", "Authorization in progress not found. Start again from Settings.")))
         val clientId = configStore.get().spotify.clientId.trim()
-        if (clientId.isEmpty()) return Result.failure(IllegalStateException("クライアント ID が未設定です"))
+        if (clientId.isEmpty()) return Result.failure(IllegalStateException(L("クライアント ID が未設定です", "Client ID isn't set")))
 
         return runCatching {
             val token: TokenDto = client.submitForm(
@@ -181,7 +182,7 @@ class SpotifyRepository(
             ).body()
 
             val refresh = token.refreshToken
-                ?: throw IllegalStateException("更新用トークンが返りませんでした")
+                ?: throw IllegalStateException(L("更新用トークンが返りませんでした", "No refresh token was returned"))
 
             pendingVerifier = null
             accessToken = token.accessToken
@@ -201,18 +202,18 @@ class SpotifyRepository(
     suspend fun control(action: String): Result<Unit> {
         val config = configStore.get().spotify
         if (!config.enabled || config.refreshToken.isNullOrBlank()) {
-            return Result.failure(IllegalStateException("Spotify が未連携です"))
+            return Result.failure(IllegalStateException(L("Spotify が未連携です", "Spotify isn't connected")))
         }
         return runCatching {
             val token = validAccessToken(config)
-                ?: throw IllegalStateException("トークンを更新できません")
+                ?: throw IllegalStateException(L("トークンを更新できません", "Couldn't refresh the token"))
             val base = "https://api.spotify.com/v1/me/player"
             val response: HttpResponse = when (action) {
                 "play" -> client.put("$base/play") { authed(token) }
                 "pause" -> client.put("$base/pause") { authed(token) }
                 "next" -> client.post("$base/next") { authed(token) }
                 "previous" -> client.post("$base/previous") { authed(token) }
-                else -> throw IllegalArgumentException("不明な操作: $action")
+                else -> throw IllegalArgumentException(L("不明な操作: $action", "Unknown action: $action"))
             }
             // 204 が正常。403 は無料プランなど操作が許されていない場合に返る。
             if (response.status.value !in 200..299) {
@@ -221,11 +222,11 @@ class SpotifyRepository(
                         // 操作の権限は後から足したので、それ以前に連携した認可には入っていない。
                         // 取り直すまで読み取りはできるが操作だけ弾かれる、という状態になる。
                         HttpStatusCode.Unauthorized ->
-                            "操作の権限がありません。設定画面から連携をやり直してください"
+                            L("操作の権限がありません。設定画面から連携をやり直してください", "No permission to control playback. Reconnect from Settings")
                         HttpStatusCode.Forbidden ->
-                            "操作を拒否されました（Spotify Premium が必要です）"
+                            L("操作を拒否されました（Spotify Premium が必要です）", "Control was refused (Spotify Premium is required)")
                         HttpStatusCode.NotFound ->
-                            "操作できる再生先が見つかりません（Spotify アプリで一度再生してください）"
+                            L("操作できる再生先が見つかりません（Spotify アプリで一度再生してください）", "No device to control (play something in the Spotify app once)")
                         else -> "HTTP ${response.status.value}"
                     }
                 )

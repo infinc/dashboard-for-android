@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Log
 import android.util.Xml
 import io.ktor.client.HttpClient
@@ -45,7 +46,7 @@ class FeedRepository(
                 perFeed += fetchFeed(url)
             } catch (e: Exception) {
                 Log.w(TAG, "フィード取得に失敗: $url", e)
-                errors += "${shortHost(url)}: ${e.message ?: "取得失敗"}"
+                errors += L("${shortHost(url)}: ${e.message ?: "取得失敗"}", "${shortHost(url)}: ${e.message ?: "failed"}")
             }
         }
 
@@ -76,7 +77,7 @@ class FeedRepository(
         if (looksLikeFeed(body)) return parse(body)
 
         val discovered = discoverFeedUrl(body, url)
-            ?: throw IllegalStateException("RSS ではなく HTML ページのようです。フィードの URL を指定してください")
+            ?: throw IllegalStateException(L("RSS ではなく HTML ページのようです。フィードの URL を指定してください", "This looks like an HTML page, not RSS. Specify the feed URL"))
         Log.i(TAG, "フィードを自動検出: $url -> $discovered")
         return parse(client.get(discovered).bodyAsText())
     }

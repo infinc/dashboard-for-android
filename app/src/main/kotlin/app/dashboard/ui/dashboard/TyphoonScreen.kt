@@ -1,5 +1,7 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.data.Jma
+import app.dashboard.i18n.L
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -90,7 +92,7 @@ fun TyphoonScreen(
 ) {
     BackHandler(onBack = onBack)
     val result by produceState<Result<TyphoonTrack>?>(null, info.id, info.reportedAt) {
-        value = info.id?.let { loadTrack(it) } ?: Result.failure(IllegalStateException("台風の識別子がありません"))
+        value = info.id?.let { loadTrack(it) } ?: Result.failure(IllegalStateException(L("台風の識別子がありません", "No typhoon identifier")))
     }
     val track = result?.getOrNull()
 
@@ -105,14 +107,14 @@ fun TyphoonScreen(
                     TrackMap(track, home, loadTile, Modifier.fillMaxSize())
                     Legend(Modifier.align(Alignment.BottomStart).padding(14.dp))
                     Text(
-                        "気象庁 ／ 地図: Esri, HERE, Garmin, © OpenStreetMap",
+                        L("気象庁 ／ 地図: Esri, HERE, Garmin, © OpenStreetMap", "JMA / Map: Esri, HERE, Garmin, © OpenStreetMap"),
                         color = Color.White.copy(alpha = 0.45f),
                         fontSize = 10.tu,
                         modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
                     )
                 } else {
                     Text(
-                        result?.exceptionOrNull()?.let { "進路図を取得できません: ${it.message ?: "通信エラー"}" } ?: "進路図を取得しています…",
+                        result?.exceptionOrNull()?.let { L("進路図を取得できません: ${it.message ?: "通信エラー"}", "Can't get the track map: ${it.message ?: "network error"}") } ?: L("進路図を取得しています…", "Loading the track map…"),
                         color = if (result?.isFailure == true) RED else Color.White.copy(alpha = 0.7f),
                         fontSize = 15.tu,
                         modifier = Modifier.align(Alignment.Center).padding(40.dp),
@@ -130,7 +132,7 @@ fun TyphoonScreen(
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(WdIcons.Back, "戻る", tint = Color.White, modifier = Modifier.size(30.dp))
+            Icon(WdIcons.Back, L("戻る", "Back"), tint = Color.White, modifier = Modifier.size(30.dp))
         }
     }
 }
@@ -235,7 +237,7 @@ private fun TrackMap(track: TyphoonTrack, home: LatLon?, loadTile: suspend (Int,
 
             // 各予報の時刻（予報円の右上に）
             forecasts.forEach { p ->
-                val label = shortTime(p.validTime) ?: "${p.hours}時間後"
+                val label = shortTime(p.validTime) ?: L("${p.hours}時間後", "+${p.hours} h")
                 val layout = measurer.measure(label, TextStyle(color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold))
                 val c = at(p.center)
                 val r = (p.circleKm?.let { radius(p.center, it) } ?: 0f) * 0.7071f
@@ -344,10 +346,10 @@ private fun Legend(modifier: Modifier) {
     Column(
         modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
-        LegendRow("暴風域（25 m/s 以上）") { Box(Modifier.size(14.dp).clip(CircleShape).background(RED.copy(alpha = 0.7f))) }
-        LegendRow("強風域（15 m/s 以上）") { Box(Modifier.size(14.dp).clip(CircleShape).background(YELLOW.copy(alpha = 0.45f)).border(1.dp, YELLOW, CircleShape)) }
-        LegendRow("予報円（70% の確率で中心が入る）") { Box(Modifier.size(14.dp).border(1.5.dp, Color.White, CircleShape)) }
-        LegendRow("暴風警戒域") { Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).border(2.dp, ENVELOPE, RoundedCornerShape(3.dp))) }
+        LegendRow(L("暴風域（25 m/s 以上）", "Storm area (25 m/s or more)")) { Box(Modifier.size(14.dp).clip(CircleShape).background(RED.copy(alpha = 0.7f))) }
+        LegendRow(L("強風域（15 m/s 以上）", "Gale area (15 m/s or more)")) { Box(Modifier.size(14.dp).clip(CircleShape).background(YELLOW.copy(alpha = 0.45f)).border(1.dp, YELLOW, CircleShape)) }
+        LegendRow(L("予報円（70% の確率で中心が入る）", "Forecast circle (70% chance the center is inside)")) { Box(Modifier.size(14.dp).border(1.5.dp, Color.White, CircleShape)) }
+        LegendRow(L("暴風警戒域", "Storm warning area")) { Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).border(2.dp, ENVELOPE, RoundedCornerShape(3.dp))) }
     }
 }
 
@@ -364,12 +366,12 @@ private fun LegendRow(label: String, swatch: @Composable () -> Unit) {
 
 @Composable
 private fun Panel(info: TyphoonInfo, track: TyphoonTrack?, modifier: Modifier) {
-    val kind = listOfNotNull(info.scale, info.intensity).joinToString("・")
+    val kind = listOfNotNull(Jma.scale(info.scale), Jma.intensity(info.intensity)).joinToString(L("・", ", "))
     Column(
         modifier.background(Color(0xFF12161D)).padding(start = 20.dp, end = 18.dp, top = 22.dp, bottom = 12.dp),
     ) {
         Text(
-            listOfNotNull(track?.number ?: info.number, track?.name ?: info.name).joinToString(" ").ifEmpty { "台風" },
+            listOfNotNull(Jma.typhoonNumber(track?.number ?: info.number), Jma.pick(track?.name ?: info.name, track?.nameEn ?: info.nameEn)).joinToString(" ").ifEmpty { L("台風", "Typhoon") },
             color = Color.White, fontSize = 24.tu, fontWeight = FontWeight.Bold,
         )
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -380,7 +382,7 @@ private fun Panel(info: TyphoonInfo, track: TyphoonTrack?, modifier: Modifier) {
                 )
                 Spacer(Modifier.width(8.dp))
             }
-            Text("発表 " + (reported(track?.reportedAt ?: info.reportedAt) ?: "—"), color = Color.White.copy(alpha = 0.55f), fontSize = 12.tu)
+            Text(L("発表 ", "Issued ") + (reported(track?.reportedAt ?: info.reportedAt) ?: "—"), color = Color.White.copy(alpha = 0.55f), fontSize = 12.tu)
         }
         Spacer(Modifier.height(10.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -396,39 +398,39 @@ private fun PointRows(p: TyphoonPoint) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.1f)))
         Row(Modifier.padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (p.hours == 0) "実況" else "${p.hours}時間後",
+                if (p.hours == 0) L("実況", "Now") else L("${p.hours}時間後", "+${p.hours} h"),
                 color = if (p.hours == 0) RED else Color.White,
                 fontSize = 13.tu, fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.width(8.dp))
             Text(longTime(p.validTime).orEmpty(), color = white2, fontSize = 13.tu)
             Spacer(Modifier.weight(1f))
-            listOfNotNull(p.scale, p.intensity).joinToString("・").takeIf { it.isNotEmpty() }?.let {
+            listOfNotNull(Jma.scale(p.scale), Jma.intensity(p.intensity)).joinToString(L("・", ", ")).takeIf { it.isNotEmpty() }?.let {
                 Text(it, color = Color(0xFFFFB347), fontSize = 12.tu)
             }
         }
-        p.location?.let { Text(it, color = Color.White, fontSize = 14.tu, lineHeight = 1.4.em, modifier = Modifier.padding(top = 2.dp)) }
+        Jma.location(p.location, p.center.lat, p.center.lon)?.let { Text(it, color = Color.White, fontSize = 14.tu, lineHeight = 1.4.em, modifier = Modifier.padding(top = 2.dp)) }
         val wind = listOfNotNull(
             p.pressureHpa?.let { "$it hPa" },
-            p.maxWindMps?.let { "最大 $it m/s" + (p.gustMps?.let { g -> "（瞬間 $g）" } ?: "") },
-        ).joinToString(" ・ ")
+            p.maxWindMps?.let { L("最大 $it m/s", "Max $it m/s") + (p.gustMps?.let { g -> L("（瞬間 $g）", " (gust $g)") } ?: "") },
+        ).joinToString(L(" ・ ", " · "))
         if (wind.isNotEmpty()) Text(wind, color = white2, fontSize = 12.5f.tu, lineHeight = 1.4.em)
-        p.course?.let { Text(it + "へ" + (p.speedKmh?.let { s -> " $s km/h" } ?: ""), color = white2, fontSize = 12.5f.tu) }
+        p.course?.let { Text(Jma.course(it) + L("へ", "") + (p.speedKmh?.let { s -> " $s km/h" } ?: ""), color = white2, fontSize = 12.5f.tu) }
         val areas = if (p.hours == 0) listOfNotNull(
-            p.stormKm?.let { "暴風域 ${it.toInt()} km" },
-            p.galeText?.let { "強風域 $it" },
+            p.stormKm?.let { L("暴風域 ${it.toInt()} km", "Storm area ${it.toInt()} km") },
+            p.galeText?.let { L("強風域 $it", "Gale area $it") },
         ) else listOfNotNull(
-            p.circleKm?.let { "予報円 ${it.roundToInt()} km" },
-            p.stormKm?.let { "暴風警戒域 ${it.toInt()} km" },
+            p.circleKm?.let { L("予報円 ${it.roundToInt()} km", "Forecast circle ${it.roundToInt()} km") },
+            p.stormKm?.let { L("暴風警戒域 ${it.toInt()} km", "Storm warning area ${it.toInt()} km") },
         )
-        if (areas.isNotEmpty()) Text(areas.joinToString(" ・ "), color = Color.White.copy(alpha = 0.55f), fontSize = 12.tu, lineHeight = 1.4.em)
+        if (areas.isNotEmpty()) Text(areas.joinToString(L(" ・ ", " · ")), color = Color.White.copy(alpha = 0.55f), fontSize = 12.tu, lineHeight = 1.4.em)
     }
 }
 
 private fun zoned(s: String?) = s?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(ZoneId.systemDefault()) }.getOrNull() }
 
 /** 地図に書く時刻（"29日 3時"）。 */
-private fun shortTime(s: String?) = zoned(s)?.let { "${it.dayOfMonth}日 ${it.hour}時" }
+private fun shortTime(s: String?) = zoned(s)?.let { L("${it.dayOfMonth}日 ${it.hour}時", "${MONTHS[it.monthValue - 1]} ${it.dayOfMonth} ${it.hour}:00") }
 
 /** 一覧に書く時刻（"9/29 3:00"）。 */
 private fun longTime(s: String?) = zoned(s)?.let { "${it.monthValue}/${it.dayOfMonth} ${it.hour}:%02d".format(it.minute) }

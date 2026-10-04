@@ -1,5 +1,7 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.SEP
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -69,18 +71,18 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
     val lines = t?.lines.orEmpty()
     val trouble = lines.any { it.trouble }
     WdCard(
-        "運行情報",
+        L("運行情報", "Trains"),
         modifier,
         note = if (enabled && t != null && t.fetchedAt > 0) relative(t.fetchedAt, now) else null,
         titleColor = if (trouble) Wd.Amber else Wd.Text3,
         borderColor = if (trouble) Wd.Amber.copy(alpha = 0.5f) else Wd.Border,
     ) {
         when {
-            !enabled || !configured -> EmptyText("運行情報は未設定です。設定画面の「運行情報」で ODPT のトークンを登録してください。")
-            t == null || t.fetchedAt == 0L -> EmptyText(if (t?.lastError != null) "取得できません: ${t.lastError}" else "取得中…", if (t?.lastError != null) Wd.Red else Wd.Text3)
+            !enabled || !configured -> EmptyText(L("運行情報は未設定です。設定画面の「運行情報」で ODPT のトークンを登録してください。", "Train information isn't set up. Register an ODPT token under \"Trains\" in Settings."))
+            t == null || t.fetchedAt == 0L -> EmptyText(if (t?.lastError != null) L("取得できません: ${t.lastError}", "Unavailable: ${t.lastError}") else L("取得中…", "Loading…"), if (t?.lastError != null) Wd.Red else Wd.Text3)
             lines.isEmpty() -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-                Text("すべて平常運転", color = Wd.Green, fontSize = vhText(2.6f, 16f, 22f), fontWeight = FontWeight.SemiBold)
-                Text("遅れ・運転見合わせの路線はありません", color = Wd.Text3, fontSize = 12.tu, modifier = Modifier.padding(top = 4.dp))
+                Text(L("すべて平常運転", "All lines normal"), color = Wd.Green, fontSize = vhText(2.6f, 16f, 22f), fontWeight = FontWeight.SemiBold)
+                Text(L("遅れ・運転見合わせの路線はありません", "No lines with delays or suspensions"), color = Wd.Text3, fontSize = 12.tu, modifier = Modifier.padding(top = 4.dp))
             }
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 lines.forEachIndexed { i, line ->
@@ -102,9 +104,9 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
                             Text(
                                 line.status,
                                 color = when {
-                                    !line.trouble && (line.status == "情報なし" || line.status == TrainRepository.NOT_PROVIDED) -> Wd.Text3
+                                    !line.trouble && (line.quiet || line.status == "情報なし" || line.status == TrainRepository.NOT_PROVIDED) -> Wd.Text3
                                     !line.trouble -> Wd.Green
-                                    "見合わせ" in line.status || "運休" in line.status -> Wd.Red
+                                    line.stopped || "見合わせ" in line.status || "運休" in line.status -> Wd.Red
                                     else -> Wd.Amber
                                 },
                                 fontSize = 12.5f.tu,
@@ -120,7 +122,7 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
                 }
                 if (lines.any { it.status == TrainRepository.NOT_PROVIDED }) {
                     Text(
-                        "「配信なし」の路線は、登録したトークンの API に運行情報がありません（JR 東日本などは ODPT のチャレンジ用トークンが必要です）。",
+                        L("「配信なし」の路線は、登録したトークンの API に運行情報がありません（JR 東日本などは ODPT のチャレンジ用トークンが必要です）。", "Lines marked \"Not provided\" have no information in the API of your token (JR East and others need an ODPT challenge token)."),
                         color = Wd.Text3, fontSize = 10.5f.tu, lineHeight = 1.45.em, modifier = Modifier.padding(top = 6.dp),
                     )
                 }
@@ -135,13 +137,13 @@ fun TrainCard(t: TrainState?, enabled: Boolean, configured: Boolean, now: Long, 
 fun TodayCard(t: TodayState?, now: Long, showEvent: Boolean, modifier: Modifier) {
     val date = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
     val stale = t == null || t.date != date.toLocalDate().toString()
-    WdCard("今日は何の日", modifier, note = "${date.monthValue}月${date.dayOfMonth}日") {
+    WdCard(L("今日は何の日", "On this day"), modifier, note = L("${date.monthValue}月${date.dayOfMonth}日", "${MONTHS[date.monthValue - 1]} ${date.dayOfMonth}")) {
         when {
             t == null || t.days.isEmpty() && t.events.isEmpty() ->
-                EmptyText(if (t?.lastError != null) "取得できません: ${t.lastError}" else "取得中…", if (t?.lastError != null) Wd.Red else Wd.Text3)
+                EmptyText(if (t?.lastError != null) L("取得できません: ${t.lastError}", "Unavailable: ${t.lastError}") else L("取得中…", "Loading…"), if (t?.lastError != null) Wd.Red else Wd.Text3)
             else -> Column(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    if (stale) Text("（前日までの情報です）", color = Wd.Text3, fontSize = 11.tu)
+                    if (stale) Text(L("（前日までの情報です）", "(information up to yesterday)"), color = Wd.Text3, fontSize = 11.tu)
                     t.days.forEachIndexed { i, item ->
                         Row(Modifier.padding(top = if (i == 0) 0.dp else 5.dp), verticalAlignment = Alignment.Top) {
                             Text(
@@ -177,12 +179,12 @@ fun CalendarCard(c: CalendarState?, enabled: Boolean, configured: Boolean, now: 
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     // 終わった予定は消す（終日の予定はその日のうちは残す）
     val events = c?.events.orEmpty().filter { it.end > now || it.allDay && day(it.start, zone) == today }
-    WdCard("予定表", modifier, note = if (enabled && configured) "${events.size} 件" else null) {
+    WdCard(L("予定表", "Calendar"), modifier, note = if (enabled && configured) L("${events.size} 件", "${events.size}") else null) {
         when {
-            !enabled || !configured -> EmptyText("予定表は未設定です。設定画面の「予定表」で iCloud と連携してください。")
-            c == null || c.fetchedAt == 0L -> EmptyText("取得中…")
-            c.lastError != null && events.isEmpty() -> EmptyText("取得できません: ${c.lastError}", Wd.Red)
-            events.isEmpty() -> EmptyText("予定はありません。")
+            !enabled || !configured -> EmptyText(L("予定表は未設定です。設定画面の「予定表」で iCloud と連携してください。", "The calendar isn't set up. Connect iCloud under \"Calendar\" in Settings."))
+            c == null || c.fetchedAt == 0L -> EmptyText(L("取得中…", "Loading…"))
+            c.lastError != null && events.isEmpty() -> EmptyText(L("取得できません: ${c.lastError}", "Unavailable: ${c.lastError}"), Wd.Red)
+            events.isEmpty() -> EmptyText(L("予定はありません。", "No events."))
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 var shownDay: LocalDate? = null
                 events.forEach { ev ->
@@ -190,9 +192,9 @@ fun CalendarCard(c: CalendarState?, enabled: Boolean, configured: Boolean, now: 
                     if (d != shownDay) {
                         shownDay = d
                         val label = when (d) {
-                            today -> "今日"
-                            today.plusDays(1) -> "明日"
-                            else -> "${d.monthValue}/${d.dayOfMonth}（${"月火水木金土日"[d.dayOfWeek.value - 1]}）"
+                            today -> L("今日", "Today")
+                            today.plusDays(1) -> L("明日", "Tomorrow")
+                            else -> L("${d.monthValue}/${d.dayOfMonth}（${"月火水木金土日"[d.dayOfWeek.value - 1]}）", "${d.monthValue}/${d.dayOfMonth} (${listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[d.dayOfWeek.value - 1]})")
                         }
                         Text(label, color = if (d == today) LocalAccent.current else Wd.Text3, fontSize = 11.tu, letterSpacing = 0.1.em, modifier = Modifier.padding(top = if (d == today && ev == events.first()) 0.dp else 7.dp, bottom = 2.dp))
                     }
@@ -210,7 +212,7 @@ private fun EventRow(ev: CalendarEvent, zone: ZoneId) {
     Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(7.dp).clip(RoundedCornerShape(4.dp)).background(ev.color?.let { colorOf(it, LocalAccent.current) } ?: LocalAccent.current))
         Spacer(Modifier.width(7.dp))
-        val time = if (ev.allDay) "終日" else Instant.ofEpochMilli(ev.start).atZone(zone).let { "%02d:%02d".format(it.hour, it.minute) }
+        val time = if (ev.allDay) L("終日", "All day") else Instant.ofEpochMilli(ev.start).atZone(zone).let { "%02d:%02d".format(it.hour, it.minute) }
         Text(time, color = Wd.Text2, fontSize = 12.tu, style = Tabular, modifier = Modifier.widthIn(min = 40.dp))
         Text(ev.title, fontSize = 13.5f.tu, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     }
@@ -221,10 +223,10 @@ private fun EventRow(ev: CalendarEvent, zone: ZoneId) {
 @Composable
 fun StocksCard(s: StocksState?, range: String, now: Long, modifier: Modifier) {
     val quotes = s?.quotes.orEmpty()
-    val rangeLabel = mapOf("1d" to "1 日", "5d" to "5 日", "1mo" to "1 か月", "6mo" to "6 か月", "1y" to "1 年")[range] ?: range
-    WdCard("株価", modifier, note = if (s != null && s.fetchedAt > 0) "$rangeLabel ・ ${relative(s.fetchedAt, now)}" else rangeLabel) {
+    val rangeLabel = mapOf("1d" to L("1 日", "1 day"), "5d" to L("5 日", "5 days"), "1mo" to L("1 か月", "1 month"), "6mo" to L("6 か月", "6 months"), "1y" to L("1 年", "1 year"))[range] ?: range
+    WdCard(L("株価", "Stocks"), modifier, note = if (s != null && s.fetchedAt > 0) rangeLabel + SEP + relative(s.fetchedAt, now) else rangeLabel) {
         when {
-            quotes.isEmpty() -> EmptyText(if (s?.lastError != null) "取得できません: ${s.lastError}" else "取得中…", if (s?.lastError != null) Wd.Red else Wd.Text3)
+            quotes.isEmpty() -> EmptyText(if (s?.lastError != null) L("取得できません: ${s.lastError}", "Unavailable: ${s.lastError}") else L("取得中…", "Loading…"), if (s?.lastError != null) Wd.Red else Wd.Text3)
             else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
                 quotes.forEachIndexed { i, q ->
                     if (i > 0) Hairline()
@@ -241,7 +243,7 @@ private fun QuoteRow(q: StockQuote, modifier: Modifier) {
     val up = (q.changePercent ?: 0.0) >= 0
     val color = if (q.changePercent == null) Wd.Text3 else if (up) Wd.Green else Wd.Red
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(q.label, color = Wd.Text2, fontSize = 12.5f.tu, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(76.dp))
+        Text(app.dashboard.data.stockLabel(q.label), color = Wd.Text2, fontSize = 12.5f.tu, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(76.dp))
         Sparkline(q.points, q.base, color, Modifier.weight(1f).fillMaxHeight().padding(vertical = 3.dp, horizontal = 6.dp))
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(min = 86.dp)) {
             Text(q.price?.let(::price) ?: "—", fontSize = 14.tu, fontWeight = FontWeight.SemiBold, style = Tabular, maxLines = 1)
@@ -282,16 +284,16 @@ private fun Sparkline(points: List<Double>, base: Double?, color: Color, modifie
 fun CountdownCard(config: CountdownConfig, holidays: List<Holiday>, now: Long, modifier: Modifier) {
     // 行事の日付は分が変わるたびに求め直せば十分（残り時間の表示は毎秒）
     val targets = remember(config, holidays, now / 60_000L) { Countdown.targets(config, holidays, now) }
-    WdCard("カウントダウン", modifier) {
+    WdCard(L("カウントダウン", "Countdown"), modifier) {
         when {
-            targets.isEmpty() -> EmptyText("数える行事がありません。設定画面の「カウントダウン」で選んでください。")
+            targets.isEmpty() -> EmptyText(L("数える行事がありません。設定画面の「カウントダウン」で選んでください。", "No events to count. Choose them under \"Countdown\" in Settings."))
             else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 targets.forEachIndexed { i, t ->
                     if (i > 0) Hairline()
                     Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(t.name + "まで", fontSize = 13.5f.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val note = t.note ?: Instant.ofEpochMilli(t.at).atZone(ZoneId.systemDefault()).let { "${it.monthValue}月${it.dayOfMonth}日 %02d:%02d".format(it.hour, it.minute) }
+                            Text(L(t.name + "まで", "Until " + t.name), fontSize = 13.5f.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val note = t.note ?: Instant.ofEpochMilli(t.at).atZone(ZoneId.systemDefault()).let { L("${it.monthValue}月${it.dayOfMonth}日 %02d:%02d", "${it.monthValue}/${it.dayOfMonth} %02d:%02d").format(it.hour, it.minute) }
                             Text(note, color = Wd.Text3, fontSize = 11.tu, maxLines = 1)
                         }
                         Remaining(t.at - now, i == 0)
@@ -309,7 +311,7 @@ private fun Remaining(ms: Long, first: Boolean) {
     val days = sec / 86_400
     if (days >= 1) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("あと ", color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
+            Text(L("あと ", ""), color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(bottom = 2.dp))
             Text(
                 "%,d".format(Locale.US, days),
                 color = if (first) accent else Wd.Text,
@@ -318,7 +320,7 @@ private fun Remaining(ms: Long, first: Boolean) {
                 style = Tabular,
                 textAlign = TextAlign.End,
             )
-            Text(" 日", color = Wd.Text2, fontSize = 11.5f.tu, modifier = Modifier.padding(bottom = 2.dp))
+            Text(L(" 日", " days"), color = Wd.Text2, fontSize = 11.5f.tu, modifier = Modifier.padding(bottom = 2.dp))
         }
     } else {
         Text(

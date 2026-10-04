@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,7 +52,7 @@ fun CalculatorCard(modifier: Modifier) {
     fun press(key: String) {
         calc = calc.press(key)
     }
-    WdCard("計算機", modifier) {
+    WdCard(L("計算機", "Calculator"), modifier) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val tall = maxHeight > maxWidth * 0.75f
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (tall) 6.dp else 4.dp)) {
@@ -230,7 +231,7 @@ internal data class Calc(
         return try {
             Calc(entry = plain(evaluate(all)), done = true, shown = shown)
         } catch (e: ArithmeticException) {
-            Calc(done = true, shown = shown, error = "0 では割れません")
+            Calc(done = true, shown = shown, error = L("0 では割れません", "Can't divide by 0"))
         }
     }
 

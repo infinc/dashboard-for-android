@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ResponseException
@@ -255,10 +256,10 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
     }
 
     private fun describe(e: Exception): String = when {
-        e is NotFound -> "通貨が見つかりません（設定画面で CoinGecko の ID を確かめてください）"
-        e is ResponseException && e.response.status.value == 429 -> "取得先が混み合っています（数分後に試し直します）"
-        e is ResponseException && e.response.status.value == 404 -> "通貨が見つかりません（設定画面で CoinGecko の ID を確かめてください）"
-        else -> e.message ?: "取得失敗"
+        e is NotFound -> L("通貨が見つかりません（設定画面で CoinGecko の ID を確かめてください）", "Coin not found (check the CoinGecko ID in Settings)")
+        e is ResponseException && e.response.status.value == 429 -> L("取得先が混み合っています（数分後に試し直します）", "The source is busy (will retry in a few minutes)")
+        e is ResponseException && e.response.status.value == 404 -> L("通貨が見つかりません（設定画面で CoinGecko の ID を確かめてください）", "Coin not found (check the CoinGecko ID in Settings)")
+        else -> e.message ?: L("取得失敗", "failed")
     }
 
     private fun JsonObject.num(key: String) = this[key]?.jsonPrimitive?.doubleOrNull

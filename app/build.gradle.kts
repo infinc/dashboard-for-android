@@ -26,6 +26,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -70,6 +71,12 @@ android {
     sourceSets.named("main") {
         kotlin.srcDir("src/main/kotlin")
     }
+    sourceSets.named("test") {
+        kotlin.srcDir("src/test/kotlin")
+    }
+    sourceSets.named("androidTest") {
+        kotlin.srcDir("src/androidTest/kotlin")
+    }
 
     packaging {
         resources.excludes += setOf(
@@ -82,7 +89,12 @@ android {
         )
     }
 
-    // 単体テストは無し（実機ゲート中心）。将来入れる場合はここに testOptions を足す。
+    // 単体テスト（src/test、JVM で動く）と、Compose の UI テスト（src/androidTest、実機・エミュレーターで動く）
+    testOptions {
+        // android.util.Log などを呼んでも落ちないようにする（値は既定値を返す）
+        unitTests.isReturnDefaultValues = true
+    }
+
     lint {
         abortOnError = false
     }
@@ -127,4 +139,15 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+    testImplementation(libs.ktor.client.mock)
+
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

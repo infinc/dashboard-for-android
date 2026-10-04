@@ -1,5 +1,7 @@
 package app.dashboard
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.Lang
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -46,7 +48,13 @@ class DashboardService : LifecycleService() {
             }
 
             // 各取得先が自分の間隔を持っているので、ここは声をかけるだけ。1 つの失敗で他を止めない。
+            var shownLang = Lang.current
             while (isActive) {
+                // 表示の言語を変えたら、常駐の通知も出し直す
+                if (Lang.current != shownLang) {
+                    shownLang = Lang.current
+                    runCatching { startForegroundCompat() }
+                }
                 runCatching { graph.weather.refreshIfDue() }
                     .onFailure { Log.w(TAG, "天気の定期取得でエラー", it) }
                 runCatching { graph.disaster.refreshIfDue() }
@@ -70,6 +78,8 @@ class DashboardService : LifecycleService() {
                     .onFailure { Log.w(TAG, "暗号通貨の定期取得でエラー", it) }
                 runCatching { graph.photos.refreshIfDue(d.showPhotos) }
                     .onFailure { Log.w(TAG, "写真の定期取得でエラー", it) }
+                runCatching { graph.github.refreshIfDue(d.showGithub) }
+                    .onFailure { Log.w(TAG, "GitHub の定期取得でエラー", it) }
                 runCatching { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }
                     .onFailure { Log.w(TAG, "祝日の定期取得でエラー", it) }
                 delay(TICK_MS)
@@ -92,11 +102,11 @@ class DashboardService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.notif_channel_name),
+                L("ダッシュボード稼働中", "Dashboard running"),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 setShowBadge(false)
-                description = "壁掛けダッシュボードの常時稼働を示す通知です"
+                description = L("壁掛けダッシュボードの常時稼働を示す通知です", "Shows that the wall dashboard is running")
             }
             manager.createNotificationChannel(channel)
         }
@@ -111,8 +121,8 @@ class DashboardService : LifecycleService() {
         )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notif_title))
-            .setContentText("設定: http://127.0.0.1:${DashboardServer.PORT}/settings")
+            .setContentTitle(L("Dashboard 稼働中", "Dashboard is running"))
+            .setContentText(L("設定: http://127.0.0.1:${DashboardServer.PORT}/settings", "Settings: http://127.0.0.1:${DashboardServer.PORT}/settings"))
             .setSmallIcon(R.drawable.ic_stat_dashboard)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

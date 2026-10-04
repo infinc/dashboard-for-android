@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -155,7 +156,7 @@ class WifiMonitor(private val context: Context) {
         frequencyMhz >= 5925 -> "6GHz"
         frequencyMhz >= 4900 -> "5GHz"
         frequencyMhz >= 2400 -> "2.4GHz"
-        else -> "不明"
+        else -> L("不明", "Unknown")
     }
 
     private fun resolveIpAddress(info: WifiInfo): String? {

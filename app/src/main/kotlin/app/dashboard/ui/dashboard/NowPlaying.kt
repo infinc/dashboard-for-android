@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
@@ -137,7 +138,7 @@ fun NowPlayingScreen(
             cover,
             Modifier.align(Alignment.Center)
                 .graphicsLayer { translationX = -coverShift.toPx() * shift }
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "歌詞") { lyricsOpen = !lyricsOpen },
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = L("歌詞", "Lyrics")) { lyricsOpen = !lyricsOpen },
             animationSpec = tween(500),
             label = "cover",
         ) { c ->
@@ -174,14 +175,14 @@ fun NowPlayingScreen(
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(WdIcons.Back, "戻る", tint = Color.White, modifier = Modifier.size(30.dp))
+            Icon(WdIcons.Back, L("戻る", "Back"), tint = Color.White, modifier = Modifier.size(30.dp))
         }
 
         // 曲名は操作ボタンより上の行なので、右端まで 1 行で使う。右端まで届く長い曲名だけ折り返す（省略はしない）。
         // アーティスト名は操作ボタンと同じ高さなので、ボタンに重ならない幅まで
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 56.dp, end = 56.dp, bottom = 44.dp)) {
             Text(
-                sp?.trackName ?: "再生中の曲はありません",
+                sp?.trackName ?: L("再生中の曲はありません", "Nothing is playing"),
                 color = Color.White,
                 fontSize = 30.tu,
                 fontWeight = FontWeight.Bold,
@@ -212,10 +213,10 @@ fun NowPlayingScreen(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).melt(melt),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ControlButton(WdIcons.Previous, "前の曲", shown) { onControl("previous") }
-                if (sp.playing) ControlButton(WdIcons.Pause, "一時停止", shown) { onControl("pause") }
-                else ControlButton(WdIcons.Play, "再生", shown) { onControl("play") }
-                ControlButton(WdIcons.Next, "次の曲", shown) { onControl("next") }
+                ControlButton(WdIcons.Previous, L("前の曲", "Previous"), shown) { onControl("previous") }
+                if (sp.playing) ControlButton(WdIcons.Pause, L("一時停止", "Pause"), shown) { onControl("pause") }
+                else ControlButton(WdIcons.Play, L("再生", "Play"), shown) { onControl("play") }
+                ControlButton(WdIcons.Next, L("次の曲", "Next"), shown) { onControl("next") }
             }
             // 再生時間は右下。操作ボタンと同じ高さの枠の真ん中に、記号と同じくらいの大きさの数字で
             Box(
@@ -263,7 +264,7 @@ private fun LyricsPanel(sp: SpotifyState, load: suspend (SpotifyState) -> Result
             val result = load(latest)
             value = result.fold(
                 { if (it == null) LyricsUi.NotFound else LyricsUi.Found(it) },
-                { LyricsUi.Failed(it.message ?: "通信エラー") },
+                { LyricsUi.Failed(it.message ?: L("通信エラー", "Network error")) },
             )
             if (result.isSuccess) break
             delay(wait)
@@ -290,11 +291,11 @@ private fun LyricsPanel(sp: SpotifyState, load: suspend (SpotifyState) -> Result
     Box(modifier) {
         Box(Modifier.fillMaxSize().then(fade)) {
             when (val u = ui) {
-                LyricsUi.Loading -> LyricsNote("歌詞を探しています…")
-                LyricsUi.NotFound -> LyricsNote("この曲の歌詞は見つかりませんでした")
-                is LyricsUi.Failed -> LyricsNote("歌詞を取得できません: ${u.message}\nしばらくしてからもう一度探します")
+                LyricsUi.Loading -> LyricsNote(L("歌詞を探しています…", "Searching for lyrics…"))
+                LyricsUi.NotFound -> LyricsNote(L("この曲の歌詞は見つかりませんでした", "No lyrics found for this song"))
+                is LyricsUi.Failed -> LyricsNote(L("歌詞を取得できません: ${u.message}\nしばらくしてからもう一度探します", "Can't get lyrics: ${u.message}\nWill try again shortly"))
                 is LyricsUi.Found -> when {
-                    u.lyrics.instrumental -> LyricsNote("♪ インストゥルメンタル")
+                    u.lyrics.instrumental -> LyricsNote(L("♪ インストゥルメンタル", "♪ Instrumental"))
                     // 時刻の無い歌詞も、曲の長さから振った目安の時刻で同じように流す
                     u.lyrics.synced || u.lyrics.estimated -> SyncedLyrics(u.lyrics.lines, positionMs(sp, tick))
                     // 曲の長さが分からず時刻を振れなかったときだけ、並べて指でスクロールしてもらう
@@ -309,8 +310,8 @@ private fun LyricsPanel(sp: SpotifyState, load: suspend (SpotifyState) -> Result
         // 出典は、端をぼかす範囲の外（欄の右下の外側）に
         Text(
             (ui as? LyricsUi.Found)?.lyrics.let {
-                val source = "歌詞: ${it?.source ?: LyricsRepository.LRCLIB}"
-                if (it?.estimated == true) "時刻の無い歌詞のため、位置は目安です ・ $source" else source
+                val source = L("歌詞: ${it?.source ?: LyricsRepository.LRCLIB}", "Lyrics: ${it?.source ?: LyricsRepository.LRCLIB}")
+                if (it?.estimated == true) L("時刻の無い歌詞のため、位置は目安です ・ $source", "Lyrics have no timing, so positions are approximate · $source") else source
             },
             color = Color.White.copy(alpha = 0.4f),
             fontSize = 10.tu,
@@ -407,7 +408,7 @@ internal fun AwakeToggle(on: Boolean, enabled: Boolean, onToggle: () -> Unit, mo
     ) {
         Icon(WdIcons.Sun, null, tint = fg, modifier = Modifier.size(15.dp))
         Text(
-            if (on) "暗くしない：オン" else "暗くしない：オフ",
+            if (on) L("暗くしない：オン", "Keep awake: on") else L("暗くしない：オフ", "Keep awake: off"),
             color = fg,
             fontSize = 11.tu,
             maxLines = 1,

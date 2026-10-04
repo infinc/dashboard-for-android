@@ -2,6 +2,7 @@ package app.dashboard.data
 
 import android.content.Context
 import android.util.Log
+import app.dashboard.i18n.Lang
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -88,7 +89,7 @@ class WeatherRepository(
 
             // 大気質は別 API なので、落ちても天気本体は出せるように切り離して足す
             val air = fetchAirQuality(loc)
-            val base = dto.toState(loc.name)
+            val base = dto.toState(loc.displayName())
             state = base.copy(
                 current = base.current.copy(
                     aqi = air?.europeanAqi?.let { Math.round(it).toInt() },
@@ -105,21 +106,30 @@ class WeatherRepository(
         }
     }
 
+    /**
+     * 地名検索。日本語と英語の両方で引き、同じ地点の英語の名前を [GeocodeResult.nameEn] に入れる
+     * （表示の言語を切り替えたときに、地点の名前も切り替えられるように）。[GeocodeResult.name] はいまの言語の名前。
+     */
     suspend fun geocode(query: String): List<GeocodeResult> {
-        val dto: GeocodeResponseDto = client.get(GEOCODE_URL) {
+        suspend fun search(language: String): List<GeocodeItemDto> = client.get(GEOCODE_URL) {
             parameter("name", query)
             parameter("count", 8)
-            parameter("language", "ja")
+            parameter("language", language)
             parameter("format", "json")
-        }.body()
-        return dto.results.orEmpty().map {
+        }.body<GeocodeResponseDto>().results.orEmpty()
+        val ja = search("ja")
+        val en = runCatching { search("en") }.getOrDefault(emptyList()).associateBy { it.latitude to it.longitude }
+        return ja.map {
+            val e = en[it.latitude to it.longitude]
             GeocodeResult(
-                name = it.name,
-                admin = it.admin1,
-                country = it.country,
+                name = if (Lang.en) e?.name ?: it.name else it.name,
+                admin = if (Lang.en) e?.admin1 ?: it.admin1 else it.admin1,
+                country = if (Lang.en) e?.country ?: it.country else it.country,
                 latitude = it.latitude,
                 longitude = it.longitude,
                 timezone = it.timezone ?: "auto",
+                nameJa = it.name,
+                nameEn = e?.name,
             )
         }
     }

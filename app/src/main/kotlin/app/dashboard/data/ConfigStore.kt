@@ -2,6 +2,7 @@ package app.dashboard.data
 
 import android.content.Context
 import android.util.Log
+import app.dashboard.i18n.Lang
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
@@ -37,6 +38,7 @@ class ConfigStore(context: Context) {
             Config()
         }
         cached = loaded
+        Lang.current = loaded.display.language
         loaded
     }
 
@@ -54,6 +56,7 @@ class ConfigStore(context: Context) {
         val next = mutate(current).copy(configVersion = current.configVersion + 1)
         writeAtomically(next)
         cached = next
+        Lang.current = next.display.language
         state.value = next
         next
     }
@@ -131,6 +134,7 @@ class ConfigStore(context: Context) {
         idleDimBrightness = d.idleDimBrightness.coerceIn(0.05, 1.0),
         accent = if (Accents.isKnown(d.accent)) d.accent.uppercase() else Accents.DEFAULT,
         theme = if (d.theme in ALLOWED_THEMES) d.theme else "dark",
+        language = if (d.language in Lang.ALL) d.language else Lang.JA,
         cardOpacity = d.cardOpacity.coerceIn(0.2, 1.0),
         cardColor = if (CardColors.isKnown(d.cardColor)) d.cardColor.uppercase() else "",
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
