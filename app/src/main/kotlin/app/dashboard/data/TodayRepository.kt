@@ -2,6 +2,13 @@ package app.dashboard.data
 
 import android.content.Context
 import android.util.Log
+import app.dashboard.i18n.Lang
+import io.ktor.client.statement.bodyAsText
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -30,7 +37,7 @@ class TodayRepository(context: Context, private val client: HttpClient) {
 
     suspend fun refreshIfDue(wanted: Boolean) {
         if (!wanted) return
-        if (state.date == LocalDate.now().toString() && state.lastError == null) return
+        if (state.date == LocalDate.now().toString() && state.lang == Lang.current && state.lastError == null) return
         if (System.currentTimeMillis() - lastAttemptAt < RETRY_MS) return
         refreshNow()
     }
@@ -38,6 +45,7 @@ class TodayRepository(context: Context, private val client: HttpClient) {
     suspend fun refreshNow() {
         lastAttemptAt = System.currentTimeMillis()
         val today = LocalDate.now()
+        if (Lang.en) return refreshEnglish(today)
         val page = "${today.monthValue}月${today.dayOfMonth}日"
         try {
             val sections = get<SectionsResponse>(page, prop = "sections").parse.sections
@@ -45,10 +53,28 @@ class TodayRepository(context: Context, private val client: HttpClient) {
             val days = section("記念日・年中行事")?.let { parseDays(get<WikitextResponse>(page, "wikitext", it).parse.wikitext) }.orEmpty()
             val events = section("できごと")?.let { parseEvents(get<WikitextResponse>(page, "wikitext", it).parse.wikitext) }.orEmpty()
             if (days.isEmpty() && events.isEmpty()) error("記念日を読み取れませんでした")
-            state = TodayState(today.toString(), days, events, System.currentTimeMillis(), null)
+            state = TodayState(today.toString(), days, events, System.currentTimeMillis(), null, Lang.JA)
             runCatching { cacheFile.writeText(Http.json.encodeToString(TodayState.serializer(), state)) }
         } catch (e: Exception) {
             Log.w(TAG, "今日は何の日の取得に失敗", e)
+            state = state.copy(lastError = e.message ?: e::class.java.simpleName)
+        }
+    }
+
+    /** 英語のときは英語版 Wikipedia の「On this day」（Wikimedia の REST API の onthisday）を読む。 */
+    private suspend fun refreshEnglish(today: LocalDate) {
+        try {
+            val url = "https://en.wikipedia.org/api/rest_v1/feed/onthisday/all/%02d/%02d".format(today.monthValue, today.dayOfMonth)
+            val body = client.get(url) {
+                header("User-Agent", USER_AGENT)
+                header("Accept", "application/json")
+            }.bodyAsText()
+            val (days, events) = parseOnThisDay(body)
+            if (days.isEmpty() && events.isEmpty()) error("Couldn't read the observances")
+            state = TodayState(today.toString(), days, events, System.currentTimeMillis(), null, Lang.EN)
+            runCatching { cacheFile.writeText(Http.json.encodeToString(TodayState.serializer(), state)) }
+        } catch (e: Exception) {
+            Log.w(TAG, "On this day の取得に失敗", e)
             state = state.copy(lastError = e.message ?: e::class.java.simpleName)
         }
     }
@@ -93,6 +119,37 @@ class TodayRepository(context: Context, private val client: HttpClient) {
             "RUS" to "ロシア", "IND" to "インド", "EUR" to "ヨーロッパ", "EU" to "EU", "AUS" to "オーストラリア", "CAN" to "カナダ",
             "BRA" to "ブラジル", "MEX" to "メキシコ", "ESP" to "スペイン", "NLD" to "オランダ", "PRK" to "北朝鮮",
         )
+
+        /**
+         * 英語版の onthisday の応答を、記念日（holidays）とできごと（events、"1978 - …" の形）にする。
+         * "Christian feast day:\nAmun" のように分類の付いた記念日は、分類ごとに 1 つにまとめて名前を説明に並べる。
+         * 分類の無いもの（"Cinnamon Roll Day (Sweden and Finland)"）を先に、括弧の中を国・地域にする。
+         */
+        internal fun parseOnThisDay(body: String): Pair<List<TodayItem>, List<String>> {
+            val root = Http.json.parseToJsonElement(body).jsonObject
+            val plain = mutableListOf<TodayItem>()
+            val grouped = linkedMapOf<String, MutableList<String>>()
+            root["holidays"]?.jsonArray.orEmpty().forEach { h ->
+                val text = h.jsonObject["text"]?.jsonPrimitive?.contentOrNull?.trim() ?: return@forEach
+                val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                if (lines.size > 1 && lines[0].endsWith(":")) {
+                    grouped.getOrPut(lines[0].removeSuffix(":").trim()) { mutableListOf() } += lines.drop(1)
+                } else {
+                    val one = lines.joinToString(" ").replace(Regex("\\s+"), " ")
+                    val region = Regex("\\(([^()]+)\\)\\s*\\.?$").find(one)?.groupValues?.get(1)
+                    val name = (if (region != null) one.substringBeforeLast("(") else one).trim().trimEnd('.').trim()
+                    if (name.isNotEmpty()) plain += TodayItem(name, region)
+                }
+            }
+            val days = plain + grouped.map { (category, names) -> TodayItem(category, null, names.distinct().joinToString(", ")) }
+            val events = root["events"]?.jsonArray.orEmpty().mapNotNull { e ->
+                val o = e.jsonObject
+                val year = o["year"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                val text = o["text"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                "$year - $text"
+            }
+            return days to events
+        }
 
         /**
          * 「* ワープロ記念日（{{JPN}}）」の行を名前と国に、続く「*: …」を説明にする。

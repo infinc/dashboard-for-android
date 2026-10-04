@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.content.Context
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ClientRequestException
@@ -231,9 +232,9 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
     }
 
     private fun describe(e: Exception): String = when (e) {
-        is ServerResponseException -> "歌詞のサーバーが混み合っています（${e.response.status.value}）"
-        is ClientRequestException -> "歌詞のサーバーが混み合っています（${e.response.status.value}）"
-        else -> "歌詞のサーバーにつながりません"
+        is ServerResponseException -> L("歌詞のサーバーが混み合っています（${e.response.status.value}）", "The lyrics server is busy (${e.response.status.value})")
+        is ClientRequestException -> L("歌詞のサーバーが混み合っています（${e.response.status.value}）", "The lyrics server is busy (${e.response.status.value})")
+        else -> L("歌詞のサーバーにつながりません", "Can't reach the lyrics server")
     }
 
     private suspend fun exact(track: String, artist: String?, album: String?, durationMs: Long?): Lyrics? {

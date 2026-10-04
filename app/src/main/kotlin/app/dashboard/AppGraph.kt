@@ -8,12 +8,15 @@ import app.dashboard.data.DeviceState
 import app.dashboard.data.DeviceStatsMonitor
 import app.dashboard.data.DisasterRepository
 import app.dashboard.data.FeedRepository
+import app.dashboard.data.FlightRepository
+import app.dashboard.data.GithubRepository
 import app.dashboard.data.HolidayRepository
 import app.dashboard.data.Http
 import app.dashboard.data.LyricsRepository
 import app.dashboard.data.MemoRepository
 import app.dashboard.data.PhotoRepository
 import app.dashboard.data.RainForecast
+import app.dashboard.data.ShipStream
 import app.dashboard.data.SpotifyRepository
 import app.dashboard.data.StocksRepository
 import app.dashboard.data.TodayRepository
@@ -59,6 +62,9 @@ class AppGraph private constructor(context: Context) {
     val photos = PhotoRepository(config)
     val lyrics = LyricsRepository(this.context, http)
     val rain = RainForecast(http)
+    val flights = FlightRepository(http)
+    val ships = ShipStream(config, scope)
+    val github = GithubRepository(http, config)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
@@ -84,6 +90,7 @@ class AppGraph private constructor(context: Context) {
         holidays = holidays.upcoming(),
         photos = photos.state,
         crypto = crypto.state,
+        github = github.state,
         config = config.get().toPublic(),
     )
 

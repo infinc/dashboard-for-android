@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -66,7 +67,7 @@ fun AnalogClockCard(now: Long, sweep: Boolean, numerals: Boolean, modifier: Modi
     val date = Instant.ofEpochMilli(now).atZone(zone)
     val measurer = rememberTextMeasurer()
     val accent = LocalAccent.current
-    WdCard("アナログ時計", modifier, note = "${date.monthValue}/${date.dayOfMonth}（${wday(date)}）") {
+    WdCard(L("アナログ時計", "Analog clock"), modifier, note = L("${date.monthValue}/${date.dayOfMonth}（${wday(date)}）", "${date.monthValue}/${date.dayOfMonth} (${wday(date)})")) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize().aspectRatio(1f, matchHeightConstraintsFirst = true)) {
                 dial(measurer, numerals, date.dayOfMonth, accent)

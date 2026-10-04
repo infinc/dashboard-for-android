@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -85,11 +86,11 @@ class PhotoRepository(private val configStore: ConfigStore) {
         try {
             val key = cloudKeyOf(url)
             val token = if (key == null) tokenOf(url) ?: error(
-                "共有アルバムの URL の形ではありません（https://photos.icloud.com/shared/album/… か https://www.icloud.com/sharedalbum/#B0… の形）"
+                L("共有アルバムの URL の形ではありません（https://photos.icloud.com/shared/album/… か https://www.icloud.com/sharedalbum/#B0… の形）", "Not a shared album URL (expected https://photos.icloud.com/shared/album/… or https://www.icloud.com/sharedalbum/#B0…)")
             ) else null
             val (name, list) = withContext(Dispatchers.IO) { if (key != null) loadCloudKit(key) else load(token!!) }
             photos = list
-            state = PhotoState(name, list.size, System.currentTimeMillis(), if (list.isEmpty()) "アルバムに写真がありません" else null)
+            state = PhotoState(name, list.size, System.currentTimeMillis(), if (list.isEmpty()) L("アルバムに写真がありません", "The album has no photos") else null)
         } catch (e: Exception) {
             Log.w(TAG, "共有アルバムの取得に失敗", e)
             state = state.copy(fetchedAt = System.currentTimeMillis(), lastError = e.message ?: e::class.java.simpleName)
@@ -101,14 +102,14 @@ class PhotoRepository(private val configStore: ConfigStore) {
         var stream = post(base + "webstream", """{"streamCtag":null}""")
         if (stream.first == 330) {
             val host = (Http.json.parseToJsonElement(stream.second).jsonObject["X-Apple-MMe-Host"] as? JsonPrimitive)?.contentOrNull
-                ?: error("アルバムの置き場を決められません")
+                ?: error(L("アルバムの置き場を決められません", "Couldn't determine where the album is stored"))
             base = "https://$host/$token/sharedstreams/"
             stream = post(base + "webstream", """{"streamCtag":null}""")
         }
         when (stream.first) {
             200 -> Unit
-            404 -> error("アルバムが見つかりません。共有アルバムの「公開 Web サイト」が ON か確かめてください")
-            else -> error("iCloud が ${stream.first} を返しました")
+            404 -> error(L("アルバムが見つかりません。共有アルバムの「公開 Web サイト」が ON か確かめてください", "Album not found. Check that \"Public Website\" is on for the shared album"))
+            else -> error(L("iCloud が ${stream.first} を返しました", "iCloud returned ${stream.first}"))
         }
         val root = Http.json.parseToJsonElement(stream.second).jsonObject
         val name = (root["streamName"] as? JsonPrimitive)?.contentOrNull
@@ -133,7 +134,7 @@ class PhotoRepository(private val configStore: ConfigStore) {
         picks.chunked(25).forEach { chunk ->
             val body = buildJsonObject { put("photoGuids", buildJsonArray { chunk.forEach { add(JsonPrimitive(it.guid)) } }) }.toString()
             val res = post(base + "webasseturls", body)
-            if (res.first != 200) error("画像の URL を取得できません（${res.first}）")
+            if (res.first != 200) error(L("画像の URL を取得できません（${res.first}）", "Couldn't get image URLs (${res.first})"))
             val items = Http.json.parseToJsonElement(res.second).jsonObject["items"] as? JsonObject ?: return@forEach
             items.forEach { (sum, v) ->
                 val o = v as? JsonObject ?: return@forEach
@@ -162,15 +163,15 @@ class PhotoRepository(private val configStore: ConfigStore) {
             buildJsonObject { put("shortGUIDs", buildJsonArray { add(buildJsonObject { put("value", key) }) }) }.toString(),
             CK_ORIGIN,
         )
-        if (resolve.first == 404) error("アルバムが見つかりません。共有アルバムの「公開 Web サイト」が ON か確かめてください")
-        if (resolve.first != 200) error("iCloud が ${resolve.first} を返しました")
+        if (resolve.first == 404) error(L("アルバムが見つかりません。共有アルバムの「公開 Web サイト」が ON か確かめてください", "Album not found. Check that \"Public Website\" is on for the shared album"))
+        if (resolve.first != 200) error(L("iCloud が ${resolve.first} を返しました", "iCloud returned ${resolve.first}"))
         val result = (Http.json.parseToJsonElement(resolve.second).jsonObject["results"] as? JsonArray)?.firstOrNull() as? JsonObject
-            ?: error("アルバムを読めません")
+            ?: error(L("アルバムを読めません", "Couldn't read the album"))
         val access = result["anonymousPublicAccess"] as? JsonObject
-            ?: error("アルバムが公開されていません。共有アルバムの「公開 Web サイト」が ON か確かめてください")
-        val token = access.text("token") ?: error("アルバムを読むためのトークンがありません")
+            ?: error(L("アルバムが公開されていません。共有アルバムの「公開 Web サイト」が ON か確かめてください", "The album isn't public. Check that \"Public Website\" is on for the shared album"))
+        val token = access.text("token") ?: error(L("アルバムを読むためのトークンがありません", "No token to read the album"))
         val partition = access.text("databasePartition")?.removeSuffix(":443") ?: "https://ckdatabasews.icloud.com"
-        val zoneID = result["zoneID"] as? JsonObject ?: error("アルバムの置き場を決められません")
+        val zoneID = result["zoneID"] as? JsonObject ?: error(L("アルバムの置き場を決められません", "Couldn't determine where the album is stored"))
         val name = ((result["share"] as? JsonObject)?.get("fields") as? JsonObject)?.field("cloudkit.title")?.text("value")
         val queryUrl = "$partition/database/1/com.apple.photos.cloud/production/shared/records/query?remapEnums=true&getCurrentSyncToken=true" +
             "&sharing_url_key=$key&publicAccessAuthToken=${java.net.URLEncoder.encode(token, "UTF-8")}"
@@ -197,7 +198,7 @@ class PhotoRepository(private val configStore: ConfigStore) {
                 put("resultsLimit", PAGE)
             }.toString()
             val res = post(queryUrl, body, CK_ORIGIN)
-            if (res.first != 200) error("写真の一覧を取得できません（${res.first}）")
+            if (res.first != 200) error(L("写真の一覧を取得できません（${res.first}）", "Couldn't get the photo list (${res.first})"))
             val records = (Http.json.parseToJsonElement(res.second).jsonObject["records"] as? JsonArray).orEmpty()
             var added = 0
             records.forEach { e ->

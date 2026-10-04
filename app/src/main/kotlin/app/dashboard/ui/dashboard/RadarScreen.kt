@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,7 +43,7 @@ fun RadarScreen(
         RadarMap(frame, onPan, Modifier.fillMaxSize())
         if (frame.base.isEmpty() && frame.old.isEmpty()) {
             Column(Modifier.align(Alignment.Center)) {
-                EmptyText(if (frame.failed) "地図を取得できません" else "取得中…", if (frame.failed) Wd.Red else Wd.Text3)
+                EmptyText(if (frame.failed) L("地図を取得できません", "Couldn't load the map") else L("取得中…", "Loading…"), if (frame.failed) Wd.Red else Wd.Text3)
             }
         }
         if (frame.zoom != 0) {
@@ -53,7 +54,7 @@ fun RadarScreen(
                 .clip(RoundedCornerShape(12.dp)).background(Wd.Surface.copy(alpha = 0.85f)).padding(12.dp),
         ) {
             Text(
-                listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(" ・ ").ifEmpty { "雨雲レーダー" },
+                listOf(if (frame.panned) "" else place, frame.label).filter { it.isNotEmpty() }.joinToString(L(" ・ ", " · ")).ifEmpty { L("雨雲レーダー", "Rain radar") },
                 color = Wd.Text, fontSize = 16.tu, fontWeight = FontWeight.SemiBold,
             )
             RainLegend(Modifier.padding(top = 8.dp))

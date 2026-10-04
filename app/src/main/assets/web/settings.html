@@ -24,6 +24,9 @@
 
     <div class="nav-list" id="navList">
       <div class="nav-group">全体</div>
+      <button class="nav-item" type="button" data-pane="language">
+        <i class="dot dot-off"></i><span>言語 / Language</span>
+      </button>
       <button class="nav-item" type="button" data-pane="general">
         <i class="dot dot-off"></i><span>配色</span>
       </button>
@@ -113,6 +116,15 @@
       <button class="nav-item" type="button" data-pane="crypto">
         <i class="dot" data-w="showCrypto"></i><span>暗号通貨</span>
       </button>
+      <button class="nav-item" type="button" data-pane="flights">
+        <i class="dot" data-w="showFlights"></i><span>飛行機</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="ships">
+        <i class="dot" data-w="showShips"></i><span>船舶</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="github">
+        <i class="dot" data-w="showGithub"></i><span>GitHub</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -135,6 +147,26 @@
   </nav>
 
   <main class="panes" id="panes">
+
+    <!-- ============================================================ 言語 -->
+    <section class="pane" data-pane="language">
+      <h1>言語</h1>
+      <p class="lead">ダッシュボード・設定画面（アプリと Web）・通知の言葉を選びます。</p>
+
+      <div class="field" style="max-width:320px">
+        <label for="language">表示の言語</label>
+        <select id="language">
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+        <div class="hint">「全て保存」を押すと切り替わります（この画面も読み込み直します）。</div>
+      </div>
+
+      <div class="notice info">
+        英語にすると、取得先が英語の名前を出しているもの（地震の震源・路線名・天気の地点の検索結果など）は英語に、Wikipedia の「今日は何の日」は英語版の記事になります。
+        ニュースの見出し・LINE メモ・予定・曲名など、利用者や配信元が書いた文は元の言葉のままです。
+      </div>
+    </section>
 
     <!-- ============================================================ 全体 -->
     <section class="pane" data-pane="general">
@@ -1028,6 +1060,72 @@
       </div>
     </section>
 
+    <section class="pane" data-pane="flights">
+      <h1>飛行機</h1>
+      <p class="lead">世界の飛行機の位置を地図に出すカードです（Flightradar24 のようなもの）。色は高度で、機体を押すと便名・機種・高度・速さを出します。ドラッグで地図を動かし、右上の「＋」「−」で拡大・縮小、その下のボタンで「場所」の地点へ戻ります。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showFlights" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">
+        位置は adsb.lol の公開 API（登録不要、ODbL）から、カードを表示している間だけ 15 秒ごとに地図のまわり（最大 250 海里）を取ります。
+        受信は世界中のボランティアの受信機によるもので、海の上や受信機の少ない地域では出ない機体があります。
+      </div>
+    </section>
+
+    <section class="pane" data-pane="ships">
+      <h1>船舶</h1>
+      <p class="lead">世界の船の位置（AIS）を地図に出すカードです（MarineTraffic のようなもの）。色は船種で、船を押すと名前・船種・速さ・行き先を出します。地図の動かし方は飛行機と同じです。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showShips" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="field">
+        <label for="shipKey">aisstream.io の API キー</label>
+        <input id="shipKey" type="password" autocomplete="new-password">
+        <div class="hint">aisstream.io（無料）に GitHub のアカウントでサインインし、「API Keys」で作ったキーを入れてください。保存済みの値は表示しません。</div>
+      </div>
+      <div class="notice info">
+        カードを表示している間だけ aisstream.io につなぎ、地図に見えている範囲の電文を受け取ります。船は数秒〜数分ごとに位置を送るので、つないでから少しずつ船が増えます（20 分届かない船は消します）。
+        受信は世界中のボランティアの受信局によるもので、地域によっては船が少なく出ます。MarineTraffic の API は有料のため使っていません。
+      </div>
+    </section>
+
+    <section class="pane" data-pane="github">
+      <h1>GitHub</h1>
+      <p class="lead">GitHub の直近のコミット・プルリクエスト・Issue の数、コントリビューションの絵、スターの多いリポジトリを出すカードです。30 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showGithub" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="field" style="max-width:420px">
+        <label for="githubUser">ユーザー名</label>
+        <input id="githubUser" type="text" autocomplete="off" placeholder="例: octocat">
+        <div class="hint">github.com/ の後ろの名前です（URL を貼っても構いません）。</div>
+      </div>
+      <div class="field" style="max-width:420px">
+        <label for="githubToken">アクセストークン（任意）</label>
+        <input id="githubToken" type="password" autocomplete="new-password">
+        <div class="hint">無くても公開の情報は読めます。あると API の回数の上限が増え、プロフィールと同じ数え方（非公開のリポジトリを含む）の正確な数になります。github.com → Settings → Developer settings → Personal access tokens で、権限なし（読み取り）のトークンを作ってください。保存済みの値は表示しません。</div>
+      </div>
+      <div class="field" style="max-width:320px">
+        <label for="githubDays">数える期間</label>
+        <select id="githubDays">
+          <option value="7">7 日</option>
+          <option value="30">30 日</option>
+          <option value="90">90 日</option>
+          <option value="365">1 年</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>カードに出すもの</label>
+        <label class="toggle"><input type="checkbox" id="githubShowCommits"> コミット数</label>
+        <label class="toggle"><input type="checkbox" id="githubShowPulls"> プルリクエスト数</label>
+        <label class="toggle"><input type="checkbox" id="githubShowIssues"> Issue 数</label>
+        <label class="toggle"><input type="checkbox" id="githubShowProfile"> スターの合計とフォロワー</label>
+        <label class="toggle"><input type="checkbox" id="githubShowGraph"> コントリビューションの絵</label>
+        <label class="toggle"><input type="checkbox" id="githubShowRepos"> 人気のリポジトリ（スターの多い順）</label>
+      </div>
+      <div class="status" id="githubStatus"></div>
+    </section>
+
     <section class="pane" data-pane="hamster">
       <h1>ハムスター</h1>
       <p class="lead">画面の下で回し車を走るハムスターです。カードではないので、並びには影響しません。</p>
@@ -1084,6 +1182,8 @@
     <footer>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0) ・ 防災情報: 気象庁 ・ 強震モニタ: 防災科学技術研究所</footer>
   </main>
 </div>
+<script src="/static/js/i18n-en.js"></script>
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/settings.js"></script>
 </body>
 </html>

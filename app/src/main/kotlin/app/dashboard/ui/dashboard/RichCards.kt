@@ -1,5 +1,7 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.SEP
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -57,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.dashboard.data.DisasterState
+import app.dashboard.data.Jma
+import app.dashboard.i18n.Lang
 import app.dashboard.data.DisplayConfig
 import app.dashboard.data.SpotifyState
 import app.dashboard.data.TyphoonInfo
@@ -89,17 +93,17 @@ fun DisasterCard(
 ) {
     val active = d != null && (d.activeAreas.isNotEmpty() || d.tsunami.isNotEmpty())
     WdCard(
-        "防災",
+        L("防災", "Alerts"),
         modifier,
-        note = listOfNotNull(d?.officeName, d?.areaName).joinToString(" "),
+        note = listOfNotNull(Jma.pick(d?.officeName, d?.officeNameEn), Jma.pick(d?.areaName, d?.areaNameEn)).joinToString(if (Lang.en) ", " else " "),
         titleColor = if (active) Wd.Amber else Wd.Text3,
         borderColor = if (active) Wd.Amber.copy(alpha = 0.5f) else Wd.Border,
     ) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 when {
-                    !enabled -> EmptyText("防災情報の取得が無効です。設定画面の「防災」で有効にしてください。")
-                    d == null || !d.available -> EmptyText("気象庁の情報を取得できていません。")
+                    !enabled -> EmptyText(L("防災情報の取得が無効です。設定画面の「防災」で有効にしてください。", "Disaster information is off. Turn it on under \"Alerts\" in Settings."))
+                    d == null || !d.available -> EmptyText(L("気象庁の情報を取得できていません。", "Couldn't get JMA information."))
                     else -> DisasterBody(d, display, onTyphoon)
                 }
             }
@@ -119,23 +123,27 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig, onTyphoon: (T
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(scroll)) {
             if (d.tsunami.isNotEmpty()) {
-                Section("津波", Wd.Red)
-                d.tsunami.forEach { NameRow(it.title ?: "津波情報", hhmm(it.reportedAt), Wd.Red, Wd.Text3) }
+                Section(L("津波", "Tsunami"), Wd.Red)
+                d.tsunami.forEach { NameRow(Jma.tsunami(it.title) ?: L("津波情報", "Tsunami information"), hhmm(it.reportedAt), Wd.Red, Wd.Text3) }
             }
             when {
                 d.areaName == null -> Text(
-                    "天気の地点から市町村を決められません。設定画面の「場所」で国内の地点を選んでください。",
+                    L("天気の地点から市町村を決められません。設定画面の「場所」で国内の地点を選んでください。", "Can't determine a municipality from your location. Choose a location in Japan under \"Location\" in Settings."),
                     color = Wd.Text3, fontSize = 12.5f.tu, lineHeight = 1.45.em,
                 )
-                d.activeAreas.isEmpty() -> Text("発表中の警報・注意報はありません。", color = Wd.Text3, fontSize = 12.5f.tu, lineHeight = 1.45.em)
+                d.activeAreas.isEmpty() -> Text(L("発表中の警報・注意報はありません。", "No warnings or advisories in effect."), color = Wd.Text3, fontSize = 12.5f.tu, lineHeight = 1.45.em)
                 else -> {
-                    Text(d.headline ?: "${d.areaName}に発表中", fontSize = 12.5f.tu, lineHeight = 1.45.em, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    // 見出しの文は気象庁の日本語しか無いので、英語では出さない（種別の名前は英語にして下に並べる）
+                    Text(
+                        (if (Lang.en) null else d.headline) ?: L("${d.areaName}に発表中", "In effect for ${d.areaNameEn ?: d.areaName}"),
+                        fontSize = 12.5f.tu, lineHeight = 1.45.em, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    )
                     d.activeAreas.forEach { a ->
                         Row(Modifier.padding(top = 5.dp)) {
-                            Text(a.name, color = Wd.Text2, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            Text(if (Lang.en) d.areaNameEn ?: a.name else a.name, color = Wd.Text2, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             Spacer(Modifier.width(7.dp))
                             Text(
-                                a.kinds.joinToString("・"),
+                                a.kinds.joinToString(L("・", ", ")) { Jma.kind(it) },
                                 color = if (a.severe) Wd.Red else Wd.Amber,
                                 fontSize = 12.tu,
                                 fontWeight = if (a.severe) FontWeight.SemiBold else FontWeight.Normal,
@@ -146,13 +154,13 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig, onTyphoon: (T
                 }
             }
             if (typhoons.isNotEmpty()) {
-                Section("台風", Wd.Text3)
+                Section(L("台風", "Typhoon"), Wd.Text3)
                 typhoons.forEach { TyphoonRows(it) { onTyphoon(it) } }
             }
             if (volcanoes.isNotEmpty()) {
-                Section("噴火  ${volcanoes.size} 件", Wd.Text3)
+                Section(L("噴火  ${volcanoes.size} 件", "Eruptions  ${volcanoes.size}"), Wd.Text3)
                 volcanoes.forEach { v ->
-                    NameRow(v.name, v.level, if (v.severe) Wd.Text else Wd.Text2, if (v.severe) Wd.Red else Wd.Text3)
+                    NameRow(Jma.volcanoName(v.name), Jma.volcanoLevel(v.level), if (v.severe) Wd.Text else Wd.Text2, if (v.severe) Wd.Red else Wd.Text3)
                 }
             }
         }
@@ -166,16 +174,16 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig, onTyphoon: (T
                     else -> Wd.Border to Wd.Text
                 }
                 Text(
-                    "震度 ${q.maxIntensity ?: "—"}",
+                    L("震度 ${q.maxIntensity ?: "—"}", "Intensity ${q.maxIntensity ?: "—"}"),
                     color = fg,
                     fontSize = 11.5f.tu,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(bg).padding(horizontal = 6.dp, vertical = 1.dp),
                 )
                 Spacer(Modifier.width(7.dp))
-                Text(q.epicenter.orEmpty(), fontSize = 13.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(Jma.pick(q.epicenter, q.epicenterEn).orEmpty(), fontSize = 13.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(7.dp))
-                Text("M${q.magnitude ?: "—"} ・ ${dateTime(q.occurredAt)}", color = Wd.Text3, fontSize = 12.tu, style = Tabular)
+                Text("M${q.magnitude ?: "—"}" + SEP + dateTime(q.occurredAt), color = Wd.Text3, fontSize = 12.tu, style = Tabular)
             }
         }
     }
@@ -198,7 +206,7 @@ private fun NameRow(name: String, state: String, nameColor: Color, stateColor: C
 
 @Composable
 private fun TyphoonRows(t: TyphoonInfo, onOpen: () -> Unit) {
-    val course = t.course?.let { it + "へ" + (t.speedKmh?.let { s -> " $s km/h" } ?: "") }
+    val course = t.course?.let { Jma.course(it) + L("へ", "") + (t.speedKmh?.let { s -> " $s km/h" } ?: "") }
     Column(Modifier.padding(top = 4.dp)) {
         // 名前を押すと進路図を画面いっぱいに出す（押せることが分かるよう、名前の右に広げる記号を添える）
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -207,18 +215,18 @@ private fun TyphoonRows(t: TyphoonInfo, onOpen: () -> Unit) {
                     .background(Wd.Amber.copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(listOfNotNull(t.number, t.name).joinToString(" ").ifEmpty { "台風" }, color = Wd.Amber, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                if (t.id != null) Icon(WdIcons.Expand, "進路図を画面いっぱいに表示", tint = Wd.Amber, modifier = Modifier.padding(start = 5.dp).size(11.dp))
+                Text(listOfNotNull(Jma.typhoonNumber(t.number), Jma.pick(t.name, t.nameEn)).joinToString(" ").ifEmpty { L("台風", "Typhoon") }, color = Wd.Amber, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                if (t.id != null) Icon(WdIcons.Expand, L("進路図を画面いっぱいに表示", "Show the track map full screen"), tint = Wd.Amber, modifier = Modifier.padding(start = 5.dp).size(11.dp))
             }
             Spacer(Modifier.width(7.dp))
-            Text(listOfNotNull(t.scale, t.intensity).joinToString("・"), color = Wd.Text2, fontSize = 12.tu, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+            Text(listOfNotNull(Jma.scale(t.scale), Jma.intensity(t.intensity)).joinToString(L("・", ", ")), color = Wd.Text2, fontSize = 12.tu, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         }
         Text(
-            listOfNotNull(t.location, t.pressureHpa?.let { "$it hPa" }, course).joinToString(" ・ "),
+            listOfNotNull(Jma.location(t.location, t.lat, t.lon), t.pressureHpa?.let { "$it hPa" }, course).joinToString(L(" ・ ", " · ")),
             color = Wd.Text3, fontSize = 11.5f.tu,
         )
         Text(
-            listOfNotNull(t.maxWindMps?.let { "最大風速 $it m/s" }, t.gustMps?.let { "瞬間 $it m/s" }).joinToString(" ／ "),
+            listOfNotNull(t.maxWindMps?.let { L("最大風速 $it m/s", "Max wind $it m/s") }, t.gustMps?.let { L("瞬間 $it m/s", "Gust $it m/s") }).joinToString(L(" ／ ", " / ")),
             color = Wd.Text3, fontSize = 11.5f.tu,
         )
     }
@@ -256,18 +264,18 @@ private fun Kmoni(base: ImageBitmap?, frame: DashboardViewModel.KmoniFrame, modi
 
 // ---------------------------------------------------------------- Wi-Fi
 
-private val LEVEL_LABEL = listOf("非常に弱い", "弱い", "普通", "強い", "非常に強い")
+private val LEVEL_LABEL get() = listOf(L("非常に弱い", "Very weak"), L("弱い", "Weak"), L("普通", "Fair"), L("強い", "Strong"), L("非常に強い", "Very strong"))
 private fun levelColor(level: Int) = listOf(Wd.Red, Wd.Red, Wd.Amber, Wd.Green, Wd.Green)[level]
-private val SSID_MSG = mapOf(
-    "permission_required" to "権限が必要",
-    "location_services_off" to "位置情報サービスを ON に",
-    "unavailable" to "取得できません",
+private val SSID_MSG get() = mapOf(
+    "permission_required" to L("権限が必要", "Permission needed"),
+    "location_services_off" to L("位置情報サービスを ON に", "Turn on location services"),
+    "unavailable" to L("取得できません", "Unavailable"),
 )
 
 @Composable
 fun WifiCard(wifi: WifiState?, stats: DeviceStats?, rssiHistory: List<Int?>, showGlobe: Boolean, modifier: Modifier) {
     val accent = LocalAccent.current
-    WdCard("Wi-Fi", modifier, note = listOfNotNull(wifi?.ipAddress, wifi?.band).joinToString(" ・ ")) {
+    WdCard("Wi-Fi", modifier, note = listOfNotNull(wifi?.ipAddress, wifi?.band).joinToString(SEP)) {
         if (wifi == null) return@WdCard
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f)) {
@@ -285,7 +293,7 @@ fun WifiCard(wifi: WifiState?, stats: DeviceStats?, rssiHistory: List<Int?>, sho
                     Speeds(wifi, Modifier.weight(1f))
                 }
                 Column(Modifier.padding(top = 4.dp)) {
-                    WifiRow("通信量", traffic(stats))
+                    WifiRow(L("通信量", "Traffic"), traffic(stats))
                     WifiRow(
                         "SSID",
                         if (wifi.ssidStatus == "ok" && wifi.ssid != null) wifi.ssid else SSID_MSG[wifi.ssidStatus] ?: "—",
@@ -293,7 +301,7 @@ fun WifiCard(wifi: WifiState?, stats: DeviceStats?, rssiHistory: List<Int?>, sho
                     )
                     val level = wifi.signalLevel.coerceIn(0, 4)
                     Row(Modifier.padding(vertical = 1.dp)) {
-                        Text("強度", color = Wd.Text3, fontSize = 12.tu)
+                        Text(L("強度", "Signal"), color = Wd.Text3, fontSize = 12.tu)
                         Spacer(Modifier.weight(1f))
                         if (wifi.rssiDbm == null) Text("—", fontSize = 12.tu) else {
                             Text("${wifi.rssiDbm} dBm", fontSize = 12.tu, fontWeight = FontWeight.SemiBold, style = Tabular)
@@ -316,8 +324,8 @@ private fun Speeds(wifi: WifiState, modifier: Modifier) {
         if (rx == null || tx == null) {
             SpeedRow("", rx ?: tx ?: wifi.linkSpeedMbps, vhText(4f, 22f, 32f))
         } else {
-            SpeedRow("↓ 下り", rx, vhText(2.35f, 15f, 20f))
-            SpeedRow("↑ 上り", tx, vhText(2.35f, 15f, 20f))
+            SpeedRow(L("↓ 下り", "↓ Down"), rx, vhText(2.35f, 15f, 20f))
+            SpeedRow(L("↑ 上り", "↑ Up"), tx, vhText(2.35f, 15f, 20f))
         }
     }
 }
@@ -356,8 +364,8 @@ private fun WifiRow(label: String, value: String, color: Color = Wd.Text) {
 
 /** 実際に流れている通信量。下りと上りで桁が違っても読み違えないよう、単位は大きい方にそろえる。 */
 private fun traffic(s: DeviceStats?): String {
-    val rx = s?.rxBitsPerSec ?: return "計測中…"
-    val tx = s.txBitsPerSec ?: return "計測中…"
+    val rx = s?.rxBitsPerSec ?: return L("計測中…", "Measuring…")
+    val tx = s.txBitsPerSec ?: return L("計測中…", "Measuring…")
     val mbps = max(rx, tx) >= 1_000_000
     val div = if (mbps) 1_000_000.0 else 1_000.0
     fun rate(v: Double) = if (v >= 10) v.roundToInt().toString() else ((v * 10).roundToInt() / 10.0).toString()
@@ -449,9 +457,9 @@ fun SpotifyCard(
 ) {
     val note = when {
         !enabled || !connected || sp == null || !sp.available -> null
-        sp.trackName == null -> "停止中"
-        sp.playing -> "再生中"
-        else -> "一時停止中"
+        sp.trackName == null -> L("停止中", "Stopped")
+        sp.playing -> L("再生中", "Playing")
+        else -> L("一時停止中", "Paused")
     }
     // 再生中だけ、見出しの右に「画面いっぱいに出す」ボタンを置く
     val expand: (@Composable () -> Unit)? = if (enabled && connected && sp?.available == true && sp.playing) {
@@ -459,9 +467,9 @@ fun SpotifyCard(
     } else null
     WdCard("Spotify", modifier, note = note, titleColor = Wd.Green, borderColor = Wd.Green.copy(alpha = 0.5f), titleAction = expand) {
         when {
-            !enabled || !connected -> Idle("Spotify は未連携です。\n設定画面から連携してください。")
-            sp == null || !sp.available -> Idle(sp?.lastError?.let { "取得できません: $it" } ?: "接続中…")
-            sp.trackName == null -> Idle("再生中の曲はありません。")
+            !enabled || !connected -> Idle(L("Spotify は未連携です。\n設定画面から連携してください。", "Spotify isn't connected.\nConnect it in Settings."))
+            sp == null || !sp.available -> Idle(sp?.lastError?.let { L("取得できません: $it", "Unavailable: $it") } ?: L("接続中…", "Connecting…"))
+            sp.trackName == null -> Idle(L("再生中の曲はありません。", "Nothing is playing."))
             else -> {
                 val showCtl = display.spotifyShowControls
                 val showTime = display.spotifyShowProgress
@@ -521,7 +529,7 @@ internal fun ExpandButton(onClick: () -> Unit, color: Color = Wd.Green) {
         Modifier.size(26.dp, 20.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.14f)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(WdIcons.Expand, "画面いっぱいに表示", tint = color, modifier = Modifier.size(13.dp))
+        Icon(WdIcons.Expand, L("画面いっぱいに表示", "Show full screen"), tint = color, modifier = Modifier.size(13.dp))
     }
 }
 

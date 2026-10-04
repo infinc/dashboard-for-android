@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Log
 import android.util.Xml
 import io.ktor.client.HttpClient
@@ -81,7 +82,7 @@ class CalendarRepository(private val client: HttpClient, private val configStore
     private suspend fun fromIcs(url: String, from: Long, to: Long, zone: ZoneId): List<CalendarEvent> {
         val https = url.trim().replaceFirst(Regex("^webcals?://", RegexOption.IGNORE_CASE), "https://")
         val text = client.get(https).bodyAsText()
-        if ("BEGIN:VCALENDAR" !in text) error("カレンダーの URL ではないようです（iCalendar の形式ではありません）")
+        if ("BEGIN:VCALENDAR" !in text) error(L("カレンダーの URL ではないようです（iCalendar の形式ではありません）", "This doesn't look like a calendar URL (not in iCalendar format)"))
         val name = Regex("X-WR-CALNAME:(.*)").find(text)?.groupValues?.get(1)?.trim()
         return Ics.events(text, from, to, zone, name, null)
     }
@@ -94,7 +95,7 @@ class CalendarRepository(private val client: HttpClient, private val configStore
         val auth = Credentials.basic(c.appleId.trim(), c.password!!.replace(" ", "").trim())
         val key = c.appleId.trim()
         val list = calendars?.takeIf { calendarsFor == key } ?: discover(auth).also { calendars = it; calendarsFor = key }
-        if (list.isEmpty()) error("予定を入れられるカレンダーが見つかりませんでした")
+        if (list.isEmpty()) error(L("予定を入れられるカレンダーが見つかりませんでした", "No calendar that can hold events was found"))
         val start = utc(from)
         val end = utc(to)
         val body = """
@@ -116,10 +117,10 @@ class CalendarRepository(private val client: HttpClient, private val configStore
     private fun discover(auth: String): List<Collection> {
         val root = "https://caldav.icloud.com/"
         val principalXml = send(root, "PROPFIND", propfind("<D:current-user-principal/>"), auth, depth = "0")
-        val principal = hrefIn(principalXml, "current-user-principal") ?: error("iCloud の利用者情報を読めませんでした")
+        val principal = hrefIn(principalXml, "current-user-principal") ?: error(L("iCloud の利用者情報を読めませんでした", "Couldn't read iCloud user information"))
         val principalUrl = resolve(root, principal)
         val homeXml = send(principalUrl, "PROPFIND", propfind("<C:calendar-home-set/>"), auth, depth = "0")
-        val home = resolve(principalUrl, hrefIn(homeXml, "calendar-home-set") ?: error("カレンダーの置き場所を読めませんでした"))
+        val home = resolve(principalUrl, hrefIn(homeXml, "calendar-home-set") ?: error(L("カレンダーの置き場所を読めませんでした", "Couldn't read the calendar location")))
         val listXml = send(
             home, "PROPFIND",
             propfind("<D:displayname/><D:resourcetype/><C:supported-calendar-component-set/><A:calendar-color/>"),
@@ -141,8 +142,8 @@ class CalendarRepository(private val client: HttpClient, private val configStore
             .method(method, body.toRequestBody("application/xml; charset=utf-8".toMediaType()))
             .build()
         dav.newCall(request).execute().use { res ->
-            if (res.code == 401) error("Apple ID か App 用パスワードが違います（通常のパスワードでは接続できません）")
-            if (!res.isSuccessful) error("iCloud が HTTP ${res.code} を返しました")
+            if (res.code == 401) error(L("Apple ID か App 用パスワードが違います（通常のパスワードでは接続できません）", "Wrong Apple ID or app-specific password (your normal password won't work)"))
+            if (!res.isSuccessful) error(L("iCloud が HTTP ${res.code} を返しました", "iCloud returned HTTP ${res.code}"))
             return res.body?.string().orEmpty()
         }
     }

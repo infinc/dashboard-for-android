@@ -1,5 +1,7 @@
 package app.dashboard.server
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.Lang
 import android.util.Log
 import app.dashboard.AppGraph
 import app.dashboard.SettingsController
@@ -12,6 +14,7 @@ import app.dashboard.data.Tones
 import app.dashboard.data.WallpaperStore
 import app.dashboard.data.toPublic
 import io.ktor.http.ContentType
+import io.ktor.http.withCharset
 import io.ktor.http.Cookie
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -132,19 +135,19 @@ class DashboardServer(private val graph: AppGraph) {
                     }
                     is Auth.LoginResult.Failed -> call.respond(
                         HttpStatusCode.Unauthorized,
-                        LoginResponse(ok = false, remaining = result.remaining, message = "PIN が違います"),
+                        LoginResponse(ok = false, remaining = result.remaining, message = L("PIN が違います", "Wrong PIN")),
                     )
                     is Auth.LoginResult.Locked -> call.respond(
                         HttpStatusCode.TooManyRequests,
                         LoginResponse(
                             ok = false,
                             retryAfterSeconds = result.retryAfterSeconds,
-                            message = "試行回数の上限に達しました。しばらく待ってから再試行してください",
+                            message = L("試行回数の上限に達しました。しばらく待ってから再試行してください", "Too many attempts. Wait a while and try again"),
                         ),
                     )
                     Auth.LoginResult.NoPinConfigured -> call.respond(
                         HttpStatusCode.Conflict,
-                        LoginResponse(ok = false, message = "PIN が未設定です。タブレットの設定画面から設定してください"),
+                        LoginResponse(ok = false, message = L("PIN が未設定です。タブレットの設定画面から設定してください", "No PIN is set. Set one in the tablet's settings")),
                     )
                 }
             }
@@ -191,12 +194,12 @@ class DashboardServer(private val graph: AppGraph) {
                 if (!guardWrite(call)) return@post
                 val declared = call.request.contentLength()
                 if (declared != null && declared > WallpaperStore.MAX_UPLOAD_BYTES) {
-                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", "画像が大きすぎます（25 MB まで）"))
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", L("画像が大きすぎます（25 MB まで）", "The image is too large (up to 25 MB)")))
                     return@post
                 }
                 val bytes = call.receive<ByteArray>()
                 if (bytes.size > WallpaperStore.MAX_UPLOAD_BYTES) {
-                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", "画像が大きすぎます（25 MB まで）"))
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large", L("画像が大きすぎます（25 MB まで）", "The image is too large (up to 25 MB)")))
                     return@post
                 }
                 call.respond(graph.settings.setWallpaper { bytes.inputStream() }.toPublic())
@@ -250,7 +253,7 @@ class DashboardServer(private val graph: AppGraph) {
                 if (url == null) {
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        ApiError("client_id_missing", "Client ID を保存してから連携してください"),
+                        ApiError("client_id_missing", L("Client ID を保存してから連携してください", "Save a Client ID before connecting")),
                     )
                     return@get
                 }
@@ -261,15 +264,15 @@ class DashboardServer(private val graph: AppGraph) {
                 val error = call.request.queryParameters["error"]
                 val code = call.request.queryParameters["code"]
                 val (title, detail) = when {
-                    error != null -> "連携できませんでした" to error
-                    code.isNullOrBlank() -> "連携できませんでした" to "認可コードがありません"
+                    error != null -> L("連携できませんでした", "Couldn't connect") to error
+                    code.isNullOrBlank() -> L("連携できませんでした", "Couldn't connect") to L("認可コードがありません", "No authorization code")
                     else -> {
                         val result = graph.spotify.exchangeCode(code, SPOTIFY_REDIRECT_URI)
                         if (result.isSuccess) {
                             runCatching { graph.spotify.refreshNow() }
-                            "Spotify と連携しました" to "この画面は閉じて構いません。"
+                            L("Spotify と連携しました", "Connected to Spotify") to L("この画面は閉じて構いません。", "You can close this page.")
                         } else {
-                            "連携できませんでした" to (result.exceptionOrNull()?.message ?: "不明なエラー")
+                            L("連携できませんでした", "Couldn't connect") to (result.exceptionOrNull()?.message ?: L("不明なエラー", "Unknown error"))
                         }
                     }
                 }
@@ -350,9 +353,9 @@ class DashboardServer(private val graph: AppGraph) {
     )
 
     private fun resultHtml(title: String, detail: String): String = """
-        <!doctype html><html lang="ja"><head><meta charset="utf-8">
+        <!doctype html><html lang="${Lang.current}"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Spotify 連携</title></head>
+        <title>${L("Spotify 連携", "Spotify")}</title></head>
         <body style="background:#0A0C10;color:#E8EEF5;font-family:system-ui,sans-serif;
         display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center;padding:24px">
@@ -368,6 +371,12 @@ class DashboardServer(private val graph: AppGraph) {
         val bytes = runCatching { graph.context.assets.open(path).use { it.readBytes() } }.getOrNull()
         if (bytes == null) {
             call.respond(HttpStatusCode.NotFound, ApiError("not_found", path))
+            return
+        }
+        // HTML の画面は、いまの表示の言語を <html lang> に入れて返す（i18n.js がそれを見て英語に置き換える）
+        if (path.endsWith(".html")) {
+            val html = String(bytes, Charsets.UTF_8).replaceFirst("<html lang=\"ja\">", "<html lang=\"${Lang.current}\">")
+            call.respondText(html, ContentType.Text.Html.withCharset(Charsets.UTF_8), status)
             return
         }
         call.respondBytes(bytes, contentTypeFor(path), status)

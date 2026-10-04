@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -47,12 +48,12 @@ fun PhotoCard(
     modifier: Modifier,
 ) {
     if (frame == null) {
-        WdCard("写真", modifier, note = state?.albumName) {
+        WdCard(L("写真", "Photos"), modifier, note = state?.albumName) {
             when {
                 !config.enabled || config.albumUrl.isNullOrBlank() ->
-                    EmptyText("写真は未設定です。設定画面の「写真」で iCloud の共有アルバムの URL を入れてください。")
-                state?.lastError != null -> EmptyText("取得できません: ${state.lastError}", Wd.Red)
-                else -> EmptyText("読み込み中…")
+                    EmptyText(L("写真は未設定です。設定画面の「写真」で iCloud の共有アルバムの URL を入れてください。", "Photos aren't set up. Enter an iCloud Shared Album URL under \"Photos\" in Settings."))
+                state?.lastError != null -> EmptyText(L("取得できません: ${state.lastError}", "Unavailable: ${state.lastError}"), Wd.Red)
+                else -> EmptyText(L("読み込み中…", "Loading…"))
             }
         }
         return

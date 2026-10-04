@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.graphics.BitmapFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -50,7 +51,7 @@ class RainForecast(private val client: HttpClient) {
             val at = millis(valid)
             val minutes = ((at - now) / 60_000L).toInt()
             if (minutes > withinMinutes) break
-            if (rainAt(base, valid, latitude, longitude) == true) return Result.Starts(minutes.coerceAtLeast(1), "降水ナウキャスト")
+            if (rainAt(base, valid, latitude, longitude) == true) return Result.Starts(minutes.coerceAtLeast(1), L("降水ナウキャスト", "precipitation nowcast"))
         }
         return Result.Dry
     }
@@ -99,7 +100,7 @@ class RainForecast(private val client: HttpClient) {
             val minutes = ((at - now) / 60_000L).toInt()
             if (minutes < 0) return@forEach
             if (minutes > withinMinutes) return Result.Dry
-            if (isRain(h.weatherCode) && (h.precipitationProbability ?: 0) >= 50) return Result.Starts(minutes.coerceAtLeast(1), "時間別予報")
+            if (isRain(h.weatherCode) && (h.precipitationProbability ?: 0) >= 50) return Result.Starts(minutes.coerceAtLeast(1), L("時間別予報", "hourly forecast"))
         }
         return Result.Dry
     }

@@ -1,5 +1,6 @@
 package app.dashboard.server
 
+import app.dashboard.i18n.L
 import android.os.Build
 import android.util.Base64
 import app.dashboard.data.ConfigStore
@@ -45,7 +46,7 @@ class Auth(private val store: ConfigStore) {
     // ------------------------------------------------------------------ PIN
 
     fun setPin(pin: String) {
-        require(pin.length >= MIN_PIN_LENGTH) { "PIN は $MIN_PIN_LENGTH 桁以上必要です" }
+        require(pin.length >= MIN_PIN_LENGTH) { L("PIN は $MIN_PIN_LENGTH 桁以上必要です", "The PIN must be at least $MIN_PIN_LENGTH digits") }
         val salt = ByteArray(16).also(random::nextBytes)
         val algorithm = preferredAlgorithm()
         val iterations = iterationsFor(algorithm)

@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -80,7 +81,7 @@ internal fun FullscreenFrame(
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(WdIcons.Back, "戻る", tint = backTint, modifier = Modifier.size(30.dp))
+            Icon(WdIcons.Back, L("戻る", "Back"), tint = backTint, modifier = Modifier.size(30.dp))
         }
         AwakeToggle(
             keepAwake,
