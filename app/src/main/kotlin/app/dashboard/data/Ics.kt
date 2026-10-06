@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
@@ -39,7 +40,7 @@ object Ics {
             if (ev["STATUS"]?.value.equals("CANCELLED", ignoreCase = true)) return@forEach
             val start = ev["DTSTART"]?.let { parseWhen(it, deviceZone) } ?: return@forEach
             val length = length(ev, start, deviceZone)
-            val title = unescape(ev["SUMMARY"]?.value ?: "（件名なし）")
+            val title = unescape(ev["SUMMARY"]?.value ?: L("（件名なし）", "(no title)"))
             val rrule = ev["RRULE"]?.value
             val starts = if (rrule == null || ev["RECURRENCE-ID"] != null) {
                 listOf(start.local)

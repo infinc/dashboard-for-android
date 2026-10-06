@@ -1,8 +1,10 @@
 package app.dashboard.ui.browser
 
+import app.dashboard.i18n.L
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -74,7 +77,7 @@ private const val HOME_URL = "https://www.google.com"
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
+fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose: () -> Unit) {
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val favorites by config.flow.collectAsStateWithLifecycle()
@@ -118,26 +121,29 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
         if (view != null && view.canGoBack()) view.goBack() else onClose()
     }
 
+    // 上のツールバー（タブ）はアクセント色に合わせる。色をそのまま塗ると文字やアイコンが読めない色があるので、面の色に混ぜる
+    val bar = mix(Wd.Surface, accent, if (Wd.palette.light) 0.22f else 0.30f)
     Column(Modifier.fillMaxSize().background(Wd.Bg).imePadding()) {
         Row(
-            Modifier.fillMaxWidth().background(Wd.Surface).padding(6.dp),
+            Modifier.fillMaxWidth().background(bar).padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolText("ホーム", onClose)
-            ToolIcon(WdIcons.Back, "戻る") { webView?.takeIf { it.canGoBack() }?.goBack() }
-            ToolIcon(WdIcons.Forward, "進む") { webView?.takeIf { it.canGoForward() }?.goForward() }
-            ToolIcon(WdIcons.Refresh, "再読み込み") { webView?.reload() }
+            ToolText(L("ホーム", "Home"), onClose)
+            ToolIcon(WdIcons.Back, L("戻る", "Back")) { webView?.takeIf { it.canGoBack() }?.goBack() }
+            ToolIcon(WdIcons.Forward, L("進む", "Forward")) { webView?.takeIf { it.canGoForward() }?.goForward() }
+            ToolIcon(WdIcons.Refresh, L("再読み込み", "Reload")) { webView?.reload() }
             TextField(
                 value = field,
                 onValueChange = { field = it },
                 singleLine = true,
-                placeholder = { Text("URL または検索語", color = Wd.Text3, fontSize = 14.tu) },
+                placeholder = { Text(L("URL または検索語", "URL or search"), color = Wd.Text3, fontSize = 14.tu) },
                 textStyle = androidx.compose.ui.text.TextStyle(color = Wd.Text, fontSize = 14.tu),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { go(field.text) }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Wd.Bg, unfocusedContainerColor = Wd.Bg,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = accent,
                 ),
                 // 触れたら今の URL を全選択する（打った文字が URL の後ろに繋がらないように）
                 modifier = Modifier.weight(1f).padding(start = 6.dp).onFocusChanged {
@@ -148,12 +154,12 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
             Box(
                 Modifier.size(46.dp).clickable {
                     when {
-                        favoritable == null -> toast("このページは登録できません")
+                        favoritable == null -> toast(L("このページは登録できません", "This page can't be saved"))
                         starred -> {
                             config.updateFavorites { list -> list.filterNot { it.url == favoritable } }
-                            toast("お気に入りから外しました")
+                            toast(L("お気に入りから外しました", "Removed from favorites"))
                         }
-                        saved.size >= ConfigStore.MAX_FAVORITES -> toast("お気に入りは ${ConfigStore.MAX_FAVORITES} 件までです")
+                        saved.size >= ConfigStore.MAX_FAVORITES -> toast(L("お気に入りは ${ConfigStore.MAX_FAVORITES} 件までです", "Up to ${ConfigStore.MAX_FAVORITES} favorites"))
                         else -> adding = favoritable
                     }
                 },
@@ -170,25 +176,29 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
                 )
             }
             Box {
-                ToolIcon(WdIcons.Menu, "メニュー") { menuOpen = true }
+                ToolIcon(WdIcons.Menu, L("メニュー", "Menu")) { menuOpen = true }
                 DropdownMenu(menuOpen, { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("お気に入り") }, onClick = { menuOpen = false; listOpen = true })
+                    DropdownMenuItem(text = { Text(L("お気に入り", "Favorites")) }, onClick = { menuOpen = false; listOpen = true })
                 }
             }
         }
 
+        Box(Modifier.fillMaxWidth().height(2.dp).background(accent))
         AndroidView(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
                 // WebView を無効にしている端末では作れない。落とさずに理由を出す
                 runCatching { WebView(ctx) }.getOrElse {
                     return@AndroidView android.widget.TextView(ctx).apply {
-                        text = "この端末では WebView（Android System WebView）が使えないため、ブラウズを開けません。"
+                        text = L("この端末では WebView（Android System WebView）が使えないため、ブラウズを開けません。", "Browse can't open because WebView (Android System WebView) isn't available on this device.")
                         setTextColor(Wd.Text2.toArgb())
                         textSize = 15f
                         setPadding(48, 48, 48, 48)
                     }
                 }.apply {
+                    // AndroidView の既定は WRAP_CONTENT。WebView は高さが WRAP_CONTENT だと 100vh を 0 として扱い、
+                    // 画面いっぱいに広げる作りのページ（Spotify のログインなど）が真っ黒になる
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     setBackgroundColor(Wd.Bg.toArgb())
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
@@ -234,15 +244,15 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
 
     adding?.let { url ->
         NameDialog(
-            title = "お気に入りに追加",
+            title = L("お気に入りに追加", "Add to favorites"),
             message = url,
             initial = favoriteTitle(currentTitle, url),
-            confirm = "追加",
+            confirm = L("追加", "Add"),
             onDismiss = { adding = null },
             onConfirm = { name ->
                 config.updateFavorites { list -> list + Favorite(url = url, title = name.ifEmpty { favoriteTitle(currentTitle, url) }) }
                 adding = null
-                toast("お気に入りに追加しました")
+                toast(L("お気に入りに追加しました", "Added to favorites"))
             },
         )
     }
@@ -273,10 +283,10 @@ private fun FavoritesDialog(config: ConfigStore, favorites: List<Favorite>, onOp
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("お気に入り") },
+        title = { Text(L("お気に入り", "Favorites")) },
         text = {
             if (favorites.isEmpty()) {
-                Text("まだありません。ページを開いて ☆ を押すと登録できます。", color = Wd.Text2, fontSize = 13.tu)
+                Text(L("まだありません。ページを開いて ☆ を押すと登録できます。", "Nothing yet. Open a page and tap ☆ to add it."), color = Wd.Text2, fontSize = 13.tu)
             } else {
                 LazyColumn(Modifier.heightIn(max = 420.dp).widthIn(min = 420.dp)) {
                     items(favorites, key = { it.url }) { fav ->
@@ -285,15 +295,15 @@ private fun FavoritesDialog(config: ConfigStore, favorites: List<Favorite>, onOp
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(L("閉じる", "Close")) } },
     )
 
     renaming?.let { fav ->
         NameDialog(
-            title = "名前を変更",
+            title = L("名前を変更", "Rename"),
             message = fav.url,
             initial = fav.title,
-            confirm = "変更",
+            confirm = L("変更", "Rename"),
             onDismiss = { renaming = null },
             onConfirm = { name ->
                 config.updateFavorites { list ->
@@ -307,15 +317,15 @@ private fun FavoritesDialog(config: ConfigStore, favorites: List<Favorite>, onOp
     removing?.let { fav ->
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("お気に入りから削除") },
+            title = { Text(L("お気に入りから削除", "Remove from favorites")) },
             text = { Text("${fav.title}\n${fav.url}", fontSize = 13.tu) },
             confirmButton = {
                 TextButton(onClick = {
                     config.updateFavorites { list -> list.filterNot { it.url == fav.url } }
                     removing = null
-                }) { Text("削除", color = Wd.Red) }
+                }) { Text(L("削除", "Remove"), color = Wd.Red) }
             },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text(L("キャンセル", "Cancel")) } },
         )
     }
 }
@@ -333,11 +343,11 @@ private fun FavoriteRow(fav: Favorite, onOpen: () -> Unit, onRename: () -> Unit,
                 Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).clickable { menu = true },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(WdIcons.More, "操作", tint = Wd.Text2, modifier = Modifier.size(22.dp))
+                Icon(WdIcons.More, L("操作", "Actions"), tint = Wd.Text2, modifier = Modifier.size(22.dp))
             }
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text("名前を変更") }, onClick = { menu = false; onRename() })
-                DropdownMenuItem(text = { Text("削除", color = Wd.Red) }, onClick = { menu = false; onRemove() })
+                DropdownMenuItem(text = { Text(L("名前を変更", "Rename")) }, onClick = { menu = false; onRename() })
+                DropdownMenuItem(text = { Text(L("削除", "Remove"), color = Wd.Red) }, onClick = { menu = false; onRemove() })
             }
         }
     }
@@ -372,7 +382,7 @@ private fun NameDialog(
             }
         },
         confirmButton = { TextButton(onClick = { onConfirm(value.text.trim()) }) { Text(confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(L("キャンセル", "Cancel")) } },
     )
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
@@ -390,6 +400,9 @@ private fun ToolIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
         Icon(icon, label, tint = Wd.Text, modifier = Modifier.size(22.dp))
     }
 }
+
+private fun mix(base: Color, tint: Color, k: Float) =
+    Color(base.red + (tint.red - base.red) * k, base.green + (tint.green - base.green) * k, base.blue + (tint.blue - base.blue) * k, 1f)
 
 /** <title> の無いページでは URL がそのまま題名として来るので、空として扱う。 */
 private fun cleanTitle(raw: String?, url: String): String {

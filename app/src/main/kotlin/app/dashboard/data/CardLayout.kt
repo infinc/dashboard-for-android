@@ -1,6 +1,7 @@
 package app.dashboard.data
 
 import android.content.Context
+import app.dashboard.i18n.L
 import kotlin.math.floor
 import kotlin.math.max
 
@@ -19,37 +20,46 @@ object CardLayout {
     enum class Card(
         val span: Int,
         val min: Int,
-        val label: String,
+        private val labelJa: String,
+        private val labelEn: String,
         /** [DisplayConfig] の表示の項目の名前（Web の設定画面が、足す・外すときに切り替えるチェックボックスを探す）。 */
         val flag: String,
         val isShown: (DisplayConfig) -> Boolean,
         /** 表示・非表示を切り替えた設定を返す（「カードの配置」でドラッグして足す・外すため）。 */
         val show: (DisplayConfig, Boolean) -> DisplayConfig,
     ) {
-        CLOCK(8, 6, "時刻", "showClock", { it.showClock }, { d, on -> d.copy(showClock = on) }),
-        WEATHER(8, 7, "天気", "showWeather", { it.showWeather }, { d, on -> d.copy(showWeather = on) }),
-        DISASTER(8, 7, "防災", "showDisaster", { it.showDisaster }, { d, on -> d.copy(showDisaster = on) }),
-        MEMO(10, 5, "LINE メモ", "showMemo", { it.showMemo }, { d, on -> d.copy(showMemo = on) }),
-        HOURLY(9, 7, "時間別予報", "showHourly", { it.showHourly }, { d, on -> d.copy(showHourly = on) }),
-        SPOTIFY(5, 5, "Spotify", "showSpotify", { it.showSpotify }, { d, on -> d.copy(showSpotify = on) }),
-        WIFI(6, 6, "Wi-Fi", "showWifi", { it.showWifi }, { d, on -> d.copy(showWifi = on) }),
-        STATS(10, 7, "端末状態", "showDeviceStats", { it.showDeviceStats }, { d, on -> d.copy(showDeviceStats = on) }),
-        NEWS(8, 5, "ニュース", "showFeed", { it.showFeed }, { d, on -> d.copy(showFeed = on) }),
-        DAILY(12, 6, "週間予報", "showDaily", { it.showDaily }, { d, on -> d.copy(showDaily = on) }),
-        TIMER(6, 5, "タイマー", "showTimer", { it.showTimer }, { d, on -> d.copy(showTimer = on) }),
-        WORD(6, 4, "今日の単語", "showWord", { it.showWord }, { d, on -> d.copy(showWord = on) }),
+        CLOCK(8, 6, "時刻", "Clock", "showClock", { it.showClock }, { d, on -> d.copy(showClock = on) }),
+        WEATHER(8, 7, "天気", "Weather", "showWeather", { it.showWeather }, { d, on -> d.copy(showWeather = on) }),
+        DISASTER(8, 7, "防災", "Alerts", "showDisaster", { it.showDisaster }, { d, on -> d.copy(showDisaster = on) }),
+        MEMO(10, 5, "LINE メモ", "LINE memo", "showMemo", { it.showMemo }, { d, on -> d.copy(showMemo = on) }),
+        HOURLY(9, 7, "時間別予報", "Hourly", "showHourly", { it.showHourly }, { d, on -> d.copy(showHourly = on) }),
+        SPOTIFY(5, 5, "Spotify", "Spotify", "showSpotify", { it.showSpotify }, { d, on -> d.copy(showSpotify = on) }),
+        WIFI(6, 6, "Wi-Fi", "Wi-Fi", "showWifi", { it.showWifi }, { d, on -> d.copy(showWifi = on) }),
+        STATS(10, 7, "端末状態", "Device", "showDeviceStats", { it.showDeviceStats }, { d, on -> d.copy(showDeviceStats = on) }),
+        NEWS(8, 5, "ニュース", "News", "showFeed", { it.showFeed }, { d, on -> d.copy(showFeed = on) }),
+        DAILY(12, 6, "週間予報", "Weekly", "showDaily", { it.showDaily }, { d, on -> d.copy(showDaily = on) }),
+        TIMER(6, 5, "タイマー", "Timer", "showTimer", { it.showTimer }, { d, on -> d.copy(showTimer = on) }),
+        WORD(6, 4, "今日の単語", "Word of the hour", "showWord", { it.showWord }, { d, on -> d.copy(showWord = on) }),
         // 後から足したカード（既定は非表示）
-        ANALOG_CLOCK(6, 4, "アナログ時計", "showAnalogClock", { it.showAnalogClock }, { d, on -> d.copy(showAnalogClock = on) }),
-        CALENDAR(9, 6, "予定表", "showCalendar", { it.showCalendar }, { d, on -> d.copy(showCalendar = on) }),
-        TRAIN(9, 6, "運行情報", "showTrain", { it.showTrain }, { d, on -> d.copy(showTrain = on) }),
-        RADAR(8, 5, "雨雲レーダー", "showRadar", { it.showRadar }, { d, on -> d.copy(showRadar = on) }),
-        SUN_MOON(8, 7, "日の出・月", "showSunMoon", { it.showSunMoon }, { d, on -> d.copy(showSunMoon = on) }),
-        COUNTDOWN(8, 6, "カウントダウン", "showCountdown", { it.showCountdown }, { d, on -> d.copy(showCountdown = on) }),
-        TODAY(8, 6, "今日は何の日", "showToday", { it.showToday }, { d, on -> d.copy(showToday = on) }),
-        STOCKS(10, 6, "株価", "showStocks", { it.showStocks }, { d, on -> d.copy(showStocks = on) }),
-        CALCULATOR(6, 5, "計算機", "showCalculator", { it.showCalculator }, { d, on -> d.copy(showCalculator = on) }),
-        PHOTOS(8, 5, "写真", "showPhotos", { it.showPhotos }, { d, on -> d.copy(showPhotos = on) }),
-        CRYPTO(8, 5, "暗号通貨", "showCrypto", { it.showCrypto }, { d, on -> d.copy(showCrypto = on) }),
+        ANALOG_CLOCK(6, 4, "アナログ時計", "Analog clock", "showAnalogClock", { it.showAnalogClock }, { d, on -> d.copy(showAnalogClock = on) }),
+        CALENDAR(9, 6, "予定表", "Calendar", "showCalendar", { it.showCalendar }, { d, on -> d.copy(showCalendar = on) }),
+        TRAIN(9, 6, "運行情報", "Trains", "showTrain", { it.showTrain }, { d, on -> d.copy(showTrain = on) }),
+        RADAR(8, 5, "雨雲レーダー", "Rain radar", "showRadar", { it.showRadar }, { d, on -> d.copy(showRadar = on) }),
+        SUN_MOON(8, 7, "日の出・月", "Sun & Moon", "showSunMoon", { it.showSunMoon }, { d, on -> d.copy(showSunMoon = on) }),
+        COUNTDOWN(8, 6, "カウントダウン", "Countdown", "showCountdown", { it.showCountdown }, { d, on -> d.copy(showCountdown = on) }),
+        TODAY(8, 6, "今日は何の日", "On this day", "showToday", { it.showToday }, { d, on -> d.copy(showToday = on) }),
+        STOCKS(10, 6, "株価", "Stocks", "showStocks", { it.showStocks }, { d, on -> d.copy(showStocks = on) }),
+        CALCULATOR(6, 5, "計算機", "Calculator", "showCalculator", { it.showCalculator }, { d, on -> d.copy(showCalculator = on) }),
+        PHOTOS(8, 5, "写真", "Photos", "showPhotos", { it.showPhotos }, { d, on -> d.copy(showPhotos = on) }),
+        CRYPTO(8, 5, "暗号通貨", "Crypto", "showCrypto", { it.showCrypto }, { d, on -> d.copy(showCrypto = on) }),
+        FLIGHTS(8, 5, "飛行機", "Flights", "showFlights", { it.showFlights }, { d, on -> d.copy(showFlights = on) }),
+        SHIPS(8, 5, "船舶", "Ships", "showShips", { it.showShips }, { d, on -> d.copy(showShips = on) }),
+        GITHUB(10, 6, "GitHub", "GitHub", "showGithub", { it.showGithub }, { d, on -> d.copy(showGithub = on) }),
+        TODO(6, 5, "Todo", "To-do", "showTodo", { it.showTodo }, { d, on -> d.copy(showTodo = on) }),
+        ;
+
+        /** 表示の名前（いまの言語）。 */
+        val label: String get() = L(labelJa, labelEn)
     }
 
     /**
@@ -505,11 +515,15 @@ object CardLayout {
         val display = after.copy(cardLayout = toSlots(rows))
         // カードを増やしていない変更（減らす・幅を変える）は、元から収まっていなくても止めない
         if (compact || added.isEmpty() || (failed.isEmpty() && fits(rows, limit))) return Adjusted(display, null)
-        val names = (failed.ifEmpty { added }).joinToString("」「") { it.label }
+        val cards = failed.ifEmpty { added }
         return Adjusted(
             display,
-            "「$names」は、ほかのカードをいちばん狭い幅まで縮めても画面に入りません" +
-                "（この画面に並べられるのは ${limit} 行までです）。ほかのカードを非表示にしてから、もう一度表示してください。",
+            L(
+                "「${cards.joinToString("」「") { it.label }}」は、ほかのカードをいちばん狭い幅まで縮めても画面に入りません" +
+                    "（この画面に並べられるのは ${limit} 行までです）。ほかのカードを非表示にしてから、もう一度表示してください。",
+                "\"${cards.joinToString("\", \"") { it.label }}\" won't fit on the screen even if the other cards are shrunk to their narrowest width " +
+                    "(this screen holds up to $limit rows). Hide another card first, then try again.",
+            ),
         )
     }
 
@@ -518,7 +532,11 @@ object CardLayout {
         val auto = d.copy(cardLayout = emptyList())
         val fit = fit(auto, area)
         if (fit.fits) return null
-        return "自動の並べ方では、いまのカードが ${fit.rows} 行になり画面に収まりません（この画面に並べられるのは ${fit.maxRows} 行までです）。" +
-            "ほかのカードを非表示にしてから、もう一度お試しください。"
+        return L(
+            "自動の並べ方では、いまのカードが ${fit.rows} 行になり画面に収まりません（この画面に並べられるのは ${fit.maxRows} 行までです）。" +
+                "ほかのカードを非表示にしてから、もう一度お試しください。",
+            "With automatic arrangement the current cards take ${fit.rows} rows and don't fit on the screen (this screen holds up to ${fit.maxRows} rows). " +
+                "Hide some cards, then try again.",
+        )
     }
 }

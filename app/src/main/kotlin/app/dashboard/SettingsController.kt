@@ -15,6 +15,10 @@ import app.dashboard.data.CalendarPatch
 import app.dashboard.data.PhotoConfig
 import app.dashboard.data.PhotoPatch
 import app.dashboard.data.PhotoRepository
+import app.dashboard.data.GITHUB_DAYS
+import app.dashboard.data.GithubConfig
+import app.dashboard.data.GithubPatch
+import app.dashboard.i18n.L
 import app.dashboard.server.Auth
 import app.dashboard.server.DashboardServer
 import kotlinx.coroutines.launch
@@ -47,6 +51,8 @@ class SettingsController(private val graph: AppGraph) {
             request.train?.let { next = next.copy(train = applyTrain(next.train, it)) }
             request.calendar?.let { next = next.copy(calendar = applyCalendar(next.calendar, it)) }
             request.photos?.let { next = next.copy(photos = applyPhotos(next.photos, it)) }
+            request.ships?.let { next = next.copy(ships = next.ships.copy(apiKey = secret(next.ships.apiKey, it.apiKey))) }
+            request.github?.let { next = next.copy(github = applyGithub(next.github, it)) }
             next
         }
         if (sourcesChanged(before, updated)) refreshAllLater()
@@ -59,7 +65,7 @@ class SettingsController(private val graph: AppGraph) {
      */
     fun setWallpaper(open: () -> InputStream): Config {
         if (!runCatching { graph.wallpaper.save(open) }.getOrDefault(false)) {
-            throw SettingsException("bad_image", "画像を読み込めませんでした。JPEG・PNG・WebP の画像を選んでください")
+            throw SettingsException("bad_image", L("画像を読み込めませんでした。JPEG・PNG・WebP の画像を選んでください", "Couldn't read the image. Choose a JPEG, PNG or WebP image"))
         }
         return graph.config.update { c -> c.copy(wallpaper = WallpaperConfig(imageSetAt = System.currentTimeMillis())) }
     }
@@ -71,7 +77,7 @@ class SettingsController(private val graph: AppGraph) {
 
     fun setPin(pin: String) {
         if (pin.length < Auth.MIN_PIN_LENGTH) {
-            throw SettingsException("pin_too_short", "PIN は ${Auth.MIN_PIN_LENGTH} 桁以上必要です")
+            throw SettingsException("pin_too_short", L("PIN は ${Auth.MIN_PIN_LENGTH} 桁以上必要です", "The PIN must be at least ${Auth.MIN_PIN_LENGTH} digits"))
         }
         graph.auth.setPin(pin)
     }
@@ -79,7 +85,7 @@ class SettingsController(private val graph: AppGraph) {
     /** LAN 公開の切り替え。待受アドレスが変わるので、呼び出し側へ応答を返してからサーバーを張り替える。 */
     fun setLanEnabled(enabled: Boolean): Config {
         if (enabled && !graph.auth.hasPin()) {
-            throw SettingsException("pin_required", "LAN 公開を有効にする前に PIN を設定してください")
+            throw SettingsException("pin_required", L("LAN 公開を有効にする前に PIN を設定してください", "Set a PIN before enabling LAN access"))
         }
         val updated = graph.config.update { c -> c.copy(lan = c.lan.copy(enabled = enabled)) }
         graph.server.restartLater()
@@ -106,17 +112,20 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showCrypto) runCatching { graph.crypto.refreshNow() }
         if (c.display.showCountdown) runCatching { graph.holidays.refreshNow() }
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
+        if (c.display.showGithub) runCatching { graph.github.refreshNow() }
     }
 
     fun refreshAllLater() {
         graph.scope.launch { refreshAll() }
     }
 
-    private fun sourcesChanged(a: Config, b: Config): Boolean =
+    internal fun sourcesChanged(a: Config, b: Config): Boolean =
         a.location != b.location || a.units != b.units || a.disaster != b.disaster ||
             a.feed != b.feed || a.memo != b.memo || a.spotify.enabled != b.spotify.enabled ||
             a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks || a.crypto != b.crypto ||
-            a.photos.enabled != b.photos.enabled || a.photos.albumUrl != b.photos.albumUrl
+            a.photos.enabled != b.photos.enabled || a.photos.albumUrl != b.photos.albumUrl ||
+            a.github.user != b.github.user || a.github.token != b.github.token || a.github.days != b.github.days ||
+            a.display.language != b.display.language
 
     private fun applyMemo(current: MemoConfig, patch: MemoPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,
@@ -154,6 +163,19 @@ class SettingsController(private val graph: AppGraph) {
         shuffle = patch.shuffle ?: current.shuffle,
     )
 
+    private fun applyGithub(current: GithubConfig, patch: GithubPatch) = current.copy(
+        // URL（https://github.com/name）や先頭の @ を貼られても、ユーザー名だけにする
+        user = patch.user?.trim()?.removePrefix("@")?.substringAfterLast("github.com/")?.trim('/')?.substringBefore('/')?.take(39) ?: current.user,
+        token = secret(current.token, patch.token),
+        days = patch.days?.let { d -> GITHUB_DAYS.minBy { kotlin.math.abs(it - d) } } ?: current.days,
+        showGraph = patch.showGraph ?: current.showGraph,
+        showCommits = patch.showCommits ?: current.showCommits,
+        showPulls = patch.showPulls ?: current.showPulls,
+        showIssues = patch.showIssues ?: current.showIssues,
+        showRepos = patch.showRepos ?: current.showRepos,
+        showProfile = patch.showProfile ?: current.showProfile,
+    )
+
     /** 書き込み専用の値。null は変更しない、空文字は消す。 */
     private fun secret(current: String?, patch: String?) = when {
         patch == null -> current
@@ -164,6 +186,7 @@ class SettingsController(private val graph: AppGraph) {
     private fun applySpotify(current: SpotifyConfig, patch: SpotifyPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,
         clientId = patch.clientId?.trim() ?: current.clientId,
+        saveLyrics = patch.saveLyrics ?: current.saveLyrics,
     )
 
     /**

@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -44,6 +45,8 @@ internal fun FullscreenFrame(
     onKeepAwake: (Boolean) -> Unit,
     onBack: () -> Unit,
     backTint: Color = Color.White,
+    /** 右上の「暗くしない」を出すか（写真のスクリーンセーバーでは出さない）。 */
+    awakeToggle: Boolean = true,
     content: @Composable BoxScope.(shown: Boolean, melt: Float) -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -80,9 +83,9 @@ internal fun FullscreenFrame(
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(WdIcons.Back, "戻る", tint = backTint, modifier = Modifier.size(30.dp))
+            Icon(WdIcons.Back, L("戻る", "Back"), tint = backTint, modifier = Modifier.size(30.dp))
         }
-        AwakeToggle(
+        if (awakeToggle) AwakeToggle(
             keepAwake,
             enabled = shown,
             onToggle = { onKeepAwake(!keepAwake) },

@@ -1,5 +1,7 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
+import app.dashboard.i18n.Lang
 import kotlinx.serialization.Serializable
 
 /**
@@ -134,6 +136,8 @@ data class WarningArea(
 data class QuakeInfo(
     val occurredAt: String? = null,
     val epicenter: String? = null,
+    /** 震央地名の英語（気象庁の en_anm）。 */
+    val epicenterEn: String? = null,
     val magnitude: String? = null,
     val maxIntensity: String? = null,
     val title: String? = null,
@@ -155,6 +159,9 @@ data class DisasterState(
      * [available] なのに null なら、地点から市町村を決められなかった（国外の地点など）。
      */
     val areaName: String? = null,
+    /** 府県予報区と市町村の英語の名前（気象庁の area.json の enName）。 */
+    val officeNameEn: String? = null,
+    val areaNameEn: String? = null,
     val headline: String? = null,
     val reportedAt: String? = null,
     val activeAreas: List<WarningArea> = emptyList(),
@@ -191,6 +198,11 @@ data class TyphoonInfo(
     val number: String? = null,
     /** アジア名。例: ドゥージェン */
     val name: String? = null,
+    /** アジア名の英語。例: Doksuri */
+    val nameEn: String? = null,
+    /** 中心の緯度・経度（英語のときの位置の表現に使う）。 */
+    val lat: Double? = null,
+    val lon: Double? = null,
     /** 大きさ。例: 大型。小さい台風では付かない。 */
     val scale: String? = null,
     /** 強さ。例: 強い。発達していない台風では付かない。 */
@@ -214,6 +226,7 @@ data class TyphoonTrack(
     val id: String,
     val number: String? = null,
     val name: String? = null,
+    val nameEn: String? = null,
     val reportedAt: String? = null,
     /** 台風になってからの経路（古い順）。 */
     val track: List<LatLon> = emptyList(),
@@ -353,7 +366,15 @@ data class LocationConfig(
     val latitude: Double = 35.6895,
     val longitude: Double = 139.6917,
     val timezone: String = "Asia/Tokyo",
-)
+    /** 地点の英語の名前（地名検索で選んだときに入る。表示の言語が英語のときに使う）。 */
+    val nameEn: String? = null,
+) {
+    /**
+     * いまの言語での地点の名前。英語の名前を持たない古い設定では、[fallbackEn]（気象庁の市町村の英語名など）を使う。
+     */
+    fun displayName(fallbackEn: String? = null): String =
+        if (!Lang.en) name else nameEn ?: (if (!configured) "Tokyo" else null) ?: fallbackEn ?: name
+}
 
 @Serializable
 data class UnitsConfig(
@@ -377,6 +398,8 @@ data class DisplayConfig(
     val accent: String = "#4DD4FF",
     /** 全体の色の基調。"dark" | "light" */
     val theme: String = "dark",
+    /** 表示の言語。"ja" | "en"（[app.dashboard.i18n.Lang]）。アプリの画面・Web の設定画面・通知のすべてが切り替わる。 */
+    val language: String = "ja",
     /**
      * 背景画像を設定しているときのカードの不透明度 0.2..1.0。小さいほど背景が透けて見える。
      * 背景画像が無いときは使わない（カードは常に不透明）。
@@ -409,7 +432,10 @@ data class DisplayConfig(
 
     /** 時計カードの揃え。"left" | "center" | "right" */
     val clockAlign: String = "left",
-    /** 日付の書き方。"ja" = 2026年9月21日 (月) / "slash" = 2026/09/21 (月) */
+    /**
+     * 日付の書き方（[DATE_FORMATS]）。"ja" = 2026年9月21日 (月) / "slash" = 2026/09/21 (月) / "dmy" = 21/09/2026 Mon /
+     * "long" = September 21st, 2026 Mon / "iso" = 2026-09-21 / "longNoDay" = September 21st, 2026
+     */
     val clockDateFormat: String = "ja",
 
     /**
@@ -447,6 +473,13 @@ data class DisplayConfig(
     val showCalculator: Boolean = false,
     val showPhotos: Boolean = false,
     val showCrypto: Boolean = false,
+    val showFlights: Boolean = false,
+    val showShips: Boolean = false,
+    val showGithub: Boolean = false,
+    val showTodo: Boolean = false,
+
+    /** カードの角の丸み（dp）。[CARD_RADIUS_MIN]〜[CARD_RADIUS_MAX]。 */
+    val cardRadius: Int = CARD_RADIUS_DEFAULT,
 
     /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
     val todayShowEvent: Boolean = true,
@@ -462,6 +495,13 @@ data class DisplayConfig(
      */
     val cardLayout: List<List<CardSlot>> = emptyList(),
 )
+
+/** 日付の書き方の選択肢（[DisplayConfig.clockDateFormat]）。Web の設定画面の #clockDateFormat も同じ並び。 */
+val DATE_FORMATS: List<String> = listOf("ja", "slash", "dmy", "long", "iso", "longNoDay")
+
+const val CARD_RADIUS_MIN = 0
+const val CARD_RADIUS_MAX = 32
+const val CARD_RADIUS_DEFAULT = 18
 
 /**
  * カードの配置の 1 枠。[card] は [CardLayout.Card] の名前、[span] は 24 列のうち何列使うか、
@@ -564,6 +604,8 @@ data class SpotifyConfig(
     val enabled: Boolean = false,
     val clientId: String = "",
     val refreshToken: String? = null,
+    /** 見つけた歌詞を端末に保存する（直近 300 曲まで。次からは通信せずに出せる）。 */
+    val saveLyrics: Boolean = true,
 )
 
 /**
@@ -634,6 +676,10 @@ data class TrainLine(
     val text: String? = null,
     /** 平常運転ではない。 */
     val trouble: Boolean = false,
+    /** 運行情報が無い（「情報なし」「配信なし」）。灰色で出す。 */
+    val quiet: Boolean = false,
+    /** 運転見合わせ・運休。赤で出す。 */
+    val stopped: Boolean = false,
 )
 
 @Serializable
@@ -662,10 +708,12 @@ data class TodayState(
     /** "2026-09-26"。日付が変わったら取り直す。 */
     val date: String = "",
     val days: List<TodayItem> = emptyList(),
-    /** 過去の今日のできごと（"1978年 - …" の形）。 */
+    /** 過去の今日のできごと（"1978年 - …" の形。英語は "1978 - …"）。 */
     val events: List<String> = emptyList(),
     val fetchedAt: Long = 0,
     val lastError: String? = null,
+    /** どちらの言語の Wikipedia から取ったか。言語を切り替えたら取り直す。 */
+    val lang: String = "ja",
 )
 
 // ---------------------------------------------------------------- カレンダー（iCloud）
@@ -728,7 +776,7 @@ data class CalendarState(
 // ---------------------------------------------------------------- 写真（iCloud の共有アルバム）
 
 /**
- * 写真カード。iCloud の「共有アルバム」を、公開 Web サイトの URL（https://www.icloud.com/sharedalbum/#B0…）から読む。
+ * 写真カード。iCloud の「共有アルバム」を、公開 Web サイトの URL（https://photos.icloud.com/shared/album/… か https://www.icloud.com/sharedalbum/#B0…）から読む。
  * [albumUrl] は秘密（URL を知っている人は誰でも写真を見られるため）。
  * [intervalSec] は写真を切り替える間隔、[shuffle] は順番を混ぜるか。
  */
@@ -774,6 +822,12 @@ data class PhotoState(
 @Serializable
 data class StockSymbol(val symbol: String, val label: String)
 
+/** 既定の銘柄の名前の英語（設定に保存された既定の名前を、英語のときに置き換える）。 */
+val DEFAULT_STOCK_LABELS_EN: Map<String, String> = mapOf("日経平均" to "Nikkei 225", "NY ダウ" to "Dow Jones", "ナスダック" to "Nasdaq", "ドル円" to "USD/JPY")
+
+/** 銘柄の表示名（英語のときは、既定の日本語の名前だけ英語にする）。 */
+fun stockLabel(label: String): String = if (Lang.en) DEFAULT_STOCK_LABELS_EN[label] ?: label else label
+
 val DEFAULT_STOCKS: List<StockSymbol> = listOf(
     StockSymbol("^N225", "日経平均"),
     StockSymbol("^DJI", "NY ダウ"),
@@ -812,20 +866,20 @@ data class StocksState(
 // ---------------------------------------------------------------- 暗号通貨
 
 /** 設定画面で選べる主な暗号通貨（CoinGecko の ID と表示名）。Web の設定画面の選択肢（settings.html の #cryptoCoin）も同じ並び。 */
-val CRYPTO_COINS: List<Pair<String, String>> = listOf(
-    "bitcoin" to "ビットコイン（BTC）",
-    "ethereum" to "イーサリアム（ETH）",
-    "solana" to "ソラナ（SOL）",
-    "ripple" to "エックスアールピー（XRP）",
-    "binancecoin" to "ビルドアンドビルド（BNB）",
-    "dogecoin" to "ドージコイン（DOGE）",
-    "cardano" to "カルダノ（ADA）",
-    "tron" to "トロン（TRX）",
-    "avalanche-2" to "アバランチ（AVAX）",
-    "chainlink" to "チェーンリンク（LINK）",
-    "polkadot" to "ポルカドット（DOT）",
-    "litecoin" to "ライトコイン（LTC）",
-    "sui" to "スイ（SUI）",
+val CRYPTO_COINS: List<Pair<String, String>> get() = listOf(
+    "bitcoin" to L("ビットコイン（BTC）", "Bitcoin (BTC)"),
+    "ethereum" to L("イーサリアム（ETH）", "Ethereum (ETH)"),
+    "solana" to L("ソラナ（SOL）", "Solana (SOL)"),
+    "ripple" to L("エックスアールピー（XRP）", "XRP (XRP)"),
+    "binancecoin" to L("ビルドアンドビルド（BNB）", "BNB (BNB)"),
+    "dogecoin" to L("ドージコイン（DOGE）", "Dogecoin (DOGE)"),
+    "cardano" to L("カルダノ（ADA）", "Cardano (ADA)"),
+    "tron" to L("トロン（TRX）", "TRON (TRX)"),
+    "avalanche-2" to L("アバランチ（AVAX）", "Avalanche (AVAX)"),
+    "chainlink" to L("チェーンリンク（LINK）", "Chainlink (LINK)"),
+    "polkadot" to L("ポルカドット（DOT）", "Polkadot (DOT)"),
+    "litecoin" to L("ライトコイン（LTC）", "Litecoin (LTC)"),
+    "sui" to L("スイ（SUI）", "Sui (SUI)"),
 )
 
 /** 暗号通貨のチャートの期間（日数）。短い順。カードの「−」「＋」はこの並びを 1 つずつ動く。 */
@@ -853,7 +907,7 @@ data class CryptoConfig(
 data class CryptoCandle(val open: Double, val high: Double, val low: Double, val close: Double, val time: Long = 0)
 
 /** 全画面で選べるチャートの期間（日数）と表示名。カードより 1 つ多い（90 日）。 */
-val CRYPTO_DETAIL_RANGES: List<Pair<String, String>> = listOf("1" to "24 時間", "7" to "7 日", "30" to "30 日", "90" to "90 日", "365" to "1 年")
+val CRYPTO_DETAIL_RANGES: List<Pair<String, String>> get() = listOf("1" to L("24 時間", "24 h"), "7" to L("7 日", "7 d"), "30" to L("30 日", "30 d"), "90" to L("90 日", "90 d"), "365" to L("1 年", "1 y"))
 
 /**
  * 暗号通貨の全画面に出す詳しい値とチャート。全画面を開いているときだけ取る（保存はしない）。
@@ -903,6 +957,149 @@ data class CryptoState(
     val points: List<Double> = emptyList(),
     /** ろうそく足（古い順）。折れ線で取ったときは空。 */
     val candles: List<CryptoCandle> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- 飛行機（ADS-B）
+
+/**
+ * 飛行機 1 機。adsb.lol（ADS-B Exchange 互換の公開 API）の 1 件。
+ * [altitudeFt] は気圧高度（フィート）。地上にいれば [onGround]。[track] は進む向き（度、北 = 0）、[speedKt] は対地速度（ノット）。
+ */
+data class Aircraft(
+    val hex: String,
+    val callsign: String?,
+    val registration: String?,
+    val type: String?,
+    val lat: Double,
+    val lon: Double,
+    val altitudeFt: Int?,
+    val onGround: Boolean,
+    val speedKt: Double?,
+    val track: Double?,
+    /** 位置を受信してからの秒数（取得した時点）。 */
+    val seenSec: Double = 0.0,
+)
+
+// ---------------------------------------------------------------- 船舶（AIS）
+
+/**
+ * 船の位置を受け取る aisstream.io の API キー（無料の登録で作れる。秘密）。
+ */
+@Serializable
+data class ShipConfig(
+    val apiKey: String? = null,
+)
+
+@Serializable
+data class ShipPublic(val apiKeySet: Boolean = false)
+
+/** API キーは書き込み専用。null は変更しない、空文字は消す。 */
+@Serializable
+data class ShipPatch(val apiKey: String? = null)
+
+/**
+ * 船 1 隻（AIS）。[mmsi] が識別子。[cog] は進む向き、[heading] は船首の向き（度。分からなければ null）、[sog] はノット。
+ * [shipType] は AIS の船種の番号（70 番台が貨物船、80 番台がタンカーなど）。静的な情報が届くまでは 0。
+ */
+data class Ship(
+    val mmsi: Long,
+    val name: String?,
+    val lat: Double,
+    val lon: Double,
+    val cog: Double?,
+    val sog: Double?,
+    val heading: Double?,
+    val shipType: Int = 0,
+    val destination: String? = null,
+    /** 最後に位置を受け取った時刻（epoch ms）。 */
+    val seenAt: Long,
+)
+
+// ---------------------------------------------------------------- GitHub
+
+/** 数える期間（日）の選択肢。 */
+val GITHUB_DAYS: List<Int> = listOf(7, 30, 90, 365)
+
+/**
+ * GitHub カード。[user] のユーザー名で公開の情報を読む。[token] は任意（秘密）。あると API の回数の上限が増え、
+ * トークンで見られる非公開のリポジトリも数に入る。
+ * show* はカードに出すもの（設定で切り替える）。
+ */
+@Serializable
+data class GithubConfig(
+    val user: String = "",
+    val token: String? = null,
+    /** コミット・プルリクエスト・Issue を数える期間（日）。[GITHUB_DAYS] のどれか。 */
+    val days: Int = 30,
+    val showGraph: Boolean = true,
+    val showCommits: Boolean = true,
+    val showPulls: Boolean = true,
+    val showIssues: Boolean = false,
+    val showRepos: Boolean = true,
+    val showProfile: Boolean = true,
+)
+
+@Serializable
+data class GithubPublic(
+    val user: String = "",
+    val tokenSet: Boolean = false,
+    val days: Int = 30,
+    val showGraph: Boolean = true,
+    val showCommits: Boolean = true,
+    val showPulls: Boolean = true,
+    val showIssues: Boolean = false,
+    val showRepos: Boolean = true,
+    val showProfile: Boolean = true,
+)
+
+/** トークンは書き込み専用。null は変更しない、空文字は消す。 */
+@Serializable
+data class GithubPatch(
+    val user: String? = null,
+    val token: String? = null,
+    val days: Int? = null,
+    val showGraph: Boolean? = null,
+    val showCommits: Boolean? = null,
+    val showPulls: Boolean? = null,
+    val showIssues: Boolean? = null,
+    val showRepos: Boolean? = null,
+    val showProfile: Boolean? = null,
+)
+
+@Serializable
+data class GithubRepo(
+    val name: String,
+    val stars: Int,
+    val forks: Int = 0,
+    val language: String? = null,
+    val description: String? = null,
+)
+
+/** コントリビューションの 1 日。[level] は GitHub の色の段階 0〜4。 */
+@Serializable
+data class GithubDay(val date: String, val count: Int, val level: Int)
+
+@Serializable
+data class GithubState(
+    /** 取得したときのユーザー名（設定を変えた直後に前の人の値を出さないため）。 */
+    val user: String = "",
+    val name: String? = null,
+    val followers: Int? = null,
+    val publicRepos: Int? = null,
+    /** 自分のリポジトリ（フォークを除く）のスターの合計。 */
+    val stars: Int? = null,
+    val days: Int = 30,
+    val commits: Int? = null,
+    val pulls: Int? = null,
+    val issues: Int? = null,
+    /** 1 年ぶんのコントリビューション（古い順、日曜始まり）。 */
+    val calendar: List<GithubDay> = emptyList(),
+    /** 1 年の合計。 */
+    val yearTotal: Int? = null,
+    /** スターの多い順。 */
+    val repos: List<GithubRepo> = emptyList(),
     val fetchedAt: Long = 0,
     val lastError: String? = null,
 )
@@ -973,6 +1170,48 @@ data class Config(
     val countdown: CountdownConfig = CountdownConfig(),
     val photos: PhotoConfig = PhotoConfig(),
     val crypto: CryptoConfig = CryptoConfig(),
+    val ships: ShipConfig = ShipConfig(),
+    val github: GithubConfig = GithubConfig(),
+    /** プリセット（ここだけはプリセットを切り替えても変わらない。お気に入り・LAN・設定の PIN と同じ）。 */
+    val presets: PresetsConfig = PresetsConfig(),
+    /** アプリの設定画面を開くときの PIN。 */
+    val settingsLock: SettingsLockConfig = SettingsLockConfig(),
+)
+
+// ---------------------------------------------------------------- プリセット
+
+/** プリセットの数の上限。 */
+const val MAX_PRESETS = 5
+
+/**
+ * プリセット 1 つ。[config] は最後にこのプリセットから切り替えたときの設定の控え（お気に入り・LAN・設定の PIN・プリセットは空にしてある）。
+ * 使用中のプリセットの本当の中身は、いまの [Config] そのもの（[config] は古いことがある）。
+ */
+@Serializable
+data class Preset(
+    val id: String,
+    val name: String,
+    val config: Config? = null,
+)
+
+/** [active] は使用中のプリセットの id。[items] が空のうちは、プリセットを 1 つも作っていない（いまの設定が 1 つ目になる）。 */
+@Serializable
+data class PresetsConfig(
+    val active: String = "",
+    val items: List<Preset> = emptyList(),
+)
+
+/**
+ * アプリの設定画面を開くときの PIN（既定はオフ）。ハッシュは LAN の PIN と同じ PBKDF2。
+ * LAN の PIN（Web の設定画面）とは別のもの。
+ */
+@Serializable
+data class SettingsLockConfig(
+    val enabled: Boolean = false,
+    val pinHash: String? = null,
+    val pinSalt: String? = null,
+    val pinIterations: Int = 0,
+    val pinAlgorithm: String = "PBKDF2WithHmacSHA256",
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -994,6 +1233,7 @@ data class SpotifyPublic(
     val enabled: Boolean = false,
     val clientId: String = "",
     val connected: Boolean = false,
+    val saveLyrics: Boolean = true,
 )
 
 @Serializable
@@ -1016,6 +1256,8 @@ data class PublicConfig(
     val countdown: CountdownConfig = CountdownConfig(),
     val photos: PhotoPublic = PhotoPublic(),
     val crypto: CryptoConfig = CryptoConfig(),
+    val ships: ShipPublic = ShipPublic(),
+    val github: GithubPublic = GithubPublic(),
     /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
     val choices: SettingChoices = SettingChoices.ALL,
 )
@@ -1037,7 +1279,8 @@ data class SettingChoices(
     val columns: Int = CardLayout.COLUMNS,
 ) {
     companion object {
-        val ALL = SettingChoices(
+        /** いまの言語の名前で作る（言語を切り替えたら Web の設定画面の選択肢も変わる）。 */
+        val ALL: SettingChoices get() = SettingChoices(
             accents = Accents.ALL.map { Choice(it.hex, it.label) },
             tones = Tones.ALL.map { Choice(it.id, it.label) },
             cardColors = CardColors.ALL.map { Choice(it.hex, it.label) },
@@ -1065,6 +1308,7 @@ fun Config.toPublic() = PublicConfig(
         enabled = spotify.enabled,
         clientId = spotify.clientId,
         connected = !spotify.refreshToken.isNullOrBlank(),
+        saveLyrics = spotify.saveLyrics,
     ),
     notifications = notifications,
     wallpaper = wallpaper,
@@ -1091,6 +1335,18 @@ fun Config.toPublic() = PublicConfig(
         shuffle = photos.shuffle,
     ),
     crypto = crypto,
+    ships = ShipPublic(apiKeySet = !ships.apiKey.isNullOrBlank()),
+    github = GithubPublic(
+        user = github.user,
+        tokenSet = !github.token.isNullOrBlank(),
+        days = github.days,
+        showGraph = github.showGraph,
+        showCommits = github.showCommits,
+        showPulls = github.showPulls,
+        showIssues = github.showIssues,
+        showRepos = github.showRepos,
+        showProfile = github.showProfile,
+    ),
 )
 
 /**
@@ -1105,6 +1361,8 @@ data class SaveAllRequest(
     val train: TrainPatch? = null,
     val calendar: CalendarPatch? = null,
     val photos: PhotoPatch? = null,
+    val ships: ShipPatch? = null,
+    val github: GithubPatch? = null,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -1127,6 +1385,7 @@ data class ConfigPatch(
 data class SpotifyPatch(
     val enabled: Boolean? = null,
     val clientId: String? = null,
+    val saveLyrics: Boolean? = null,
 )
 
 /** メモ設定の更新。token は書き込み専用で、読み出し経路は用意しない。 */
@@ -1159,17 +1418,21 @@ data class DeviceState(
     val holidays: List<Holiday> = emptyList(),
     val photos: PhotoState = PhotoState(),
     val crypto: CryptoState = CryptoState(),
+    val github: GithubState = GithubState(),
     val config: PublicConfig,
 )
 
 @Serializable
 data class GeocodeResult(
+    /** いまの言語の名前。 */
     val name: String,
     val admin: String? = null,
     val country: String? = null,
     val latitude: Double,
     val longitude: Double,
     val timezone: String,
+    val nameJa: String? = null,
+    val nameEn: String? = null,
 )
 
 @Serializable

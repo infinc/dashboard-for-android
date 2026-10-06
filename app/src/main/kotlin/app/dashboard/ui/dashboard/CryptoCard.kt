@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,10 +48,10 @@ import java.util.Locale
 import kotlin.math.abs
 
 /** チャートの期間（[CryptoConfig.range]）の表示名。並びは [CRYPTO_RANGES] と同じ。 */
-val CRYPTO_RANGE_LABELS: List<Pair<String, String>> = listOf("1" to "24 時間", "7" to "7 日", "30" to "30 日", "365" to "1 年")
+val CRYPTO_RANGE_LABELS: List<Pair<String, String>> get() = listOf("1" to L("24 時間", "24 h"), "7" to L("7 日", "7 d"), "30" to L("30 日", "30 d"), "365" to L("1 年", "1 y"))
 
 /** チャートの描き方（[CryptoConfig.chart]）の表示名。 */
-val CRYPTO_CHARTS: List<Pair<String, String>> = listOf("line" to "折れ線", "candle" to "ろうそく足")
+val CRYPTO_CHARTS: List<Pair<String, String>> get() = listOf("line" to L("折れ線", "Line"), "candle" to L("ろうそく足", "Candlestick"))
 
 /**
  * 暗号通貨。設定で選んだ 1 つの通貨の値・変化率と、期間のチャート（折れ線かろうそく足）を 1 つだけ出す。
@@ -64,7 +65,7 @@ fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -
     val c = s?.takeIf { it.coin == config.coin && it.currency == config.currency && it.range == config.range }
     val rangeLabel = CRYPTO_RANGE_LABELS.firstOrNull { it.first == config.range }?.second ?: config.range
     val index = CRYPTO_RANGES.indexOf(config.range)
-    WdCard("暗号通貨", modifier, titleAction = { ExpandButton(onExpand, Wd.Text3) }, headerEnd = {
+    WdCard(L("暗号通貨", "Crypto"), modifier, titleAction = { ExpandButton(onExpand, Wd.Text3) }, headerEnd = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 幅が足りないときは、取得した時刻のほうを縮める
             if (c != null && c.fetchedAt > 0) {
@@ -73,13 +74,13 @@ fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -
                     modifier = Modifier.weight(1f, fill = false).padding(end = 7.dp),
                 )
             }
-            StepButton("−", "期間を短くする", index > 0) { onStep(-1) }
+            StepButton("−", L("期間を短くする", "Shorter period"), index > 0) { onStep(-1) }
             Text(rangeLabel, color = Wd.Text2, fontSize = 12.tu, maxLines = 1, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 50.dp).padding(horizontal = 3.dp))
-            StepButton("＋", "期間を長くする", index < CRYPTO_RANGES.lastIndex) { onStep(1) }
+            StepButton(L("＋", "+"), L("期間を長くする", "Longer period"), index < CRYPTO_RANGES.lastIndex) { onStep(1) }
         }
     }) {
         when {
-            c?.price == null -> EmptyText(if (c?.lastError != null) "取得できません: ${c.lastError}" else "取得中…", if (c?.lastError != null) Wd.Red else Wd.Text3)
+            c?.price == null -> EmptyText(if (c?.lastError != null) L("取得できません: ${c.lastError}", "Unavailable: ${c.lastError}") else L("取得中…", "Loading…"), if (c?.lastError != null) Wd.Red else Wd.Text3)
             else -> {
                 // 上がりは緑、下がりは赤
                 val color = when {
@@ -109,8 +110,8 @@ fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -
                         // 桁の多い値（1 未満の通貨など）は、高値・安値を省いて値を最後まで出す
                         if (c.high != null && c.low != null && price.length <= WIDE_PRICE) {
                             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp, bottom = 3.dp)) {
-                                Text("高 " + money(c.high, c.currency), color = Wd.Text3, fontSize = 10.5f.tu, style = Tabular, maxLines = 1)
-                                Text("安 " + money(c.low, c.currency), color = Wd.Text3, fontSize = 10.5f.tu, style = Tabular, maxLines = 1)
+                                Text(L("高 ", "H ") + money(c.high, c.currency), color = Wd.Text3, fontSize = 10.5f.tu, style = Tabular, maxLines = 1)
+                                Text(L("安 ", "L ") + money(c.low, c.currency), color = Wd.Text3, fontSize = 10.5f.tu, style = Tabular, maxLines = 1)
                             }
                         }
                     }
@@ -118,7 +119,7 @@ fun CryptoCard(s: CryptoState?, config: CryptoConfig, now: Long, onStep: (Int) -
                     // 描き方を変えた直後など、ろうそく足がまだ無いあいだは折れ線で出す
                     if (config.chart == "candle" && c.candles.size >= 2) CandleChart(c.candles, chart) else PriceChart(c.points, color, chart)
                     if (c.lastError != null) {
-                        Text("更新できません: ${c.lastError}", color = Wd.Amber, fontSize = 10.5f.tu, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
+                        Text(L("更新できません: ${c.lastError}", "Couldn't update: ${c.lastError}"), color = Wd.Amber, fontSize = 10.5f.tu, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
                     }
                 }
             }

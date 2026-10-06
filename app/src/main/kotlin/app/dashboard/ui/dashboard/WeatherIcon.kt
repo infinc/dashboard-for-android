@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -91,15 +92,15 @@ private fun DrawScope.flakes(y: Float, n: Int) {
     for (i in 0 until n) drawCircle(SNOW, 2.6f, Offset(20f + i * 10, y + 5))
 }
 
-private val WEATHER_LABELS = mapOf(
-    0 to "快晴", 1 to "晴れ", 2 to "一部曇り", 3 to "曇り",
-    45 to "霧", 48 to "霧氷",
-    51 to "弱い霧雨", 53 to "霧雨", 55 to "強い霧雨", 56 to "着氷性の霧雨", 57 to "着氷性の霧雨",
-    61 to "弱い雨", 63 to "雨", 65 to "強い雨", 66 to "着氷性の雨", 67 to "着氷性の雨",
-    71 to "弱い雪", 73 to "雪", 75 to "強い雪", 77 to "霧雪",
-    80 to "にわか雨", 81 to "にわか雨", 82 to "激しいにわか雨",
-    85 to "にわか雪", 86 to "強いにわか雪",
-    95 to "雷雨", 96 to "雷雨（ひょう）", 99 to "雷雨（ひょう）",
+private val WEATHER_LABELS get() = mapOf(
+    0 to L("快晴", "Clear"), 1 to L("晴れ", "Sunny"), 2 to L("一部曇り", "Partly cloudy"), 3 to L("曇り", "Cloudy"),
+    45 to L("霧", "Fog"), 48 to L("霧氷", "Rime fog"),
+    51 to L("弱い霧雨", "Light drizzle"), 53 to L("霧雨", "Drizzle"), 55 to L("強い霧雨", "Heavy drizzle"), 56 to L("着氷性の霧雨", "Freezing drizzle"), 57 to L("着氷性の霧雨", "Freezing drizzle"),
+    61 to L("弱い雨", "Light rain"), 63 to L("雨", "Rain"), 65 to L("強い雨", "Heavy rain"), 66 to L("着氷性の雨", "Freezing rain"), 67 to L("着氷性の雨", "Freezing rain"),
+    71 to L("弱い雪", "Light snow"), 73 to L("雪", "Snow"), 75 to L("強い雪", "Heavy snow"), 77 to L("霧雪", "Snow grains"),
+    80 to L("にわか雨", "Showers"), 81 to L("にわか雨", "Showers"), 82 to L("激しいにわか雨", "Heavy showers"),
+    85 to L("にわか雪", "Snow showers"), 86 to L("強いにわか雪", "Heavy snow showers"),
+    95 to L("雷雨", "Thunderstorm"), 96 to L("雷雨（ひょう）", "Thunderstorm (hail)"), 99 to L("雷雨（ひょう）", "Thunderstorm (hail)"),
 )
 
 fun weatherLabel(code: Int?): String = WEATHER_LABELS[code] ?: "—"

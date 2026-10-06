@@ -1,5 +1,6 @@
 package app.dashboard.ui.settings
 
+import app.dashboard.i18n.L
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -105,12 +106,12 @@ fun LayoutPane(display: DisplayConfig, onChange: (DisplayConfig) -> Unit) {
     var blocked by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     PaneTitle(
-        "カードの配置",
-        "横向きのダッシュボードを縮めて描いています。カードの右の壁（つまみ）を左右にドラッグすると幅が、下の壁を上下にドラッグすると高さが、" +
-            "カードを長押ししてから動かすと置き場所（ほかの行・同じ行の順番）が変わります。",
+        L("カードの配置", "Card layout"),
+        L("横向きのダッシュボードを縮めて描いています。カードの右の壁（つまみ）を左右にドラッグすると幅が、下の壁を上下にドラッグすると高さが、", "A scaled-down view of the landscape dashboard. Drag a card's right edge (handle) left or right to change its width, drag its bottom edge up or down to change its height, ") +
+            L("カードを長押ししてから動かすと置き場所（ほかの行・同じ行の順番）が変わります。", "and long-press a card then drag it to move it (to another row or another position in the row)."),
     )
 
-    Field(hint = "行は ${CardLayout.LAYOUT_ROWS} 行で固定です。幅は画面を ${CardLayout.COLUMNS} 等分した列の単位、高さは行の単位で変わります。") {
+    Field(hint = L("行は ${CardLayout.LAYOUT_ROWS} 行で固定です。幅は画面を ${CardLayout.COLUMNS} 等分した列の単位、高さは行の単位で変わります。", "There are always ${CardLayout.LAYOUT_ROWS} rows. Widths change in columns (the screen is divided into ${CardLayout.COLUMNS}), heights in rows.")) {
         LayoutEditor(
             rows = rows,
             unused = unused,
@@ -118,29 +119,29 @@ fun LayoutPane(display: DisplayConfig, onChange: (DisplayConfig) -> Unit) {
             onAdd = { next, card -> onChange(card.show(display, true).copy(cardLayout = CardLayout.toSlots(next))) },
             onRemove = { next, card -> onChange(card.show(display, false).copy(cardLayout = CardLayout.toSlots(next))) },
             onRejected = { card ->
-                blocked = "ここには入りません" to
-                    "「${card.label}」は、行き先の行のカードをいちばん狭い幅まで縮めても入りません（最小の幅 ${card.min} 列）。" +
-                    "ほかの行を選ぶか、先に行き先の行のカードを動かしてください。"
+                blocked = L("ここには入りません", "It doesn't fit here") to
+                    L("「${card.label}」は、行き先の行のカードをいちばん狭い幅まで縮めても入りません（最小の幅 ${card.min} 列）。", "\"${card.label}\" doesn't fit in that row even if the cards there are shrunk to their narrowest width (minimum width ${card.min} columns). ") +
+                    L("ほかの行を選ぶか、先に行き先の行のカードを動かしてください。", "Choose another row, or move cards out of that row first.")
             },
         )
     }
 
     Field {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            ActionButton("自動の並べ方に戻す", {
+            ActionButton(L("自動の並べ方に戻す", "Back to automatic arrangement"), {
                 val message = CardLayout.autoMessage(display, area)
-                if (message != null) blocked = "自動の並べ方に戻せません" to message else onChange(display.copy(cardLayout = emptyList()))
+                if (message != null) blocked = L("自動の並べ方に戻せません", "Can't go back to automatic arrangement") to message else onChange(display.copy(cardLayout = emptyList()))
             }, enabled = custom)
-            StatusText(if (custom) "自分で決めた配置です" else "いまは自動で並べています（幅や場所を動かすと、自分で決めた配置になります）")
+            StatusText(if (custom) L("自分で決めた配置です", "Custom layout") else L("いまは自動で並べています（幅や場所を動かすと、自分で決めた配置になります）", "Arranged automatically (moving widths or positions makes it a custom layout)"))
         }
     }
 
-    Notice("カードの間の壁を動かすと、隣のカードとの間で幅をやり取りします。行の右端の壁を左へ動かすと右に余白ができ、余白はそのまま保存されます（ダッシュボードでも空いたままになります）。")
-    Notice("カードの下の壁を下へ動かすと、カードが下の行まで伸びます。下の行のカードはその列を避けて右へずれるので、下の行に空きがあるときだけ伸ばせます。自動の並べ方では、どのカードも 1 行の高さです。")
-    Notice("カードを長押しすると持ち上がります。そのまま動かして、入れたい行の入れたい位置で離してください。行き先の行に空きが足りなければ、その行のカードを最小の幅まで縮めて入れます。それでも入らない行では、差し込む位置の線が赤くなり、離しても元に戻ります。")
-    Notice("カードを枠の外まで動かして離すと、そのカードをダッシュボードから外します（非表示になり、下の「使っていないカード」に移ります）。「使っていないカード」を長押しして枠の中へ動かすと、そのカードを足せます。")
-    Notice("カードは、それ以上狭めると中身が崩れる幅（最小の幅）より狭くはできません。カードを表示するとき、空きが足りなければほかのカードを最小の幅まで縮めて入れます。それでも入らないときは、そのカードは表示できません（理由をお知らせします）。")
-    Notice("縦向きの画面では、この配置の順番のまま 2 列に並べます（幅と高さは使いません）。")
+    Notice(L("カードの間の壁を動かすと、隣のカードとの間で幅をやり取りします。行の右端の壁を左へ動かすと右に余白ができ、余白はそのまま保存されます（ダッシュボードでも空いたままになります）。", "Moving the wall between cards trades width between neighbors. Moving the right edge of a row to the left leaves a gap on the right, which is saved (it stays empty on the dashboard too)."))
+    Notice(L("カードの下の壁を下へ動かすと、カードが下の行まで伸びます。下の行のカードはその列を避けて右へずれるので、下の行に空きがあるときだけ伸ばせます。自動の並べ方では、どのカードも 1 行の高さです。", "Moving a card's bottom edge down stretches it into the next row. Cards in that row shift right to avoid those columns, so you can only stretch when the row below has room. With automatic arrangement every card is one row tall."))
+    Notice(L("カードを長押しすると持ち上がります。そのまま動かして、入れたい行の入れたい位置で離してください。行き先の行に空きが足りなければ、その行のカードを最小の幅まで縮めて入れます。それでも入らない行では、差し込む位置の線が赤くなり、離しても元に戻ります。", "Long-press a card to pick it up, then drag it and release it at the position you want. If the target row lacks space, its cards are shrunk to their minimum width. If it still doesn't fit, the insertion line turns red and the card returns when released."))
+    Notice(L("カードを枠の外まで動かして離すと、そのカードをダッシュボードから外します（非表示になり、下の「使っていないカード」に移ります）。「使っていないカード」を長押しして枠の中へ動かすと、そのカードを足せます。", "Drag a card outside the frame and release to remove it from the dashboard (it's hidden and moves to \"Unused cards\" below). Long-press an unused card and drag it into the frame to add it."))
+    Notice(L("カードは、それ以上狭めると中身が崩れる幅（最小の幅）より狭くはできません。カードを表示するとき、空きが足りなければほかのカードを最小の幅まで縮めて入れます。それでも入らないときは、そのカードは表示できません（理由をお知らせします）。", "Cards can't be narrower than their minimum width (below which content breaks). When showing a card, other cards shrink to their minimum width if needed. If it still doesn't fit, the card can't be shown (you'll be told why)."))
+    Notice(L("縦向きの画面では、この配置の順番のまま 2 列に並べます（幅と高さは使いません）。", "On portrait screens, cards are placed in 2 columns in this order (widths and heights aren't used)."))
 
     blocked?.let { (title, message) ->
         AlertDialog(
@@ -360,7 +361,7 @@ private fun LayoutEditor(
                     val gap = widestGap(used)
                     if (gap != null && gap.second >= 2 && target == null) {
                         Text(
-                            if (used.none { it }) "空いている行" else "余白 ${gap.second} 列",
+                            if (used.none { it }) L("空いている行", "Empty row") else L("余白 ${gap.second} 列", "Gap ${gap.second} cols"),
                             color = Wd.Text3,
                             fontSize = 11.tu,
                             maxLines = 1,
@@ -390,7 +391,7 @@ private fun LayoutEditor(
 
             // 使っていないカードの置き場
             Text(
-                if (unused.isEmpty()) "使っていないカードはありません" else "使っていないカード（長押しして上の枠へ動かすと足せます）",
+                if (unused.isEmpty()) L("使っていないカードはありません", "No unused cards") else L("使っていないカード（長押しして上の枠へ動かすと足せます）", "Unused cards (long-press and drag into the frame above to add)"),
                 color = if (drop?.remove == true) Wd.Red else Wd.Text2,
                 fontSize = 12.tu,
                 modifier = Modifier.offset(y = gridHeight + TRAY_GAP),
@@ -463,10 +464,10 @@ private fun LayoutCard(
             Text(card.label, fontSize = 12.5f.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 when {
-                    removing -> "離すと外します"
-                    height > 1 -> "$span 列 × $height 行" + if (atMin) "（最小）" else ""
-                    atMin -> "$span 列（最小）"
-                    else -> "$span 列"
+                    removing -> L("離すと外します", "Release to remove")
+                    height > 1 -> L("$span 列 × $height 行", "$span cols × $height rows") + if (atMin) L("（最小）", " (min)") else ""
+                    atMin -> L("$span 列（最小）", "$span cols (min)")
+                    else -> L("$span 列", "$span cols")
                 },
                 color = if (removing) Wd.Red else if (atMin) Wd.Amber else Wd.Text3,
                 fontSize = 11.tu,
@@ -503,7 +504,7 @@ private fun TrayChip(card: CardLayout.Card, modifier: Modifier) {
     ) {
         Column {
             Text(card.label, color = Wd.Text2, fontSize = 12.tu, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${card.span} 列", color = Wd.Text3, fontSize = 10.5f.tu, maxLines = 1)
+            Text(L("${card.span} 列", "${card.span} cols"), color = Wd.Text3, fontSize = 10.5f.tu, maxLines = 1)
         }
     }
 }

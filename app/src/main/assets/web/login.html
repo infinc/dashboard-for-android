@@ -24,6 +24,8 @@
   <p id="msg" class="err"></p>
   <p class="muted">USB 接続（adb forward 経由の localhost）からは PIN なしで設定できます。</p>
 </form>
+<script src="/static/js/i18n-en.js"></script>
+<script src="/static/js/i18n.js"></script>
 <script>
 document.getElementById("form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -37,10 +39,10 @@ document.getElementById("form").addEventListener("submit", async (e) => {
     });
     const data = await res.json();
     if (res.ok && data.ok) { location.href = "/settings"; return; }
-    msg.textContent = data.message || "ログインできませんでした";
-    if (data.remaining != null) msg.textContent += `（残り ${data.remaining} 回）`;
+    msg.textContent = data.message || L("ログインできませんでした", "Couldn't sign in");
+    if (data.remaining != null) msg.textContent += L(`（残り ${data.remaining} 回）`, ` (${data.remaining} attempts left)`);
     if (data.retryAfterSeconds != null) {
-      msg.textContent += `（${Math.ceil(data.retryAfterSeconds / 60)} 分後に再試行）`;
+      msg.textContent += L(`（${Math.ceil(data.retryAfterSeconds / 60)} 分後に再試行）`, ` (try again in ${Math.ceil(data.retryAfterSeconds / 60)} min)`);
     }
   } catch (err) {
     msg.textContent = String(err);

@@ -240,3 +240,15 @@ footer { color: var(--text-3); font-size: 11px; padding-top: 28px; }
 .lay-chip .lay-name { color: var(--text-2); font-size: 12px; }
 .lay-free { position: absolute; top: 50%; margin-top: -8px; margin-left: 10px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .lay-actions { display: grid; grid-template-columns: auto 1fr; grid-gap: 12px; gap: 12px; align-items: center; }
+
+/* カードの角の丸みの見本（テーマ） */
+.radius-preview { display: flex; gap: 12px; height: 120px; margin-top: 12px; max-width: 560px; }
+.radius-preview .radius-card {
+  flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;
+  background: linear-gradient(var(--surface-2, #161b24), var(--surface, #12161d));
+  border: 1px solid var(--border, #222a35); border-radius: 18px; overflow: hidden;
+}
+.radius-preview .radius-card span { color: var(--text-3, #5b6774); font-size: 12px; letter-spacing: 0.14em; }
+.radius-preview .radius-card b { font-size: 34px; font-weight: 600; }
+.radius-preview .radius-card i { flex: 1; border-radius: 10px; background: rgba(77, 212, 255, 0.22); }
+.radius-preview .radius-card small { font-size: 13px; line-height: 1.6; }

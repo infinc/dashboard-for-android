@@ -94,6 +94,9 @@ object Wd {
     /** カードの背景色（設定の「カードの背景色」）。null なら既定（テーマの面の色）。 */
     var cardTint: Color? by mutableStateOf(null)
 
+    /** カードの角の丸み（設定の「カードの角の丸み」）。 */
+    var cardRadius: Dp by mutableStateOf(18.dp)
+
     val Bg get() = palette.bg
     val Surface get() = palette.surface
     val Surface2 get() = palette.surface2
@@ -136,6 +139,9 @@ fun cardSurface(base: Color): Color {
     return Color(base.red + (tint.red - base.red) * k, base.green + (tint.green - base.green) * k, base.blue + (tint.blue - base.blue) * k, base.alpha)
 }
 
+/** カードの形（角の丸みは設定の値）。 */
+fun cardShape(radius: Dp = Wd.cardRadius) = androidx.compose.foundation.shape.RoundedCornerShape(radius)
+
 fun Color.darken(t: Float): Color = Color(red * (1 - t), green * (1 - t), blue * (1 - t), alpha)
 
 /**
@@ -166,10 +172,11 @@ fun vhText(percent: Float, min: Float, max: Float): TextUnit =
  * ホワイトでは、明るい面の上で線や文字が薄くならないよう強調色を少し濃くして使う。
  */
 @Composable
-fun DashboardTheme(accent: Color, light: Boolean, cardAlpha: Float, cardTint: Color? = null, content: @Composable () -> Unit) {
+fun DashboardTheme(accent: Color, light: Boolean, cardAlpha: Float, cardTint: Color? = null, cardRadius: Dp = 18.dp, content: @Composable () -> Unit) {
     Wd.palette = if (light) LightPalette else DarkPalette
     Wd.cardAlpha = cardAlpha
     Wd.cardTint = cardTint
+    Wd.cardRadius = cardRadius
     val shown = if (light) accent.darken(0.22f) else accent
     val scheme = if (light) {
         lightColorScheme(

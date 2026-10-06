@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
@@ -32,23 +33,23 @@ object Astro {
         /** 日本で使われる呼び名。 */
         val name: String
             get() = when {
-                age < 1.0 || age > SYNODIC - 1.0 -> "新月"
-                age < 2.5 -> "繊月"
-                age < 4.0 -> "三日月"
-                age < 6.5 -> "夕月"
-                age < 8.5 -> "上弦の月"
-                age < 12.0 -> "十日夜の月"
-                age < 13.5 -> "十三夜月"
-                age < 14.5 -> "小望月"
-                age < 16.0 -> "満月"
-                age < 17.0 -> "十六夜"
-                age < 18.0 -> "立待月"
-                age < 19.0 -> "居待月"
-                age < 20.5 -> "寝待月"
-                age < 21.5 -> "更待月"
-                age < 23.5 -> "下弦の月"
-                age < 26.5 -> "有明月"
-                else -> "晦日月"
+                age < 1.0 || age > SYNODIC - 1.0 -> L("新月", "New moon")
+                age < 2.5 -> L("繊月", "Waxing crescent")
+                age < 4.0 -> L("三日月", "Crescent")
+                age < 6.5 -> L("夕月", "Evening crescent")
+                age < 8.5 -> L("上弦の月", "First quarter")
+                age < 12.0 -> L("十日夜の月", "Waxing gibbous")
+                age < 13.5 -> L("十三夜月", "Waxing gibbous")
+                age < 14.5 -> L("小望月", "Nearly full")
+                age < 16.0 -> L("満月", "Full moon")
+                age < 17.0 -> L("十六夜", "Waning gibbous")
+                age < 18.0 -> L("立待月", "Waning gibbous")
+                age < 19.0 -> L("居待月", "Waning gibbous")
+                age < 20.5 -> L("寝待月", "Waning gibbous")
+                age < 21.5 -> L("更待月", "Waning gibbous")
+                age < 23.5 -> L("下弦の月", "Last quarter")
+                age < 26.5 -> L("有明月", "Waning crescent")
+                else -> L("晦日月", "Waning crescent")
             }
     }
 

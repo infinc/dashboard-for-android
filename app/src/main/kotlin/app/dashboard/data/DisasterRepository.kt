@@ -2,6 +2,7 @@ package app.dashboard.data
 
 import android.content.Context
 import android.util.Log
+import app.dashboard.i18n.L
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -157,6 +158,8 @@ class DisasterRepository(
                 available = true,
                 officeName = area.officeName,
                 areaName = area.name.takeIf { area.found },
+                officeNameEn = area.officeNameEn,
+                areaNameEn = area.nameEn.takeIf { area.found },
                 headline = headline,
                 reportedAt = reportedAt,
                 activeAreas = active,
@@ -173,6 +176,7 @@ class DisasterRepository(
                             // at = 地震の発生時刻、rdt = 発表時刻。壁に出すのは発生時刻。
                             occurredAt = it.occurredAt ?: it.reportDatetime,
                             epicenter = it.epicenter,
+                            epicenterEn = it.epicenterEn?.takeIf { e -> e.isNotBlank() },
                             magnitude = it.magnitude?.takeIf { m -> m.isNotBlank() && m != "-" },
                             maxIntensity = it.maxIntensity?.takeIf { s -> s.isNotBlank() },
                             title = it.title,
@@ -238,6 +242,7 @@ class DisasterRepository(
 
     private fun typhoonOf(target: TargetTcDto, spec: JsonArray): TyphoonInfo {
         var name: String? = null
+        var nameEn: String? = null
         var number: String? = target.typhoonNumber
         var analysis: JsonObject? = null
 
@@ -245,6 +250,7 @@ class DisasterRepository(
             val o = element as? JsonObject ?: continue
             if (o.partName() == "title") {
                 name = o.str("name", "jp")
+                nameEn = o.str("name", "en")
                 number = o.str("typhoonNumber") ?: number
             }
             // advancedHours = 0 が「実況」。以降は 12 時間後・24 時間後…の予報。
@@ -255,6 +261,9 @@ class DisasterRepository(
             id = target.tropicalCyclone,
             number = typhoonLabel(number),
             name = name,
+            nameEn = nameEn,
+            lat = analysis?.degree(0),
+            lon = analysis?.degree(1),
             // 大きさ・強さが付かない台風は "-" が入っている
             scale = analysis?.str("scale")?.takeIf { it != "-" },
             intensity = analysis?.str("intensity")?.takeIf { it != "-" },
@@ -276,7 +285,7 @@ class DisasterRepository(
      * どちらも要素ごとに形が違う（"part" が文字列だったりオブジェクトだったり）ので、JSON のまま読む。
      */
     suspend fun typhoonTrack(id: String): TyphoonTrack {
-        require(id.matches(Regex("[A-Za-z0-9]+"))) { "台風の識別子が正しくありません" }
+        require(id.matches(Regex("[A-Za-z0-9]+"))) { L("台風の識別子が正しくありません", "Invalid typhoon identifier") }
         val forecast: JsonArray = client.get("$BASE/typhoon/data/$id/forecast.json").body()
         val spec: JsonArray = runCatching { client.get("$BASE/typhoon/data/$id/specifications.json").body<JsonArray>() }
             .getOrDefault(JsonArray(emptyList()))
@@ -320,14 +329,15 @@ class DisasterRepository(
                 course = s?.str("course"),
                 speedKmh = s?.str("speed", "km/h"),
                 galeText = s?.ranges("galeWarning")?.takeIf { it.isNotEmpty() }
-                    ?.joinToString(" ・ ") { (area, km) -> "$area ${km.toInt()} km" },
+                    ?.joinToString(L(" ・ ", " · ")) { (area, km) -> "${Jma.direction(area)} ${km.toInt()} km" },
             )
         }
-        if (points.isEmpty()) error("進路の情報がありません")
+        if (points.isEmpty()) error(L("進路の情報がありません", "No track information"))
         return TyphoonTrack(
             id = id,
             number = typhoonLabel(title?.str("typhoonNumber")),
             name = title?.str("name", "jp"),
+            nameEn = title?.str("name", "en"),
             reportedAt = title?.str("issue", "JST"),
             track = track,
             preTrack = pre,
@@ -336,6 +346,10 @@ class DisasterRepository(
             storm = storm,
         )
     }
+
+    /** 実況の "position": {"deg": [緯度, 経度]} の [i] 番目。 */
+    private fun JsonObject.degree(i: Int): Double? =
+        (((this["position"] as? JsonObject)?.get("deg") as? JsonArray)?.getOrNull(i) as? JsonPrimitive)?.doubleOrNull
 
     private fun JsonObject.obj(key: String): JsonObject? = when (val v = this[key]) {
         is JsonObject -> v
@@ -426,8 +440,10 @@ class DisasterRepository(
             longitude = location.longitude,
             code = found?.code.takeIf { office != null },
             name = found?.name.takeIf { office != null },
-            officeCode = office?.first,
-            officeName = office?.second,
+            officeCode = office?.code,
+            officeName = office?.name,
+            nameEn = office?.areaEn,
+            officeNameEn = office?.nameEn,
         )
         if (!next.found) Log.w(TAG, "天気の地点から市町村を決められない（国外の地点など）")
         resolved = next
@@ -435,14 +451,16 @@ class DisasterRepository(
         return next
     }
 
-    /** 市町村 → 二次細分の中間 → 一次細分 → 府県予報区、と area.json の親をたどる。 */
-    private suspend fun officeOf(class20: String): Pair<String, String>? {
+    private class Office(val code: String, val name: String, val nameEn: String?, val areaEn: String?)
+
+    /** 市町村 → 二次細分の中間 → 一次細分 → 府県予報区、と area.json の親をたどる。英語の名前（enName）も拾う。 */
+    private suspend fun officeOf(class20: String): Office? {
         val a: AreaDto = client.get("$BASE/common/const/area.json").body()
         val class15 = a.class20s[class20]?.parent ?: return null
         val class10 = a.class15s[class15]?.parent ?: return null
         val office = a.class10s[class10]?.parent ?: return null
         val name = a.offices[office]?.name ?: return null
-        return office to name
+        return Office(office, name, a.offices[office]?.enName, a.class20s[class20]?.enName)
     }
 
     /** 見出しを選ぶときの段階。名前は [WARNING_KINDS] の表記から読む。 */
@@ -568,11 +586,14 @@ class DisasterRepository(
         val name: String? = null,
         val officeCode: String? = null,
         val officeName: String? = null,
+        val nameEn: String? = null,
+        val officeNameEn: String? = null,
     ) {
         val found: Boolean get() = code != null && officeCode != null
 
+        // 英語の名前を持たない古い保存（2026-10-04 より前）は決め直す
         fun matches(location: LocationConfig): Boolean =
-            latitude == location.latitude && longitude == location.longitude
+            latitude == location.latitude && longitude == location.longitude && (!found || nameEn != null)
     }
 
     // ------------------------------------------------------------ DTO
@@ -615,6 +636,7 @@ class DisasterRepository(
         @SerialName("mag") val magnitude: String? = null,
         @SerialName("maxi") val maxIntensity: String? = null,
         @SerialName("ttl") val title: String? = null,
+        @SerialName("en_anm") val epicenterEn: String? = null,
     )
 
     @Serializable
@@ -656,5 +678,5 @@ class DisasterRepository(
     )
 
     @Serializable
-    private data class AreaNameDto(val name: String = "", val parent: String? = null)
+    private data class AreaNameDto(val name: String = "", val parent: String? = null, val enName: String? = null)
 }

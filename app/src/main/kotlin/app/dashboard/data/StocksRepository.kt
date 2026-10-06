@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -46,7 +47,7 @@ class StocksRepository(private val client: HttpClient, private val configStore: 
                 fetch(s, config.range)
             } catch (e: Exception) {
                 Log.w(TAG, "株価の取得に失敗: ${s.symbol}", e)
-                errors += "${s.label}: ${e.message ?: "取得失敗"}"
+                errors += L("${s.label}: ${e.message ?: "取得失敗"}", "${s.label}: ${e.message ?: "failed"}")
                 previous[s.symbol]?.copy(label = s.label) ?: StockQuote(s.symbol, s.label)
             }
         }

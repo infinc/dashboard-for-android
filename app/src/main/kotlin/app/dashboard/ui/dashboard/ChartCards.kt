@@ -1,5 +1,6 @@
 package app.dashboard.ui.dashboard
 
+import app.dashboard.i18n.L
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -73,11 +74,11 @@ fun HourlyCard(w: WeatherState?, mode: String, modifier: Modifier) {
     val accent = LocalAccent.current
     val wantTemp = mode != "precip"
     val wantPop = mode != "temp"
-    WdCard("時間別予報（12 時間）", modifier, headerEnd = { Legend(wantTemp, wantPop) }) {
+    WdCard(L("時間別予報（12 時間）", "Hourly (12 h)"), modifier, headerEnd = { Legend(wantTemp, wantPop) }) {
         val hours = w?.hourly.orEmpty()
         val temps = hours.mapNotNull { it.temperature }
         if (hours.isEmpty() || (wantTemp && temps.isEmpty())) {
-            EmptyText("予報データがありません。")
+            EmptyText(L("予報データがありません。", "No forecast data."))
             return@WdCard
         }
         val measurer = rememberTextMeasurer()
@@ -158,12 +159,12 @@ private fun Legend(temp: Boolean, pop: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (temp) {
             Box(Modifier.size(14.dp, 2.5.dp).clip(RoundedCornerShape(2.dp)).background(accent))
-            Text(" 気温", color = Wd.Text3, fontSize = 12.tu)
+            Text(L(" 気温", " Temp"), color = Wd.Text3, fontSize = 12.tu)
         }
         if (temp && pop) Text("  /  ", color = Wd.Border, fontSize = 12.tu)
         if (pop) {
             Box(Modifier.size(8.dp, 10.dp).clip(RoundedCornerShape(2.dp)).background(accent.copy(alpha = 0.35f)))
-            Text(" 降水確率", color = Wd.Text3, fontSize = 12.tu)
+            Text(L(" 降水確率", " Rain chance"), color = Wd.Text3, fontSize = 12.tu)
         }
     }
 }
@@ -178,13 +179,13 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) = BoxWithConstraints(modifie
     // カードが多くて半分の幅まで縮めたとき（CardLayout.rows）は、凡例を短くする
     val narrow = maxWidth < 440.dp
     WdCard(
-        "週間予報",
+        L("週間予報", "Weekly"),
         Modifier.fillMaxSize(),
         headerEnd = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(16.dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(RANGE))
                 Text(
-                    if (narrow) " 最低→最高 / mm・%" else " 気温の範囲（最低→最高）  /  降水量 mm ・ 降水確率",
+                    if (narrow) L(" 最低→最高 / mm・%", " Low→High / mm·%") else L(" 気温の範囲（最低→最高）  /  降水量 mm ・ 降水確率", " Temp range (low→high)  /  precip. mm · rain chance"),
                     color = Wd.Text3,
                     fontSize = 12.tu,
                     maxLines = 1,
@@ -194,7 +195,7 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) = BoxWithConstraints(modifie
     ) {
         val days = w?.daily.orEmpty()
         if (days.isEmpty()) {
-            EmptyText("週間予報がありません。")
+            EmptyText(L("週間予報がありません。", "No weekly forecast."))
             return@WdCard
         }
         val lows = days.mapNotNull { it.tempMin }
@@ -210,11 +211,11 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) = BoxWithConstraints(modifie
             ) {
                 days.forEachIndexed { i, day ->
                     val date = runCatching { LocalDate.parse(day.date.take(10)) }.getOrNull()
-                    val wd = date?.let { listOf("月", "火", "水", "木", "金", "土", "日")[it.dayOfWeek.value - 1] }.orEmpty()
+                    val wd = date?.let { listOf(L("月", "Mon"), L("火", "Tue"), L("水", "Wed"), L("木", "Thu"), L("金", "Fri"), L("土", "Sat"), L("日", "Sun"))[it.dayOfWeek.value - 1] }.orEmpty()
                     val color = when {
                         i == 0 -> accent
-                        wd == "日" -> Wd.Red
-                        wd == "土" -> Wd.Violet
+                        wd == L("日", "Sun") -> Wd.Red
+                        wd == L("土", "Sat") -> Wd.Violet
                         else -> Wd.Text2
                     }
                     Column(
@@ -222,7 +223,7 @@ fun DailyCard(w: WeatherState?, modifier: Modifier) = BoxWithConstraints(modifie
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(if (i == 0) "今日" else "${date?.monthValue}/${date?.dayOfMonth} $wd", color = color, fontSize = 12.5f.tu)
+                        Text(if (i == 0) L("今日", "Today") else "${date?.monthValue}/${date?.dayOfMonth} $wd", color = color, fontSize = 12.5f.tu)
                         WeatherIcon(day.weatherCode, true, Modifier.size(26.dp))
                         Text(
                             buildAnnotatedString {
@@ -297,11 +298,11 @@ private val CPU_MARKS = listOf(20, 40, 60, 80, 100)
 
 @Composable
 fun StatsCard(s: DeviceStats?, cpuHistory: List<Int>, modifier: Modifier) {
-    WdCard("端末", modifier) {
+    WdCard(L("端末", "Device"), modifier) {
         if (s == null) return@WdCard
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                MeterTop("CPU 使用率", s.cpuPercent?.let { "$it%" } ?: "—")
+                MeterTop(L("CPU 使用率", "CPU usage"), s.cpuPercent?.let { "$it%" } ?: "—")
                 Box(Modifier.weight(1f).fillMaxWidth().padding(top = 3.dp)) { CpuChart(cpuHistory) }
             }
             Column(Modifier.weight(1f)) {
@@ -312,7 +313,7 @@ fun StatsCard(s: DeviceStats?, cpuHistory: List<Int>, modifier: Modifier) {
                         pct < 40 -> Wd.Amber
                         else -> null
                     }
-                    Meter(if (s.charging) "バッテリー（充電中）" else "バッテリー", if (s.charging) null else "（放電中）", "$pct%", pct / 100f, color)
+                    Meter(if (s.charging) L("バッテリー（充電中）", "Battery (charging)") else L("バッテリー", "Battery"), if (s.charging) null else L("（放電中）", " (discharging)"), "$pct%", pct / 100f, color)
                 }
                 s.batteryTemperatureC?.let { c ->
                     val color = when {
@@ -321,19 +322,19 @@ fun StatsCard(s: DeviceStats?, cpuHistory: List<Int>, modifier: Modifier) {
                         c >= 35 -> null
                         else -> Wd.Green
                     }
-                    Meter("温度（バッテリー）", null, "%.1f ℃".format(c), (c / 60).toFloat(), color)
+                    Meter(L("温度（バッテリー）", "Temperature (battery)"), null, "%.1f ℃".format(c), (c / 60).toFloat(), color)
                 }
                 if (s.storageTotalBytes > 0) {
                     val used = s.storageTotalBytes - s.storageFreeBytes
                     Meter(
-                        "ストレージ", null, "%.1f GB 空き".format(s.storageFreeBytes / GB),
+                        L("ストレージ", "Storage"), null, L("%.1f GB 空き", "%.1f GB free").format(s.storageFreeBytes / GB),
                         used.toFloat() / s.storageTotalBytes,
                         if (s.storageFreeBytes.toFloat() / s.storageTotalBytes < 0.1f) Wd.Amber else null,
                     )
                 }
                 if (s.memoryTotalBytes > 0) {
                     val used = s.memoryTotalBytes - s.memoryAvailableBytes
-                    Meter("メモリ", null, "%.1f GB 空き".format(s.memoryAvailableBytes / GB), used.toFloat() / s.memoryTotalBytes, null)
+                    Meter(L("メモリ", "Memory"), null, L("%.1f GB 空き", "%.1f GB free").format(s.memoryAvailableBytes / GB), used.toFloat() / s.memoryTotalBytes, null)
                 }
             }
         }
@@ -373,7 +374,7 @@ private fun Meter(label: String, warn: String?, value: String, fraction: Float, 
 @Composable
 private fun CpuChart(history: List<Int>) {
     if (history.size < 2) {
-        Text("計測中…", color = Wd.Text3, fontSize = 11.tu)
+        Text(L("計測中…", "Measuring…"), color = Wd.Text3, fontSize = 11.tu)
         return
     }
     val accent = LocalAccent.current

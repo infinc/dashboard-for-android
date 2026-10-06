@@ -17,6 +17,10 @@ import app.dashboard.data.LyricsRepository
 import app.dashboard.data.SpotifyState
 import app.dashboard.data.Tones
 import app.dashboard.data.TyphoonTrack
+import app.dashboard.data.Jma
+import app.dashboard.i18n.L
+import app.dashboard.i18n.Lang
+import app.dashboard.ui.map.TileMapController
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -38,6 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.ZoneId
@@ -78,7 +83,10 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
 
-    data class KmoniFrame(val image: ImageBitmap? = null, val label: String = "", val failed: Boolean = false)
+    data class KmoniFrame(val image: ImageBitmap? = null, val time: String = "", val failed: Boolean = false) {
+        /** 画像の時刻か、取れないときの文（いまの言語で）。 */
+        val label: String get() = if (failed) L("取得不可", "Unavailable") else time
+    }
 
     private val _kmoniBase = MutableStateFlow<ImageBitmap?>(null)
     val kmoniBase = _kmoniBase.asStateFlow()
@@ -111,9 +119,18 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val old: Map<Pair<Int, Int>, ImageBitmap> = emptyMap(),
         val oldRainZoom: Int = 0,
         val oldRain: Map<Pair<Int, Int>, ImageBitmap> = emptyMap(),
-        val label: String = "",
+        /** 雨雲の観測時刻（その日の 0 時からの分）。取れていなければ null。 */
+        val observedMinute: Int? = null,
+        /** 雨雲の時刻の一覧を取れなかった。 */
+        val unavailable: Boolean = false,
         val failed: Boolean = false,
     ) {
+        /** 注記に出す観測時刻（いまの言語で）。 */
+        val label: String get() = when {
+            unavailable -> L("取得できません", "Unavailable")
+            observedMinute != null -> L("%d:%02d 観測", "Observed %d:%02d").format(observedMinute / 60, observedMinute % 60)
+            else -> ""
+        }
         /** 地点から動かしているか（地名を注記から外す）。 */
         val panned: Boolean get() = abs(centerX - homeX) > 1f || abs(centerY - homeY) > 1f
         val rainZoom: Int get() = rainZoomOf(zoom)
@@ -133,6 +150,66 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val radarLock = Mutex()
     /** 取れなかったタイル（日本の外の雨雲など、サーバーが無いと答えたもの）。同じ URL を何度も取りに行かない。 */
     private val radarMissing = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    // ------------------------------------------------------------ 飛行機・船舶の地図
+
+    /** 地図のタイルを 1 枚読む。サーバーが無いと答えた（4xx・画像でない）ら null、通信の失敗は例外。 */
+    private suspend fun loadMapTile(url: String): ImageBitmap? = try {
+        val bytes = graph.http.get(url).readRawBytes()
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+    } catch (e: ResponseException) {
+        null
+    }
+
+    private fun mapController(key: String, default: Int, min: Int, max: Int) = TileMapController(
+        viewModelScope,
+        ::loadMapTile,
+        TileMapController::esriGray,
+        savedZoom = { prefs.getInt(key, default) },
+        saveZoom = { prefs.edit().putInt(key, it).apply() },
+        minZoom = min,
+        maxZoom = max,
+    )
+
+    val flightMap = mapController(FLIGHT_ZOOM, 8, 3, 13)
+    val shipMap = mapController(SHIP_ZOOM, 10, 3, 14)
+    @Volatile private var flightWide = false
+    @Volatile private var shipWide = false
+    val flights = FlightTracker(viewModelScope, graph.flights, { flightMap.frame.value }, { flightWide })
+    val ships = graph.ships.ships
+    val shipStatus = graph.ships.status
+
+    fun setFlightFullscreen(open: Boolean) {
+        flightWide = open
+        flightMap.setWide(open)
+    }
+
+    fun setShipFullscreen(open: Boolean) {
+        shipWide = open
+        shipMap.setWide(open)
+    }
+
+    /** カードを出していて画面が見えている間だけ、地図・飛行機の取得・船の接続を動かす。 */
+    private fun mapTick() {
+        val c = graph.config.get()
+        val dark = c.display.theme != "light"
+        val wantFlights = active && c.display.showFlights
+        if (wantFlights) {
+            flightMap.setHome(c.location.latitude, c.location.longitude, dark)
+            flightMap.start()
+        } else flightMap.stop()
+        flights.setActive(wantFlights)
+        val wantShips = active && c.display.showShips
+        if (wantShips) {
+            shipMap.setHome(c.location.latitude, c.location.longitude, dark)
+            shipMap.start()
+            val f = shipMap.frame.value
+            graph.ships.watch(if (f.ready) shipBox(f, shipWide) else null)
+        } else {
+            shipMap.stop()
+            graph.ships.watch(null)
+        }
+    }
 
     /** 全画面（Spotify・時刻）で「画面を暗くしない」を選んでいるか（次に開いたときも同じにする。両方で共通）。 */
     private val _keepAwake = MutableStateFlow(prefs.getBoolean(KEEP_AWAKE, false))
@@ -218,6 +295,12 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 delay(RAIN_CHECK_MS)
             }
         }
+        viewModelScope.launch {
+            while (true) {
+                runCatching { mapTick() }
+                delay(1_000)
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 if (active && wantsKmoni()) kmoniTick()
@@ -267,7 +350,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     /** 操作は Spotify を鳴らしている端末へ送る。このタブレットから音は出ない。 */
     fun spotifyControl(action: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            graph.spotify.control(action).onFailure { showToast("Spotify", it.message ?: "操作できません", false) }
+            graph.spotify.control(action).onFailure { showToast("Spotify", it.message ?: L("操作できません", "Can't control playback"), false) }
             poll()
         }
     }
@@ -349,14 +432,14 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             if (p >= n.batteryLowPercent + 2 || stats.charging) batteryLowArmed = true
             if (n.batteryLowEnabled && batteryLowArmed && !stats.charging && p < n.batteryLowPercent) {
                 batteryLowArmed = false
-                notify("電池の残量", "残りが $p% になりました（${n.batteryLowPercent}% を切りました）。充電してください。", n.batteryLowTone, Tones.DEFAULT_BATTERY_LOW)
+                notify(L("電池の残量", "Battery level"), L("残りが $p% になりました（${n.batteryLowPercent}% を切りました）。充電してください。", "Battery is at $p% (below ${n.batteryLowPercent}%). Please charge it."), n.batteryLowTone, Tones.DEFAULT_BATTERY_LOW)
             }
         }
         stats.batteryTemperatureC?.let { t ->
             if (t <= n.batteryHotC - 1) batteryHotArmed = true
             if (n.batteryHotEnabled && batteryHotArmed && t > n.batteryHotC) {
                 batteryHotArmed = false
-                notify("電池の温度", "電池が %.1f ℃ になりました（%d ℃ を超えました）。直射日光や充電のしすぎに気をつけてください。".format(t, n.batteryHotC), n.batteryHotTone, Tones.DEFAULT_BATTERY_HOT, severe = true)
+                notify(L("電池の温度", "Battery temperature"), L("電池が %.1f ℃ になりました（%d ℃ を超えました）。直射日光や充電のしすぎに気をつけてください。", "The battery is at %.1f °C (above %d °C). Avoid direct sunlight and overcharging.").format(t, n.batteryHotC), n.batteryHotTone, Tones.DEFAULT_BATTERY_HOT, severe = true)
             }
         }
     }
@@ -378,7 +461,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         if (!n.memoEnabled) return
         val text = (fresh?.text ?: m.text).orEmpty().replace('\n', ' ').let { if (it.length > 60) it.take(60) + "…" else it }
         val from = fresh?.senderName ?: m.senderName
-        notify("LINE メモ" + (from?.let { "（$it）" } ?: ""), text.ifEmpty { "新しいメモが届きました" }, n.memoTone, Tones.DEFAULT_MEMO)
+        notify(L("LINE メモ", "LINE memo") + (from?.let { L("（$it）", " ($it)") } ?: ""), text.ifEmpty { L("新しいメモが届きました", "A new memo has arrived") }, n.memoTone, Tones.DEFAULT_MEMO)
     }
 
     private fun checkWifi(connected: Boolean) {
@@ -391,7 +474,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         // 一瞬の切り替え（ローミングなど）で鳴らないよう、2 回続けて（約 4 秒）切れていたら知らせる
         if (wifiWasConnected == true && ++wifiDownPolls >= 2) {
             wifiWasConnected = false
-            if (n.wifiLostEnabled) notify("Wi-Fi", "Wi-Fi の接続が切れました。天気などが更新されなくなります。", n.wifiLostTone, Tones.DEFAULT_WIFI_LOST, severe = true)
+            if (n.wifiLostEnabled) notify("Wi-Fi", L("Wi-Fi の接続が切れました。天気などが更新されなくなります。", "Wi-Fi disconnected. Weather and other data will stop updating."), n.wifiLostTone, Tones.DEFAULT_WIFI_LOST, severe = true)
         }
     }
 
@@ -409,7 +492,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 if (rainArmed) {
                     rainArmed = false
                     val n = graph.config.get().notifications
-                    notify("まもなく雨", "${c.location.name}で、約 ${r.minutes} 分後に雨が降り始める予報です（${r.source}）。", n.rainTone, Tones.DEFAULT_RAIN)
+                    notify(L("まもなく雨", "Rain soon"), L("${c.location.name}で、約 ${r.minutes} 分後に雨が降り始める予報です（${r.source}）。", "Rain is forecast to start in about ${r.minutes} min at ${c.location.displayName(graph.disaster.state.areaNameEn)} (${r.source})."), n.rainTone, Tones.DEFAULT_RAIN)
                 }
             }
             app.dashboard.data.RainForecast.Result.Raining -> {
@@ -443,7 +526,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
         val n = graph.config.get().notifications
         if (n.disasterSound) graph.notices.play(n.disasterTone, Tones.DEFAULT_DISASTER)
-        showToast(changed.joinToString(" ・ ") { ALERT_LABELS.getValue(it) }, alertDetail(d, changed.first()), changed.first() == "tsunami")
+        showToast(changed.joinToString(L(" ・ ", " · ")) { ALERT_LABELS.getValue(it) }, alertDetail(d, changed.first()), changed.first() == "tsunami")
     }
 
     private fun saveSeen(marks: Map<String, String>) {
@@ -454,15 +537,15 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun alertDetail(d: DisasterState, key: String): String = when (key) {
-        "tsunami" -> d.tsunami.takeIf { it.isNotEmpty() }?.joinToString(" ・ ") { it.title ?: "津波情報" }
-            ?: "津波情報は解除されました"
+        "tsunami" -> d.tsunami.takeIf { it.isNotEmpty() }?.joinToString(L(" ・ ", " · ")) { Jma.tsunami(it.title) ?: L("津波情報", "Tsunami information") }
+            ?: L("津波情報は解除されました", "Tsunami information has been lifted")
         "typhoon" -> d.typhoons.firstOrNull()?.let { t ->
-            val kind = listOfNotNull(t.scale, t.intensity).joinToString("・")
-            listOfNotNull(t.number, t.name).joinToString(" ") + if (kind.isNotEmpty()) "（$kind）" else ""
-        } ?: "台風の情報はなくなりました"
-        "volcano" -> d.volcanoes.firstOrNull()?.let { it.name + " " + it.level } ?: "噴火警報は出ていません"
-        else -> d.headline ?: d.activeAreas.firstOrNull()?.let { it.name + " " + it.kinds.joinToString("・") }
-            ?: "警報・注意報は解除されました"
+            val kind = listOfNotNull(Jma.scale(t.scale), Jma.intensity(t.intensity)).joinToString(L("・", ", "))
+            listOfNotNull(Jma.typhoonNumber(t.number), Jma.pick(t.name, t.nameEn)).joinToString(" ") + if (kind.isNotEmpty()) L("（$kind）", " ($kind)") else ""
+        } ?: L("台風の情報はなくなりました", "No more typhoon information")
+        "volcano" -> d.volcanoes.firstOrNull()?.let { Jma.volcanoName(it.name) + " " + Jma.volcanoLevel(it.level) } ?: L("噴火警報は出ていません", "No eruption warnings in effect")
+        else -> (if (Lang.en) null else d.headline) ?: d.activeAreas.firstOrNull()?.let { (Jma.pick(it.name, d.areaNameEn) ?: it.name) + " " + it.kinds.joinToString(L("・", ", ")) { k -> Jma.kind(k) } }
+            ?: L("警報・注意報は解除されました", "Warnings and advisories have been lifted")
     }
 
     // ------------------------------------------------------------ 画像
@@ -482,7 +565,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             kmoniFailures = 0
             _kmoni.value = KmoniFrame(image, at.format(CLOCK), failed = false)
         } else if (++kmoniFailures >= 4) {
-            _kmoni.update { it.copy(label = "取得不可", failed = true) }
+            _kmoni.update { it.copy(failed = true) }
         }
     }
 
@@ -501,7 +584,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val (hx, hy) = homeOf(c.location.latitude, c.location.longitude, zoom)
         // 「＋」「−」で倍にした地点の座標は、計算し直した値と端数だけずれることがあるので少し幅を持たせる
         if (f.zoom == 0 || abs(f.homeX - hx) > 0.5f || abs(f.homeY - hy) > 0.5f || f.dark != dark) {
-            val reset = RadarFrame(zoom, hx, hy, hx, hy, dark, label = f.label)
+            val reset = RadarFrame(zoom, hx, hy, hx, hy, dark, observedMinute = f.observedMinute, unavailable = f.unavailable)
             if (_radar.compareAndSet(f, reset)) {
                 radarMissing.clear()
                 radarStamp = null
@@ -515,7 +598,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             val times = runCatching { graph.http.get(RADAR_TIMES).bodyAsText() }.getOrNull()
             val stamp = times?.let { Regex("\"basetime\"\\s*:\\s*\"(\\d{14})\"").find(it)?.groupValues?.get(1) }
             if (stamp == null) {
-                _radar.update { it.copy(label = "取得できません") }
+                _radar.update { it.copy(unavailable = true) }
             } else if (stamp != radarStamp) {
                 // 新しい雨雲は揃ってから差し替える（途中で消えてちらつかないように）
                 val rz = _radar.value.rainZoom
@@ -530,7 +613,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 radarMissing.clear()
                 _radar.update {
                     if (it.rainZoom != rz) it
-                    else it.copy(rain = rain, label = local?.let { t -> "%d:%02d 観測".format(t.hour, t.minute) }.orEmpty())
+                    else it.copy(rain = rain, observedMinute = local?.let { t -> t.hour * 60 + t.minute }, unavailable = false)
                 }
             }
         }
@@ -734,6 +817,22 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
     }.getOrNull()
 
+    // ------------------------------------------------------------ Todo・プリセット
+
+    val todos = graph.todos.items
+
+    fun addTodo(text: String) = graph.todos.add(text)
+
+    fun doneTodo(id: Long) = graph.todos.done(id)
+
+    /** ダッシュボードのプリセットのボタンから切り替える（背景画像の写しがあるので画面のスレッドでは回さない）。 */
+    fun switchPreset(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { graph.presets.switchTo(id) }
+                .onFailure { withContext(Dispatchers.Main) { showToast(L("プリセット", "Preset"), it.message ?: "", false) } }
+        }
+    }
+
     // ------------------------------------------------------------ 写真
 
     /** 写真カードを押したら、待たずに次の写真へ。 */
@@ -851,6 +950,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        graph.ships.watch(null)
         graph.notices.stopRing()
     }
 
@@ -869,6 +969,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         private const val RADAR_MS = 300_000L
         private const val RADAR_RETURN_MS = 180_000L
         private const val RADAR_ZOOM = "radarZoom"
+        private const val FLIGHT_ZOOM = "flightZoom"
+        private const val SHIP_ZOOM = "shipZoom"
         private const val RADAR_ZOOM_DEFAULT = 8
         private const val RADAR_TIMES = "https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json"
         private const val KMONI_DELAY_MS = 2_000L
@@ -888,11 +990,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
 
         /** 並びがそのまま通知の優先順（津波が出ていれば津波を見出しにする）。 */
-        private val ALERT_LABELS = linkedMapOf(
-            "tsunami" to "津波",
-            "warning" to "警報・注意報",
-            "typhoon" to "台風",
-            "volcano" to "噴火",
+        private val ALERT_LABELS get() = linkedMapOf(
+            "tsunami" to L("津波", "Tsunami"),
+            "warning" to L("警報・注意報", "Warnings & advisories"),
+            "typhoon" to L("台風", "Typhoon"),
+            "volcano" to L("噴火", "Eruption"),
         )
     }
 }

@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import app.dashboard.i18n.L
 import android.content.Context
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ClientRequestException
@@ -42,8 +43,13 @@ import kotlin.math.abs
  * 公開の検索と歌詞の API を見る（[netease]。非公式、登録不要。日本の曲の時刻付きの歌詞が LRCLIB より多い）。
  * 見つけた歌詞は端末に保存し（`filesDir/lyrics/`、[MAX_SAVED] 曲まで）、次からは通信なしで出す。
  * どちらの取得先も使えないときは、保存してある歌詞を使う。
+ * 保存は設定（[saveEnabled]、Spotify の「歌詞を端末に保存する」）で切れる。切っている間は保存も、保存した歌詞を読むこともしない。
  */
-class LyricsRepository(context: Context, private val client: HttpClient) {
+class LyricsRepository(
+    context: Context,
+    private val client: HttpClient,
+    private val saveEnabled: () -> Boolean = { true },
+) {
 
     /** 歌詞 1 行。[timeMs] は曲の頭からの時刻（時刻の無い歌詞では null）。 */
     @Serializable
@@ -81,7 +87,7 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
             cache[key]?.let { if (System.currentTimeMillis() < it.until) return it.lyrics else cache.remove(key) }
         }
         // 保存してある歌詞が時刻付きなら、通信しない。時刻の無い歌詞は、時刻付きが後から登録されることがあるので探し直す
-        val saved = load(key)
+        val saved = if (saveEnabled()) load(key) else null
         if (saved != null && (saved.synced || saved.instrumental)) {
             synchronized(cache) { cache[key] = Entry(saved, Long.MAX_VALUE) }
             return saved
@@ -100,7 +106,7 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
             if (other != null && (other.synced || found == null)) found = other
         }
         found = found?.let { if (it.synced || it.instrumental) it else estimate(it, durationMs) }
-        if (found != null) save(key, found) else found = saved
+        if (found != null) { if (saveEnabled()) save(key, found) } else found = saved
         failure?.let { if (found == null) throw Unavailable(describe(it), it) }
         val until = if (failure == null) Long.MAX_VALUE else System.currentTimeMillis() + RECHECK_MS
         synchronized(cache) { cache[key] = Entry(found, until) }
@@ -193,6 +199,15 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
         runCatching { Http.json.decodeFromString(Lyrics.serializer(), fileOf(key).readText()) }.getOrNull()
     }
 
+    /** 端末に保存してある歌詞の数。 */
+    fun savedCount(): Int = dir.listFiles().orEmpty().count { it.name.endsWith(".json") }
+
+    /** 端末に保存してある歌詞をすべて消す。 */
+    fun clearSaved() {
+        dir.listFiles().orEmpty().forEach { it.delete() }
+        synchronized(cache) { cache.clear() }
+    }
+
     /** 保存する。[MAX_SAVED] 曲を超えたら古いものから消す。 */
     private suspend fun save(key: String, lyrics: Lyrics) = withContext(Dispatchers.IO) {
         runCatching {
@@ -231,9 +246,9 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
     }
 
     private fun describe(e: Exception): String = when (e) {
-        is ServerResponseException -> "歌詞のサーバーが混み合っています（${e.response.status.value}）"
-        is ClientRequestException -> "歌詞のサーバーが混み合っています（${e.response.status.value}）"
-        else -> "歌詞のサーバーにつながりません"
+        is ServerResponseException -> L("歌詞のサーバーが混み合っています（${e.response.status.value}）", "The lyrics server is busy (${e.response.status.value})")
+        is ClientRequestException -> L("歌詞のサーバーが混み合っています（${e.response.status.value}）", "The lyrics server is busy (${e.response.status.value})")
+        else -> L("歌詞のサーバーにつながりません", "Can't reach the lyrics server")
     }
 
     private suspend fun exact(track: String, artist: String?, album: String?, durationMs: Long?): Lyrics? {
@@ -306,7 +321,7 @@ class LyricsRepository(context: Context, private val client: HttpClient) {
         private const val BASE = "https://lrclib.net/api"
         private const val NETEASE = "https://music.163.com/api"
         private const val BROWSER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-        private const val MAX_SAVED = 300
+        const val MAX_SAVED = 300
         private const val USER_AGENT = "Dashboard/0.1 (wall dashboard for Android)"
         private const val TRIES = 3
         private const val RETRY_WAIT_MS = 900L
