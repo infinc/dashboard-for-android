@@ -135,11 +135,11 @@ fun <T> Select(options: List<Pair<T, String>>, value: T, onChange: (T) -> Unit, 
 
 /** 0..100 の割合を選ぶつまみ。値は右上に % で出す。 */
 @Composable
-fun PercentSlider(label: String, percent: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit, hint: String? = null) {
+fun PercentSlider(label: String, percent: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit, hint: String? = null, unit: String = "%") {
     Field(hint = hint) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, color = Wd.Text2, fontSize = 13.tu, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("$percent%", color = LocalAccent.current, fontSize = 13.tu, fontWeight = FontWeight.SemiBold)
+            Text("$percent$unit", color = LocalAccent.current, fontSize = 13.tu, fontWeight = FontWeight.SemiBold)
         }
         Slider(
             value = percent.toFloat(),

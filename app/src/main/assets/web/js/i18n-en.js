@@ -3,6 +3,14 @@
  * settings.html / login.html の文を変えたら、ここのキーも合わせて直すこと（合わないと日本語のまま出る。ブラウザのコンソールで I18N.missing() を呼ぶと漏れが分かる）。
  */
 window.EN_HTML = {
+ "<i class=\"dot\" data-w=\"showTodo\"></i><span>Todo</span>": "<i class=\"dot\" data-w=\"showTodo\"></i><span>To-do</span>",
+ "カードの角の丸み <b id=\"cardRadiusValue\" class=\"val\"></b>": "Card corner radius <b id=\"cardRadiusValue\" class=\"val\"></b>",
+ "0 で四角、大きいほど丸くなります（既定は 18）。下の見本はいまの値で描いています。": "0 is square; larger is rounder (default 18). The preview below uses the current value.",
+ "• 買い物<br>• 洗濯": "• Groceries<br>• Laundry",
+ "10〜600 秒。おすすめは 30 秒（既定）です。届いてすぐ見たいなら 10〜15 秒、ふだんは 30〜60 秒、たまにしか送らないなら 120〜300 秒で十分です。短くするほど早く届きますが、通信と電池の消費が増え、Cloudflare の無料枠（Workers のリクエスト・KV の読み取りとも 1 日 10 万回）にも近づきます（10 秒で 1 日 8,640 回、30 秒で 2,880 回）。": "10–600 seconds. 30 seconds (the default) is recommended. Use 10–15 seconds to see memos right away, 30–60 seconds for everyday use, and 120–300 seconds if you rarely send any. Shorter intervals deliver sooner but use more traffic and battery, and get closer to the Cloudflare free tier (100,000 Workers requests and KV reads a day): 8,640 a day at 10 s, 2,880 at 30 s.",
+ "オンにすると、全画面で見つけた歌詞を直近 300 曲までこの端末に保存し、次からは通信せずに出します（古いものから消します）。オフの間は保存も、保存した歌詞を使うこともしません。保存済みの歌詞は、アプリの設定画面の「Spotify」から消せます。": "When on, lyrics found in full screen are saved on the tablet for the latest 300 songs and shown without fetching next time (oldest removed first). When off, lyrics are neither saved nor read from storage. Saved lyrics can be deleted under \"Spotify\" in the app's settings.",
+ "やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます（ダッシュボードで直接操作します）。": "A card listing things to do. Type in the box at the bottom of the card to add one; tap the circle on the left to remove it (done directly on the dashboard).",
+ "Todo の中身は設定ではなくタブレットのデータなので、プリセットを切り替えても変わりません（最大 50 件）。": "To-dos are data on the tablet, not settings, so switching presets doesn't change them (up to 50).",
  "Dashboard 設定": "Dashboard Settings",
  "読み込み中…": "Loading…",
  "全体": "General",
@@ -260,6 +268,7 @@ window.EN_HTML = {
  "ログイン": "Sign in"
 };
 window.EN_TEXT = {
+ "直近 300 曲の歌詞を端末に保存する": "Save lyrics of the latest 300 songs on the tablet",
  "日本語": "日本語",
  "ダーク": "Dark",
  "ホワイト": "White",

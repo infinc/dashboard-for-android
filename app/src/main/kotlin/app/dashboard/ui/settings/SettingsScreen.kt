@@ -108,6 +108,7 @@ private data class Draft(
     val memoToken: String,
     val spotifyEnabled: Boolean,
     val spotifyClientId: String,
+    val spotifySaveLyrics: Boolean,
     val trainEnabled: Boolean,
     val trainToken: String,
     val trainChallengeToken: String,
@@ -176,7 +177,7 @@ private data class Draft(
             token = memoToken.takeIf { it.isNotEmpty() },
             pollIntervalMs = (memoIntervalSec.toLongOrNull() ?: 30) * 1000,
         ),
-        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim()),
+        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim(), saveLyrics = spotifySaveLyrics),
         photos = PhotoPatch(
             enabled = photosEnabled,
             albumUrl = photosUrl.takeIf { it.isNotEmpty() },
@@ -213,6 +214,7 @@ private data class Draft(
             memoToken = "",
             spotifyEnabled = c.spotify.enabled,
             spotifyClientId = c.spotify.clientId,
+            spotifySaveLyrics = c.spotify.saveLyrics,
             trainEnabled = c.train.enabled,
             trainToken = "",
             trainChallengeToken = "",
@@ -266,6 +268,7 @@ private enum class Pane(
     private val groupEn: String,
     val card: ((DisplayConfig) -> Boolean)? = null,
 ) {
+    Presets("プリセット", "Presets", "全体", "General"),
     Language("言語", "Language", "全体", "General"),
     Palette("配色", "Colors", "全体", "General"),
     Layout("カードの配置", "Card layout", "全体", "General"),
@@ -299,9 +302,12 @@ private enum class Pane(
     Flights("飛行機", "Flights", "カード", "Cards", { it.showFlights }),
     Ships("船舶", "Ships", "カード", "Cards", { it.showShips }),
     Github("GitHub", "GitHub", "カード", "Cards", { it.showGithub }),
+    Todo("Todo", "To-do", "カード", "Cards", { it.showTodo }),
     Hamster("ハムスター", "Hamster", "カード", "Cards", { it.showHamster }),
     Device("ホームアプリ", "Home app", "端末", "Device"),
     Network("ネットワーク", "Network", "端末", "Device"),
+    Lock("設定の PIN", "Settings PIN", "端末", "Device"),
+    Info("情報", "About", "情報", "About"),
     ;
 
     val label: String get() = L(ja, en)
@@ -320,6 +326,7 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
     var pane by remember { mutableStateOf(Pane.Language) }
     var saveStatus by remember { mutableStateOf("") }
     var confirmClose by remember { mutableStateOf(false) }
+    var versionArt by remember { mutableStateOf(false) }
     /** カードを増やせなかった理由。null でなければダイアログで出す。 */
     var blocked by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -369,7 +376,7 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
         if (dirty) confirmClose = true else onClose()
     }
 
-    BackHandler { requestClose() }
+    BackHandler(enabled = !versionArt) { requestClose() }
 
     Box(
         Modifier.fillMaxSize().background(Color(0xB8040609))
@@ -396,11 +403,13 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
                         .verticalScroll(rememberScrollState(), enabled = true)
                         .padding(horizontal = 28.dp, vertical = 22.dp),
                 ) {
-                    PaneContent(pane, graph, config, draft, ::update, onOpenBrowser)
+                    PaneContent(pane, graph, config, draft, ::update, onOpenBrowser, dirty) { versionArt = true }
                 }
             }
         }
     }
+
+    if (versionArt) VersionArt(onBack = { versionArt = false })
 
     blocked?.let { message ->
         AlertDialog(
@@ -476,7 +485,10 @@ private fun Nav(
 }
 
 @Composable
-private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit, onOpenBrowser: (String) -> Unit) {
+private fun PaneContent(
+    pane: Pane, graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit, onOpenBrowser: (String) -> Unit,
+    dirty: Boolean, onVersionArt: () -> Unit,
+) {
     val disp = d.display
     fun display(block: DisplayConfig.() -> DisplayConfig) = set(d.copy(display = disp.block()))
 
@@ -693,7 +705,8 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
                 Select(listOf("left" to L("左", "Left"), "center" to L("中央", "Center"), "right" to L("右", "Right")), disp.clockAlign, { display { copy(clockAlign = it) } })
             }
             Field(L("日付の書き方", "Date format")) {
-                Select(listOf("ja" to L("2026年9月21日 (月)", "Mon, Sep 21, 2026"), "slash" to L("2026/09/21 (月)", "2026/09/21 (Mon)")), disp.clockDateFormat, { display { copy(clockDateFormat = it) } })
+                val today = remember { java.time.ZonedDateTime.now() }
+                Select(app.dashboard.data.DATE_FORMATS.map { it to app.dashboard.ui.dashboard.formatDate(today, it) }, disp.clockDateFormat, { display { copy(clockDateFormat = it) } })
             }
             Field { SwitchRow(L("秒を表示する", "Show seconds"), d.units.showSeconds, { set(d.copy(units = d.units.copy(showSeconds = it))) }) }
         }
@@ -763,7 +776,15 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
             Field(L("端末トークン", "Device token"), L("Worker の DEVICE_TOKEN と同じ値。保存済みの値は表示しません。", "Same value as the Worker's DEVICE_TOKEN. The saved value is never shown.")) {
                 Input(d.memoToken, { set(d.copy(memoToken = it)) }, placeholder = if (config.memo.token.isNullOrBlank()) L("未設定", "Not set") else L("設定済み（変更する場合のみ入力）", "Set (enter only to change)"), password = true)
             }
-            Field(L("取得の間隔（秒）", "Fetch interval (seconds)"), L("10〜600 秒", "10–600 seconds")) {
+            Field(
+                L("取得の間隔（秒）", "Fetch interval (seconds)"),
+                L(
+                    "10〜600 秒。おすすめは 30 秒（既定）です。届いてすぐ見たいなら 10〜15 秒、ふだんは 30〜60 秒、たまにしか送らないなら 120〜300 秒で十分です。" +
+                        "短くするほど早く届きますが、通信と電池の消費が増え、Cloudflare の無料枠（Workers のリクエスト・KV の読み取りとも 1 日 10 万回）にも近づきます（10 秒で 1 日 8,640 回、30 秒で 2,880 回）。",
+                    "10–600 seconds. 30 seconds (the default) is recommended. Use 10–15 seconds to see memos right away, 30–60 seconds for everyday use, and 120–300 seconds if you rarely send any. " +
+                        "Shorter intervals deliver sooner but use more traffic and battery, and get closer to the Cloudflare free tier (100,000 Workers requests and KV reads a day): 8,640 a day at 10 s, 2,880 at 30 s.",
+                ),
+            ) {
                 Input(d.memoIntervalSec, { set(d.copy(memoIntervalSec = it.filter(Char::isDigit))) }, number = true)
             }
         }
@@ -928,6 +949,15 @@ private fun PaneContent(pane: Pane, graph: AppGraph, config: Config, d: Draft, s
 
         Pane.Device -> DevicePane(graph)
         Pane.Network -> NetworkPane(graph, config)
+        Pane.Presets -> PresetsPane(graph, config, dirty)
+        Pane.Lock -> LockPane(graph, config)
+        Pane.Info -> InfoPane(onVersionArt)
+
+        Pane.Todo -> {
+            PaneTitle("Todo", L("やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます。", "A card listing things to do. Type in the box at the bottom of the card to add one; tap the circle on the left to remove it."))
+            CardSwitch(disp.showTodo) { copy(showTodo = it) }
+            Notice(L("Todo の中身は設定ではなくこの端末のデータなので、プリセットを切り替えても変わりません（最大 50 件）。", "To-dos are data on this device, not settings, so switching presets doesn't change them (up to 50)."))
+        }
     }
 }
 
@@ -977,6 +1007,35 @@ private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
         L("カードの不透明度", "Card opacity"), (disp.cardOpacity * 100).roundToInt(), 20, 100, 5, { set(d.copy(display = disp.copy(cardOpacity = it / 100.0))) },
         L("背景画像があるときだけ効きます。小さいほどカードが透けて背景が見えます（100% で透けません）。", "Only applies with a background image. Lower values let more of the background show through (100% is opaque)."),
     )
+    PercentSlider(
+        L("カードの角の丸み", "Card corner radius"), disp.cardRadius, app.dashboard.data.CARD_RADIUS_MIN, app.dashboard.data.CARD_RADIUS_MAX, 2,
+        { set(d.copy(display = disp.copy(cardRadius = it))) },
+        L("0 で四角、大きいほど丸くなります（既定は ${app.dashboard.data.CARD_RADIUS_DEFAULT}）。下の見本はいまの値で描いています。", "0 is square; larger is rounder (default ${app.dashboard.data.CARD_RADIUS_DEFAULT}). The preview below uses the current value."),
+        unit = " dp",
+    )
+    RadiusPreview(disp.cardRadius)
+}
+
+/** カードの角の丸みの見本。ダッシュボードのカードと同じ枠（[app.dashboard.ui.common.WdCard]）を、選んだ丸みで 3 枚並べる。 */
+@Composable
+private fun RadiusPreview(radius: Int) {
+    val accent = LocalAccent.current
+    Row(Modifier.fillMaxWidth().padding(bottom = 22.dp).height(150.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val saved = Wd.cardRadius
+        Wd.cardRadius = radius.dp
+        app.dashboard.ui.common.WdCard(L("時刻", "Clock"), Modifier.weight(1.2f).fillMaxHeight()) {
+            Text("12:34", fontSize = 40.tu, fontWeight = FontWeight.SemiBold)
+            Text(L("見本", "Preview"), color = Wd.Text2, fontSize = 12.tu)
+        }
+        app.dashboard.ui.common.WdCard(L("天気", "Weather"), Modifier.weight(1f).fillMaxHeight(), note = "24°") {
+            Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape((radius * 0.6f).dp)).background(accent.copy(alpha = 0.22f)))
+        }
+        app.dashboard.ui.common.WdCard("Todo", Modifier.weight(0.8f).fillMaxHeight()) {
+            Text("• " + L("買い物", "Groceries"), fontSize = 13.tu)
+            Text("• " + L("洗濯", "Laundry"), fontSize = 13.tu)
+        }
+        Wd.cardRadius = saved
+    }
 }
 
 private val CountdownLabels get() = app.dashboard.data.Countdown.BUILTIN_LABELS
@@ -1206,6 +1265,7 @@ private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) 
     Field("Client ID", L("秘密の値ではありません。入力したら「全て保存」してから「Spotify と連携」を押してください。", "Not a secret. After entering it, press Save all, then \"Connect Spotify\".")) {
         Input(d.spotifyClientId, { set(d.copy(spotifyClientId = it)) }, placeholder = L("例: 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c", "e.g. 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c"))
     }
+    LyricsField(graph, d, set)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         ActionButton(L("Spotify と連携", "Connect Spotify"), { onOpenBrowser("http://127.0.0.1:${DashboardServer.PORT}/api/spotify/start") }, enabled = savedId)
         ActionButton(L("連携を解除", "Disconnect"), { graph.spotify.disconnect() }, enabled = connected)
@@ -1223,6 +1283,31 @@ private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) 
             L("使うには Spotify Developer Dashboard で「Create app」→ Redirect URI に ${DashboardServer.SPOTIFY_REDIRECT_URI} を追加 → API は「Web API」を選び、", "To use it, in the Spotify Developer Dashboard choose \"Create app\" → add ${DashboardServer.SPOTIFY_REDIRECT_URI} as a Redirect URI → select \"Web API\", ") +
             L("できた Client ID を上に入力してください（Client Secret は使いません）。", "then enter the resulting Client ID above (the Client Secret isn't used)."),
     )
+}
+
+/** 歌詞の保存（直近 [app.dashboard.data.LyricsRepository.MAX_SAVED] 曲）。 */
+@Composable
+private fun LyricsField(graph: AppGraph, d: Draft, set: (Draft) -> Unit) {
+    var count by remember { mutableStateOf(graph.lyrics.savedCount()) }
+    val max = app.dashboard.data.LyricsRepository.MAX_SAVED
+    Field(
+        L("歌詞の保存", "Saving lyrics"),
+        L(
+            "オンにすると、全画面で見つけた歌詞を直近 $max 曲までこの端末に保存し、次からは通信せずに出します（古いものから消します）。" +
+                "オフの間は保存も、保存した歌詞を使うこともしません（保存済みの歌詞は消すまで残ります）。",
+            "When on, lyrics found in full screen are saved on this device for the latest $max songs and shown without fetching next time (oldest removed first). " +
+                "When off, lyrics are neither saved nor read from storage (saved lyrics stay until you delete them).",
+        ),
+    ) {
+        SwitchRow(L("直近 $max 曲の歌詞を端末に保存する", "Save lyrics of the latest $max songs on this device"), d.spotifySaveLyrics, { set(d.copy(spotifySaveLyrics = it)) })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(L("保存済み: $count 曲", "Saved: $count songs"), color = Wd.Text2, fontSize = 13.tu, modifier = Modifier.weight(1f))
+            ActionButton(L("保存した歌詞を消す", "Delete saved lyrics"), {
+                graph.lyrics.clearSaved()
+                count = graph.lyrics.savedCount()
+            }, enabled = count > 0)
+        }
+    }
 }
 
 @Composable
@@ -1261,6 +1346,201 @@ private fun BatteryOptimization() {
             .onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }
     }, enabled = !ignoring)
     Hint(L("メーカー独自の省電力機能（自動起動の管理など）は、端末の設定アプリで別に許可が必要なことがあります。", "Manufacturer-specific power saving (auto-start management, etc.) may need separate permission in the device's settings app."))
+}
+
+/** プリセットの作成・切り替え・名前の変更・削除（その場で保存。「全て保存」には含めない）。 */
+@Composable
+private fun PresetsPane(graph: AppGraph, config: Config, dirty: Boolean) {
+    val presets = graph.presets.list(config)
+    var name by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var statusColor by remember { mutableStateOf(Wd.Text2) }
+    var renaming by remember { mutableStateOf<app.dashboard.data.Preset?>(null) }
+    var removing by remember { mutableStateOf<app.dashboard.data.Preset?>(null) }
+    val scope = rememberCoroutineScope()
+    val accent = LocalAccent.current
+    val max = app.dashboard.data.MAX_PRESETS
+
+    fun run(ok: String, block: () -> Unit) {
+        status = L("処理中…", "Working…")
+        statusColor = Wd.Text2
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching(block) }
+                .onSuccess { status = ok; statusColor = Wd.Green }
+                .onFailure { status = (it as? SettingsController.SettingsException)?.message ?: L("エラー: ${it.message}", "Error: ${it.message}"); statusColor = Wd.Red }
+        }
+    }
+
+    PaneTitle(
+        L("プリセット", "Presets"),
+        L(
+            "カード・配色・テーマ・背景画像・通知などの設定を丸ごと、最大 $max 個まで持っておき、ダッシュボード右下のボタンからすぐ切り替えられます。" +
+                "ほかの面で変えた設定は、使用中のプリセットに入ります。切り替えても変わらないのは、ブラウズのお気に入りだけです（LAN 公開と、この設定画面の PIN も端末の守りのため共通です）。",
+            "Keep up to $max complete sets of settings (cards, colors, theme, background image, notifications…) and switch instantly with the button at the bottom right of the dashboard. " +
+                "Changes made in other panes go into the preset in use. Only browser favorites stay the same across presets (LAN access and the settings PIN are also shared, for security).",
+        ),
+    )
+    if (dirty) Notice(L("未保存の変更があります。切り替え・作成の前に「全て保存」を押してください（押さずに切り替えると変更は失われます）。", "You have unsaved changes. Press Save all before switching or creating (otherwise the changes are lost)."), Wd.Amber)
+    presets.items.forEach { p ->
+        val active = p.id == presets.active
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(12.dp))
+                .background(if (active) accent.copy(alpha = 0.10f) else Wd.Surface2)
+                .border(1.dp, if (active) accent.copy(alpha = 0.6f) else Wd.Border, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(p.name, fontSize = 15.tu, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (active) {
+                Text(L("使用中", "In use"), color = accent, fontSize = 12.tu, fontWeight = FontWeight.SemiBold)
+            } else {
+                ActionButton(L("切り替える", "Switch"), { run(L("「${p.name}」に切り替えました", "Switched to \"${p.name}\"")) { graph.presets.switchTo(p.id) } }, primary = true, enabled = !dirty)
+            }
+            ActionButton(L("名前を変更", "Rename"), { renaming = p })
+            ActionButton(L("削除", "Delete"), { removing = p }, enabled = presets.items.size > 1 && !dirty, color = Wd.Red)
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Field(
+        L("新しいプリセット", "New preset"),
+        L("いまの設定（背景画像を含む）を写して作り、そのプリセットに切り替えます。あとはほかの面で好きに変えてください。", "Creates a copy of the current settings (including the background image) and switches to it. Then change it in the other panes as you like."),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Input(name, { name = it.take(app.dashboard.PresetController.MAX_NAME) }, Modifier.weight(1f), placeholder = L("名前（空なら B・C…）", "Name (B, C… if empty)"))
+            Spacer(Modifier.width(10.dp))
+            ActionButton(L("作成", "Create"), {
+                val n = name
+                name = ""
+                run(L("作成して切り替えました", "Created and switched")) { graph.presets.create(n) }
+            }, primary = true, enabled = presets.items.size < max && !dirty)
+        }
+        Hint(L("${presets.items.size} / $max 個", "${presets.items.size} / $max"))
+    }
+    StatusText(status, statusColor)
+
+    renaming?.let { p ->
+        var value by remember(p.id) { mutableStateOf(p.name) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text(L("名前を変更", "Rename")) },
+            text = { Input(value, { value = it.take(app.dashboard.PresetController.MAX_NAME) }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val v = value
+                    renaming = null
+                    run(L("名前を変更しました", "Renamed")) { graph.presets.rename(p.id, v) }
+                }) { Text(L("変更", "Rename")) }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(L("キャンセル", "Cancel")) } },
+        )
+    }
+    removing?.let { p ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text(L("「${p.name}」を削除", "Delete \"${p.name}\"")) },
+            text = {
+                Text(
+                    if (p.id == presets.active) L("使用中のプリセットです。削除すると、残りの最初のプリセットに切り替わります。元に戻せません。", "This preset is in use. Deleting it switches to the first remaining preset. This can't be undone.")
+                    else L("このプリセットの設定と背景画像を消します。元に戻せません。", "Deletes this preset's settings and background image. This can't be undone."),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    removing = null
+                    run(L("削除しました", "Deleted")) { graph.presets.delete(p.id) }
+                }) { Text(L("削除", "Delete"), color = Wd.Red) }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text(L("キャンセル", "Cancel")) } },
+        )
+    }
+}
+
+/** この設定画面を開くときの PIN（既定はオフ）。 */
+@Composable
+private fun LockPane(graph: AppGraph, config: Config) {
+    var pin by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var statusColor by remember { mutableStateOf(Wd.Text2) }
+    val scope = rememberCoroutineScope()
+    val on = config.settingsLock.enabled && config.settingsLock.pinHash != null
+    val min = app.dashboard.server.Auth.MIN_SETTINGS_PIN_LENGTH
+
+    fun report(ok: String, block: () -> Unit) {
+        status = L("処理中…", "Working…")
+        statusColor = Wd.Text2
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching(block) }
+                .onSuccess { status = ok; statusColor = Wd.Green }
+                .onFailure { status = it.message ?: L("エラー", "Error"); statusColor = Wd.Red }
+        }
+    }
+
+    PaneTitle(
+        L("設定の PIN", "Settings PIN"),
+        L(
+            "ダッシュボードの「設定」を開くときに PIN を求めます。家族や来客に設定を変えられたくないときに使います。既定はオフです。" +
+                "Web の設定画面（PC・LAN から）は「ネットワーク」の PIN で守られていて、これとは別です。",
+            "Asks for a PIN when opening Settings from the dashboard, so others can't change your settings. Off by default. " +
+                "The web settings (from a PC or LAN) are protected by the PIN under \"Network\", which is separate.",
+        ),
+    )
+    StatusText(if (on) L("オン — 設定を開くたびに PIN を聞きます", "On — the PIN is asked each time Settings opens") else L("オフ", "Off"), if (on) Wd.Green else Wd.Text2)
+    Spacer(Modifier.height(14.dp))
+    Field(L(if (on) "PIN を変える" else "PIN を決めてオンにする", if (on) "Change the PIN" else "Set a PIN and turn on"), L("数字 $min 桁以上。忘れると設定を開けなくなるので、控えておいてください（アプリを入れ直すと設定ごと消えます）。", "$min or more digits. If you forget it you can't open Settings, so keep a note (reinstalling the app erases all settings).")) {
+        Input(pin, { pin = it.filter(Char::isDigit).take(12) }, placeholder = L("新しい PIN", "New PIN"), password = true, number = true)
+        Spacer(Modifier.height(8.dp))
+        Input(again, { again = it.filter(Char::isDigit).take(12) }, placeholder = L("もう一度", "Again"), password = true, number = true)
+        Spacer(Modifier.height(10.dp))
+        ActionButton(if (on) L("PIN を変更", "Change PIN") else L("PIN を設定してオンにする", "Set PIN and turn on"), {
+            val value = pin
+            val confirm = again
+            pin = ""
+            again = ""
+            when {
+                value.length < min -> { status = L("PIN は $min 桁以上必要です", "The PIN must be at least $min digits"); statusColor = Wd.Red }
+                value != confirm -> { status = L("2 つの PIN が違います", "The two PINs don't match"); statusColor = Wd.Red }
+                else -> report(L("PIN を設定しました", "PIN set")) { graph.auth.setSettingsPin(value) }
+            }
+        }, primary = true)
+    }
+    if (on) ActionButton(L("PIN をオフにする", "Turn off the PIN"), { report(L("PIN をオフにしました", "PIN turned off")) { graph.auth.clearSettingsPin() } }, color = Wd.Red)
+    StatusText(status, statusColor)
+}
+
+/** 情報（バージョン）。 */
+@Composable
+private fun InfoPane(onVersionArt: () -> Unit) {
+    var taps by remember { mutableStateOf(0) }
+    var lastTap by remember { mutableStateOf(0L) }
+    PaneTitle(L("情報", "About"), L("このアプリについて。", "About this app."))
+    Field(L("バージョン", "Version"), L("Releases の APK は v1.2.3 の形、ソースコードから自分でビルドしたものは「それより前の最新のバージョン-コミットの名前」の形です。", "APKs from Releases show v1.2.3; builds from source show \"latest earlier version-commit name\".")) {
+        Text(
+            app.dashboard.BuildConfig.VERSION_LABEL,
+            fontSize = 22.tu,
+            fontWeight = FontWeight.SemiBold,
+            style = app.dashboard.ui.common.Tabular,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    val now = System.currentTimeMillis()
+                    taps = if (now - lastTap < 1500) taps + 1 else 1
+                    lastTap = now
+                    if (taps >= 5) {
+                        taps = 0
+                        onVersionArt()
+                    }
+                }
+                .padding(vertical = 4.dp),
+        )
+    }
+    Field(L("ライセンス", "License")) { Text("MIT License", color = Wd.Text2, fontSize = 14.tu) }
+    Notice(
+        L(
+            "天気: Open-Meteo.com (CC BY 4.0) ・ 防災・雨雲: 気象庁 ・ 強震モニタ: 防災科学技術研究所 ・ ハムスター: Uiverse.io の Nawsome 作「Loader」(MIT)",
+            "Weather: Open-Meteo.com (CC BY 4.0) · Alerts & rain: JMA · Seismic monitor: NIED · Hamster: \"Loader\" by Nawsome on Uiverse.io (MIT)",
+        ),
+    )
 }
 
 @Composable

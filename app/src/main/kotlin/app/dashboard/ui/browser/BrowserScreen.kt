@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -76,7 +77,7 @@ private const val HOME_URL = "https://www.google.com"
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
+fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose: () -> Unit) {
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val favorites by config.flow.collectAsStateWithLifecycle()
@@ -120,9 +121,11 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
         if (view != null && view.canGoBack()) view.goBack() else onClose()
     }
 
+    // 上のツールバー（タブ）はアクセント色に合わせる。色をそのまま塗ると文字やアイコンが読めない色があるので、面の色に混ぜる
+    val bar = mix(Wd.Surface, accent, if (Wd.palette.light) 0.22f else 0.30f)
     Column(Modifier.fillMaxSize().background(Wd.Bg).imePadding()) {
         Row(
-            Modifier.fillMaxWidth().background(Wd.Surface).padding(6.dp),
+            Modifier.fillMaxWidth().background(bar).padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ToolText(L("ホーム", "Home"), onClose)
@@ -140,6 +143,7 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Wd.Bg, unfocusedContainerColor = Wd.Bg,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = accent,
                 ),
                 // 触れたら今の URL を全選択する（打った文字が URL の後ろに繋がらないように）
                 modifier = Modifier.weight(1f).padding(start = 6.dp).onFocusChanged {
@@ -179,6 +183,7 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, onClose: () -> Unit) {
             }
         }
 
+        Box(Modifier.fillMaxWidth().height(2.dp).background(accent))
         AndroidView(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
@@ -395,6 +400,9 @@ private fun ToolIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
         Icon(icon, label, tint = Wd.Text, modifier = Modifier.size(22.dp))
     }
 }
+
+private fun mix(base: Color, tint: Color, k: Float) =
+    Color(base.red + (tint.red - base.red) * k, base.green + (tint.green - base.green) * k, base.blue + (tint.blue - base.blue) * k, 1f)
 
 /** <title> の無いページでは URL がそのまま題名として来るので、空として扱う。 */
 private fun cleanTitle(raw: String?, url: String): String {

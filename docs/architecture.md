@@ -384,6 +384,18 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 | MVVM + Clean Architecture、Hilt による DI | Hilt は入れない。新しい機能は「取得（Repository）・状態（Controller / Tracker）・画面」に分け、依存はコンストラクタで渡す | 部品は `AppGraph`（手書きの DI）がサービス・画面・内蔵サーバーで同じ実体を共有しており、Hilt に移しても得るものが少ない（1 つのプロセス・1 人の開発）。KSP とアノテーション処理でビルドが重くなり、古いタブレットに向けた構成を崩す危険が大きい |
 | テストの拡充 | 済 | 単体テスト（JUnit・Coroutines Test・Turbine・Ktor MockEngine）と Compose UI テスト。README の「テスト」 |
 
+### 3-16. プリセット
+
+- 使用中のプリセットの中身は、いまの `Config` そのもの。切り替えるときに `PresetController` が、いまの設定を使用中のプリセットの控え（`Preset.config`）に書き、切り替え先の控えを `Config` に戻す。設定の保存の経路（`saveAll()`・Web の設定画面）はプリセットを知らなくてよい
+- 切り替えても変わらないもの（`PresetController.keep()`）: ブラウズのお気に入り・LAN 公開と PIN・設定の PIN・プリセットの一覧。LAN と設定の PIN を含めないのは、PIN の無いプリセットへ切り替えるだけで守りが外れるのを防ぐため
+- 背景画像は `filesDir/presets/{id}.jpg` に控える（`WallpaperStore.stash()` / `restore()`）
+- `Config` を足したら、プリセットにも自動で入る。切り替えても変えたくないものは `keep()` と `strip()` に足す
+- Todo（`filesDir/todo.json`）は設定ではなくデータなので、プリセットに入らない
+
+### 3-17. 焼き付き防止のずらしと全画面
+
+ずらし（`burnInShift()`）は、カードだけでなく全画面（Spotify・時刻・雨雲レーダー・暗号通貨・飛行機・船舶・台風・写真のスクリーンセーバー）と通知のバナーを含む `Box` に掛ける。以前はカードの `Column` だけに掛けていて、全画面の間は止まっていた。
+
 ---
 
 ## 4. 設定画面の構造

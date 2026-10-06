@@ -138,7 +138,8 @@ class ConfigStore(context: Context) {
         cardOpacity = d.cardOpacity.coerceIn(0.2, 1.0),
         cardColor = if (CardColors.isKnown(d.cardColor)) d.cardColor.uppercase() else "",
         clockAlign = if (d.clockAlign in ALLOWED_ALIGNS) d.clockAlign else "left",
-        clockDateFormat = if (d.clockDateFormat in ALLOWED_DATE_FORMATS) d.clockDateFormat else "ja",
+        clockDateFormat = if (d.clockDateFormat in DATE_FORMATS) d.clockDateFormat else "ja",
+        cardRadius = d.cardRadius.coerceIn(CARD_RADIUS_MIN, CARD_RADIUS_MAX),
         hourlyMode = if (d.hourlyMode in ALLOWED_HOURLY_MODES) d.hourlyMode else "both",
         // 知らないキーは捨てる。重複も落とす（同じ項目が 2 度並ぶと 3 列 3 行から溢れる）。
         // 全部外すと天気カードが数字だけになるので、空になったら既定へ戻す。
@@ -204,7 +205,6 @@ class ConfigStore(context: Context) {
         private const val MAX_FAVORITE_TITLE = 80
 
         private val ALLOWED_ALIGNS = setOf("left", "center", "right")
-        private val ALLOWED_DATE_FORMATS = setOf("ja", "slash")
         private val ALLOWED_HOURLY_MODES = setOf("both", "temp", "precip")
         private val ALLOWED_THEMES = setOf("dark", "light")
         private val ALLOWED_STOCK_RANGES = setOf("1d", "5d", "1mo", "6mo", "1y")

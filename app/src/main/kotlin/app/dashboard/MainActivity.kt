@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -32,6 +33,7 @@ import app.dashboard.ui.browser.BrowserScreen
 import app.dashboard.ui.dashboard.DashboardScreen
 import app.dashboard.ui.dashboard.DashboardViewModel
 import app.dashboard.ui.settings.SettingsPanel
+import app.dashboard.ui.settings.SettingsPinDialog
 import app.dashboard.ui.theme.DashboardTheme
 import app.dashboard.ui.theme.colorOf
 
@@ -45,6 +47,8 @@ class MainActivity : ComponentActivity() {
     private val graph by lazy { AppGraph.get(this) }
 
     private var settingsOpen by mutableStateOf(false)
+    /** 設定の PIN を聞いているところ。 */
+    private var askPin by mutableStateOf(false)
     /** null は閉じている、"" は開始ページ、それ以外はその URL を開く。 */
     private var browserUrl by mutableStateOf<String?>(null)
     private var resumed = false
@@ -93,12 +97,14 @@ class MainActivity : ComponentActivity() {
                 light = config.display.theme == "light",
                 cardAlpha = if (hasWallpaper) config.display.cardOpacity.toFloat() else 1f,
                 cardTint = config.display.cardColor.takeIf { it.isNotEmpty() }?.let { colorOf(it) },
+                cardRadius = config.display.cardRadius.dp,
             ) {
                 Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
-                    DashboardScreen(vm, onOpenSettings = { settingsOpen = true }, onOpenBrowser = { browserUrl = "" })
+                    DashboardScreen(vm, onOpenSettings = { if (graph.auth.settingsLocked()) askPin = true else settingsOpen = true }, onOpenBrowser = { browserUrl = "" })
+                    if (askPin) SettingsPinDialog(graph, onUnlock = { askPin = false; settingsOpen = true }, onDismiss = { askPin = false; hideSystemBars() })
                     if (settingsOpen) SettingsPanel(graph, onClose = { settingsOpen = false }, onOpenBrowser = { browserUrl = it })
                     browserUrl?.let { url ->
-                        BrowserScreen(graph.config, url.ifEmpty { null }, onClose = { browserUrl = null; hideSystemBars() })
+                        BrowserScreen(graph.config, url.ifEmpty { null }, colorOf(config.display.accent), onClose = { browserUrl = null; hideSystemBars() })
                     }
                 }
             }

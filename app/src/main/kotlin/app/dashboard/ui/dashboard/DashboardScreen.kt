@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -95,6 +97,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val shipFrame by vm.shipMap.frame.collectAsStateWithLifecycle()
     val ships by vm.ships.collectAsStateWithLifecycle()
     val shipStatus by vm.shipStatus.collectAsStateWithLifecycle()
+    val todos by vm.todos.collectAsStateWithLifecycle()
 
     val d = config.display
     val s = state
@@ -107,6 +110,8 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     var cryptoFull by remember { mutableStateOf(false) }
     var flightFull by remember { mutableStateOf(false) }
     var shipFull by remember { mutableStateOf(false) }
+    /** 写真のスクリーンセーバー（写真カードの長押し）。「暗くしない」は無いので fullscreen には数えない。 */
+    var photoFull by remember { mutableStateOf(false) }
     /** 進路図を画面いっぱいに出している台風の識別子。 */
     var typhoonId by remember { mutableStateOf<String?>(null) }
     /** 最後に開いた台風（進路図を閉じるまで、台風が一覧から消えても同じものを出し続ける）。 */
@@ -146,7 +151,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             Slot.TODAY -> TodayCard(s?.today, now, d.todayShowEvent, modifier)
             Slot.STOCKS -> StocksCard(s?.stocks, config.stocks.range, now, modifier)
             Slot.CALCULATOR -> CalculatorCard(modifier)
-            Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, modifier)
+            Slot.PHOTOS -> PhotoCard(photo, s?.photos, config.photos, vm::nextPhoto, { photoFull = true }, modifier)
             Slot.CRYPTO -> CryptoCard(s?.crypto, config.crypto, now, vm::stepCryptoRange, { cryptoFull = true }, modifier)
             Slot.FLIGHTS -> FlightCard(
                 flightFrame, flights, now, vm.flightMap::pan, vm.flightMap::zoom, vm.flightMap::recenter, { flightFull = true }, modifier,
@@ -155,6 +160,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                 shipFrame, ships, shipStatus, now, vm.shipMap::pan, vm.shipMap::zoom, vm.shipMap::recenter, { shipFull = true }, modifier,
             )
             Slot.GITHUB -> GithubCard(s?.github, remember(config.github) { config.toPublic().github }, now, modifier)
+            Slot.TODO -> TodoCard(todos, vm::addTodo, vm::doneTodo, modifier)
         }
     }
 
@@ -166,115 +172,121 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
     Box(Modifier.fillMaxSize().background(Wd.Bg).drawBehind { if (wallpaper == null) glow() }) {
         wallpaper?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-        Column(Modifier.fillMaxSize().offset { shift }) {
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(GAP)) {
-                val area = CardLayout.Area(maxHeight.value.toInt(), screen.screenWidthDp, screen.screenHeightDp)
-                // 設定画面が「カードを増やしても収まるか」を判定するときに、この実測の高さを使う
-                SideEffect { CardLayout.measured = area }
-                // 横向きで行が溢れるときは、週間予報を半分の幅まで縮めて空いた列に後ろのカードを並べる
-                val grid = CardLayout.grid(d, area)
-                val fit = (maxHeight - GAP * max(0, grid.rows - 1)) / max(1, grid.rows)
-                // それでも収まらないとき（設定で止める前の古い設定や、画面の小さい端末への持ち込み）は、
-                // 詰め込んで文字を重ねるより、1 行の高さを保って縦にスクロールさせる
-                val fits = compact || grid.rows <= CardLayout.maxRows(area)
-                SideEffect { overflow = !fits }
-                val rowHeight = when {
-                    compact -> maxOf(fit, 190.dp)
-                    !fits -> CardLayout.minRowDp(screen.screenHeightDp).dp
-                    else -> fit
-                }
-                // 24 列の格子に置く（利用者の配置で行の右端が余っているときや、縦に伸ばしたカードの下は、そのまま空く）
-                val pitch = (maxWidth + GAP) / CardLayout.COLUMNS
-                val body: @Composable () -> Unit = {
-                    Box(Modifier.fillMaxWidth().height(rowHeight * grid.rows + GAP * max(0, grid.rows - 1))) {
-                        grid.cards.forEach { p ->
-                            key(p.card) {
-                                Card(
-                                    p.card,
-                                    Modifier
-                                        .offset(x = pitch * p.col, y = (rowHeight + GAP) * p.row)
-                                        .size(pitch * p.span - GAP, rowHeight * p.height + GAP * (p.height - 1)),
-                                )
+        // 焼き付き防止のずらしは、全画面（Spotify・時刻・雨雲レーダー・写真など）を含めた画面全体に効かせる
+        Box(Modifier.fillMaxSize().offset { shift }) {
+            Column(Modifier.fillMaxSize()) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(GAP)) {
+                    val area = CardLayout.Area(maxHeight.value.toInt(), screen.screenWidthDp, screen.screenHeightDp)
+                    // 設定画面が「カードを増やしても収まるか」を判定するときに、この実測の高さを使う
+                    SideEffect { CardLayout.measured = area }
+                    // 横向きで行が溢れるときは、週間予報を半分の幅まで縮めて空いた列に後ろのカードを並べる
+                    val grid = CardLayout.grid(d, area)
+                    val fit = (maxHeight - GAP * max(0, grid.rows - 1)) / max(1, grid.rows)
+                    // それでも収まらないとき（設定で止める前の古い設定や、画面の小さい端末への持ち込み）は、
+                    // 詰め込んで文字を重ねるより、1 行の高さを保って縦にスクロールさせる
+                    val fits = compact || grid.rows <= CardLayout.maxRows(area)
+                    SideEffect { overflow = !fits }
+                    val rowHeight = when {
+                        compact -> maxOf(fit, 190.dp)
+                        !fits -> CardLayout.minRowDp(screen.screenHeightDp).dp
+                        else -> fit
+                    }
+                    // 24 列の格子に置く（利用者の配置で行の右端が余っているときや、縦に伸ばしたカードの下は、そのまま空く）
+                    val pitch = (maxWidth + GAP) / CardLayout.COLUMNS
+                    val body: @Composable () -> Unit = {
+                        Box(Modifier.fillMaxWidth().height(rowHeight * grid.rows + GAP * max(0, grid.rows - 1))) {
+                            grid.cards.forEach { p ->
+                                key(p.card) {
+                                    Card(
+                                        p.card,
+                                        Modifier
+                                            .offset(x = pitch * p.col, y = (rowHeight + GAP) * p.row)
+                                            .size(pitch * p.span - GAP, rowHeight * p.height + GAP * (p.height - 1)),
+                                    )
+                                }
                             }
                         }
                     }
+                    if (rowHeight > fit) Box(Modifier.verticalScroll(rememberScrollState())) { body() } else body()
                 }
-                if (rowHeight > fit) Box(Modifier.verticalScroll(rememberScrollState())) { body() } else body()
+                Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser, vm.graph.presets.list(config), vm::switchPreset)
             }
-            Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser)
-        }
 
-        if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+            if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
 
-        AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, vm::lyrics, onBack = { nowPlaying = false })
-        }
-        AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
-        }
-        AnimatedVisibility(radarFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            RadarScreen(
-                radar, config.location.displayName(s?.disaster?.areaNameEn), keepAwake, vm::setKeepAwake,
-                vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
-            )
-        }
-        AnimatedVisibility(cryptoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            CryptoScreen(s?.crypto, config.crypto, now, keepAwake, vm::setKeepAwake, vm::cryptoDetail, onBack = { cryptoFull = false })
-        }
-        AnimatedVisibility(flightFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            var selected by remember { mutableStateOf<Any?>(null) }
-            TrackerScreen(
-                L("飛行機", "Flights") + if (flights.fetchedAt > 0) L(" ・ ${flights.aircraft.size} 機", " · ${flights.aircraft.size} aircraft") else "",
-                flightFrame, keepAwake, vm::setKeepAwake, vm.flightMap::zoom, vm.flightMap::recenter, vm::setFlightFullscreen,
-                onBack = { flightFull = false },
-                map = { FlightMap(flightFrame, flights, now, selected, { selected = it }, vm.flightMap::pan, true, it) },
-                footer = { AltitudeLegend(Modifier) },
-                info = { m ->
-                    flights.aircraft.firstOrNull { it.hex == selected }?.let { a ->
-                        InfoBox(a.callsign ?: a.registration ?: a.hex.uppercase(), aircraftLines(a), true, m)
-                    }
-                },
-            )
-        }
-        AnimatedVisibility(shipFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            var selected by remember { mutableStateOf<Any?>(null) }
-            TrackerScreen(
-                L("船舶", "Ships") + L(" ・ ${ships.size} 隻", " · ${ships.size} ships"),
-                shipFrame, keepAwake, vm::setKeepAwake, vm.shipMap::zoom, vm.shipMap::recenter, vm::setShipFullscreen,
-                onBack = { shipFull = false },
-                map = { ShipMap(shipFrame, ships, selected, { selected = it }, vm.shipMap::pan, true, it) },
-                footer = {
-                    Column {
-                        ShipLegend(Modifier)
-                        ShipStatusText(shipStatus, ships.isEmpty(), true, Modifier.padding(top = 6.dp))
-                    }
-                },
-                info = { m ->
-                    ships.firstOrNull { it.mmsi == selected }?.let { sh -> InfoBox(sh.name ?: "MMSI ${sh.mmsi}", shipLines(sh, now), true, m) }
-                },
-            )
-        }
-        AnimatedVisibility(typhoonId != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-            // 発表が更新されたら新しい方を渡す（進路図を取り直す）
-            val info = s?.disaster?.typhoons?.firstOrNull { it.id == typhoonShown?.id } ?: typhoonShown
-            info?.let {
-                TyphoonScreen(
-                    it,
-                    app.dashboard.data.LatLon(config.location.latitude, config.location.longitude),
-                    vm::typhoonTrack,
-                    vm::darkMapTile,
-                    onBack = { typhoonId = null },
+            AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, vm::lyrics, onBack = { nowPlaying = false })
+            }
+            AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
+            }
+            AnimatedVisibility(radarFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                RadarScreen(
+                    radar, config.location.displayName(s?.disaster?.areaNameEn), keepAwake, vm::setKeepAwake,
+                    vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
                 )
             }
-        }
-        // 通知のバナーは全画面の上にも出す
-        AnimatedVisibility(
-            visible = toast != null,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
-            enter = slideInVertically { -it * 2 },
-            exit = slideOutVertically { -it * 2 },
-        ) {
-            toast?.let { ToastBanner(it) }
+            AnimatedVisibility(cryptoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                CryptoScreen(s?.crypto, config.crypto, now, keepAwake, vm::setKeepAwake, vm::cryptoDetail, onBack = { cryptoFull = false })
+            }
+            AnimatedVisibility(flightFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                var selected by remember { mutableStateOf<Any?>(null) }
+                TrackerScreen(
+                    L("飛行機", "Flights") + if (flights.fetchedAt > 0) L(" ・ ${flights.aircraft.size} 機", " · ${flights.aircraft.size} aircraft") else "",
+                    flightFrame, keepAwake, vm::setKeepAwake, vm.flightMap::zoom, vm.flightMap::recenter, vm::setFlightFullscreen,
+                    onBack = { flightFull = false },
+                    map = { FlightMap(flightFrame, flights, now, selected, { selected = it }, vm.flightMap::pan, true, it) },
+                    footer = { AltitudeLegend(Modifier) },
+                    info = { m ->
+                        flights.aircraft.firstOrNull { it.hex == selected }?.let { a ->
+                            InfoBox(a.callsign ?: a.registration ?: a.hex.uppercase(), aircraftLines(a), true, m)
+                        }
+                    },
+                )
+            }
+            AnimatedVisibility(shipFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                var selected by remember { mutableStateOf<Any?>(null) }
+                TrackerScreen(
+                    L("船舶", "Ships") + L(" ・ ${ships.size} 隻", " · ${ships.size} ships"),
+                    shipFrame, keepAwake, vm::setKeepAwake, vm.shipMap::zoom, vm.shipMap::recenter, vm::setShipFullscreen,
+                    onBack = { shipFull = false },
+                    map = { ShipMap(shipFrame, ships, selected, { selected = it }, vm.shipMap::pan, true, it) },
+                    footer = {
+                        Column {
+                            ShipLegend(Modifier)
+                            ShipStatusText(shipStatus, ships.isEmpty(), true, Modifier.padding(top = 6.dp))
+                        }
+                    },
+                    info = { m ->
+                        ships.firstOrNull { it.mmsi == selected }?.let { sh -> InfoBox(sh.name ?: "MMSI ${sh.mmsi}", shipLines(sh, now), true, m) }
+                    },
+                )
+            }
+            AnimatedVisibility(photoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                PhotoScreen(photo, onBack = { photoFull = false })
+            }
+            AnimatedVisibility(typhoonId != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                // 発表が更新されたら新しい方を渡す（進路図を取り直す）
+                val info = s?.disaster?.typhoons?.firstOrNull { it.id == typhoonShown?.id } ?: typhoonShown
+                info?.let {
+                    TyphoonScreen(
+                        it,
+                        app.dashboard.data.LatLon(config.location.latitude, config.location.longitude),
+                        vm::typhoonTrack,
+                        vm::darkMapTile,
+                        onBack = { typhoonId = null },
+                    )
+                }
+            }
+            // 通知のバナーは全画面の上にも出す
+            AnimatedVisibility(
+                visible = toast != null,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+                enter = slideInVertically { -it * 2 },
+                exit = slideOutVertically { -it * 2 },
+            ) {
+                toast?.let { ToastBanner(it) }
+            }
         }
     }
 }
@@ -342,6 +354,8 @@ private fun Footer(
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
     onBrowse: () -> Unit,
+    presets: app.dashboard.data.PresetsConfig,
+    onPreset: (String) -> Unit,
 ) {
     val spin by rememberInfiniteTransition(label = "refresh").animateFloat(
         0f, 360f, infiniteRepeatable(tween(800, easing = LinearEasing)), label = "spin",
@@ -361,11 +375,52 @@ private fun Footer(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             FooterButton(WdIcons.Refresh, L("更新", "Refresh"), onRefresh, Modifier.rotate(if (refreshing) spin else 0f))
+            PresetButton(presets, onPreset)
             FooterButton(WdIcons.Gear, L("設定", "Settings"), onSettings)
             FooterButton(WdIcons.Browse, L("ブラウズ", "Browse"), onBrowse)
         }
         if (overflow) Text(L("カードが画面に収まりません（設定でカードを減らしてください）", "Cards don't fit on the screen (hide some cards in Settings)"), color = Wd.Amber, fontSize = 11.tu, maxLines = 1)
         Text(L("更新 ", "Updated ") + relative(updatedAt, now), color = Wd.Text3, fontSize = 11.tu)
+    }
+}
+
+/** プリセットの切り替え（フッターの更新ボタンの隣）。押すと一覧を出し、選ぶとすぐ切り替える。 */
+@Composable
+private fun PresetButton(presets: app.dashboard.data.PresetsConfig, onPreset: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val accent = app.dashboard.ui.theme.LocalAccent.current
+    Box {
+        Row(
+            Modifier.height(28.dp).clip(RoundedCornerShape(8.dp)).clickable { open = true }.padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(WdIcons.Layers, L("プリセット", "Presets"), tint = Wd.Text, modifier = Modifier.size(20.dp))
+            if (presets.items.size > 1) {
+                presets.items.firstOrNull { it.id == presets.active }?.let {
+                    Text(it.name, color = Wd.Text2, fontSize = 11.tu, maxLines = 1, modifier = Modifier.padding(start = 4.dp).widthIn(max = 90.dp), overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        DropdownMenu(open, { open = false }) {
+            Text(L("プリセット", "Presets"), color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            presets.items.forEach { p ->
+                val active = p.id == presets.active
+                DropdownMenuItem(
+                    text = { Text(p.name, color = if (active) accent else Wd.Text, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal) },
+                    leadingIcon = { Box(Modifier.size(18.dp)) { if (active) Icon(WdIcons.Check, null, tint = accent, modifier = Modifier.size(18.dp)) } },
+                    onClick = {
+                        open = false
+                        if (!active) onPreset(p.id)
+                    },
+                )
+            }
+            if (presets.items.size < 2) {
+                Text(
+                    L("設定の「プリセット」で作成できます（最大 5 個）", "Create more under \"Presets\" in Settings (up to 5)"),
+                    color = Wd.Text3, fontSize = 11.tu, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).widthIn(max = 260.dp),
+                )
+            }
+        }
     }
 }
 

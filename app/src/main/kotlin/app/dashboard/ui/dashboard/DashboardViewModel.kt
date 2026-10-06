@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.ZoneId
@@ -815,6 +816,22 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val bytes = graph.http.get(url).readRawBytes()
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
     }.getOrNull()
+
+    // ------------------------------------------------------------ Todo・プリセット
+
+    val todos = graph.todos.items
+
+    fun addTodo(text: String) = graph.todos.add(text)
+
+    fun doneTodo(id: Long) = graph.todos.done(id)
+
+    /** ダッシュボードのプリセットのボタンから切り替える（背景画像の写しがあるので画面のスレッドでは回さない）。 */
+    fun switchPreset(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { graph.presets.switchTo(id) }
+                .onFailure { withContext(Dispatchers.Main) { showToast(L("プリセット", "Preset"), it.message ?: "", false) } }
+        }
+    }
 
     // ------------------------------------------------------------ 写真
 

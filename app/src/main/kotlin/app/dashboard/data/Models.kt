@@ -432,7 +432,10 @@ data class DisplayConfig(
 
     /** 時計カードの揃え。"left" | "center" | "right" */
     val clockAlign: String = "left",
-    /** 日付の書き方。"ja" = 2026年9月21日 (月) / "slash" = 2026/09/21 (月) */
+    /**
+     * 日付の書き方（[DATE_FORMATS]）。"ja" = 2026年9月21日 (月) / "slash" = 2026/09/21 (月) / "dmy" = 21/09/2026 Mon /
+     * "long" = September 21st, 2026 Mon / "iso" = 2026-09-21 / "longNoDay" = September 21st, 2026
+     */
     val clockDateFormat: String = "ja",
 
     /**
@@ -473,6 +476,10 @@ data class DisplayConfig(
     val showFlights: Boolean = false,
     val showShips: Boolean = false,
     val showGithub: Boolean = false,
+    val showTodo: Boolean = false,
+
+    /** カードの角の丸み（dp）。[CARD_RADIUS_MIN]〜[CARD_RADIUS_MAX]。 */
+    val cardRadius: Int = CARD_RADIUS_DEFAULT,
 
     /** 今日は何の日カードに、過去の今日のできごとを 1 件添える。 */
     val todayShowEvent: Boolean = true,
@@ -488,6 +495,13 @@ data class DisplayConfig(
      */
     val cardLayout: List<List<CardSlot>> = emptyList(),
 )
+
+/** 日付の書き方の選択肢（[DisplayConfig.clockDateFormat]）。Web の設定画面の #clockDateFormat も同じ並び。 */
+val DATE_FORMATS: List<String> = listOf("ja", "slash", "dmy", "long", "iso", "longNoDay")
+
+const val CARD_RADIUS_MIN = 0
+const val CARD_RADIUS_MAX = 32
+const val CARD_RADIUS_DEFAULT = 18
 
 /**
  * カードの配置の 1 枠。[card] は [CardLayout.Card] の名前、[span] は 24 列のうち何列使うか、
@@ -590,6 +604,8 @@ data class SpotifyConfig(
     val enabled: Boolean = false,
     val clientId: String = "",
     val refreshToken: String? = null,
+    /** 見つけた歌詞を端末に保存する（直近 300 曲まで。次からは通信せずに出せる）。 */
+    val saveLyrics: Boolean = true,
 )
 
 /**
@@ -1156,6 +1172,46 @@ data class Config(
     val crypto: CryptoConfig = CryptoConfig(),
     val ships: ShipConfig = ShipConfig(),
     val github: GithubConfig = GithubConfig(),
+    /** プリセット（ここだけはプリセットを切り替えても変わらない。お気に入り・LAN・設定の PIN と同じ）。 */
+    val presets: PresetsConfig = PresetsConfig(),
+    /** アプリの設定画面を開くときの PIN。 */
+    val settingsLock: SettingsLockConfig = SettingsLockConfig(),
+)
+
+// ---------------------------------------------------------------- プリセット
+
+/** プリセットの数の上限。 */
+const val MAX_PRESETS = 5
+
+/**
+ * プリセット 1 つ。[config] は最後にこのプリセットから切り替えたときの設定の控え（お気に入り・LAN・設定の PIN・プリセットは空にしてある）。
+ * 使用中のプリセットの本当の中身は、いまの [Config] そのもの（[config] は古いことがある）。
+ */
+@Serializable
+data class Preset(
+    val id: String,
+    val name: String,
+    val config: Config? = null,
+)
+
+/** [active] は使用中のプリセットの id。[items] が空のうちは、プリセットを 1 つも作っていない（いまの設定が 1 つ目になる）。 */
+@Serializable
+data class PresetsConfig(
+    val active: String = "",
+    val items: List<Preset> = emptyList(),
+)
+
+/**
+ * アプリの設定画面を開くときの PIN（既定はオフ）。ハッシュは LAN の PIN と同じ PBKDF2。
+ * LAN の PIN（Web の設定画面）とは別のもの。
+ */
+@Serializable
+data class SettingsLockConfig(
+    val enabled: Boolean = false,
+    val pinHash: String? = null,
+    val pinSalt: String? = null,
+    val pinIterations: Int = 0,
+    val pinAlgorithm: String = "PBKDF2WithHmacSHA256",
 )
 
 /** 設定画面へ返す公開用の設定。PIN のハッシュとソルトは絶対に含めない。 */
@@ -1177,6 +1233,7 @@ data class SpotifyPublic(
     val enabled: Boolean = false,
     val clientId: String = "",
     val connected: Boolean = false,
+    val saveLyrics: Boolean = true,
 )
 
 @Serializable
@@ -1251,6 +1308,7 @@ fun Config.toPublic() = PublicConfig(
         enabled = spotify.enabled,
         clientId = spotify.clientId,
         connected = !spotify.refreshToken.isNullOrBlank(),
+        saveLyrics = spotify.saveLyrics,
     ),
     notifications = notifications,
     wallpaper = wallpaper,
@@ -1327,6 +1385,7 @@ data class ConfigPatch(
 data class SpotifyPatch(
     val enabled: Boolean? = null,
     val clientId: String? = null,
+    val saveLyrics: Boolean? = null,
 )
 
 /** メモ設定の更新。token は書き込み専用で、読み出し経路は用意しない。 */

@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,7 +39,7 @@ import java.time.ZoneId
 
 /**
  * iCloud の共有アルバムの写真を、設定の間隔で切り替えて出す。写真はカードいっぱいに（はみ出す分は切る）。
- * 押すと待たずに次の写真へ。左下に撮った日と説明（あれば）。
+ * 押すと待たずに次の写真へ、長押しでスクリーンセーバー（[PhotoScreen]）。左下に撮った日と説明（あれば）。
  */
 @Composable
 fun PhotoCard(
@@ -45,6 +47,7 @@ fun PhotoCard(
     state: PhotoState?,
     config: PhotoConfig,
     onNext: () -> Unit,
+    onScreensaver: () -> Unit,
     modifier: Modifier,
 ) {
     if (frame == null) {
@@ -58,10 +61,10 @@ fun PhotoCard(
         }
         return
     }
-    val shape = RoundedCornerShape(18.dp)
+    val shape = app.dashboard.ui.theme.cardShape()
     Box(
         modifier.clip(shape).background(Wd.Surface).border(1.dp, Wd.Border, shape)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onNext),
+            .pointerInput(Unit) { detectTapGestures(onTap = { onNext() }, onLongPress = { onScreensaver() }) },
     ) {
         Crossfade(frame, Modifier.fillMaxSize(), animationSpec = tween(900), label = "photo") { f ->
             Image(f.image, f.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -85,6 +88,32 @@ fun PhotoCard(
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
                 .clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 6.dp, vertical = 2.dp),
         )
+    }
+}
+
+/**
+ * 写真のスクリーンセーバー（写真カードの長押し）。写真を画面いっぱいに（余白なし）、カードと同じ間隔（設定の「写真を変える間隔」）で切り替える。
+ * 左上の「<」と戻る操作で閉じる。「暗くしない」は無い（無操作の減光は設定どおり）。
+ */
+@Composable
+fun PhotoScreen(frame: DashboardViewModel.PhotoFrame?, onBack: () -> Unit) {
+    FullscreenFrame(Color.Black, keepAwake = false, onKeepAwake = {}, onBack = onBack, awakeToggle = false) { _, _ ->
+        if (frame == null) {
+            Text(L("読み込み中…", "Loading…"), color = Color.White.copy(alpha = 0.6f), fontSize = 16.tu, modifier = Modifier.align(Alignment.Center))
+            return@FullscreenFrame
+        }
+        Crossfade(frame, Modifier.fillMaxSize(), animationSpec = tween(1400), label = "screensaver") { f ->
+            // 画面いっぱいに（縦横の比が画面と違う写真は、はみ出す分を切る。左右・上下に余白を出さない）
+            Image(f.image, f.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
+        val label = listOfNotNull(takenDate(frame.takenAt), frame.caption?.trim()?.takeIf { it.isNotEmpty() }).joinToString("  ")
+        if (label.isNotEmpty()) {
+            Text(
+                label, color = Color.White.copy(alpha = 0.75f), fontSize = 14.tu, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 18.dp, end = 24.dp)
+                    .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 

@@ -45,6 +45,8 @@ internal fun FullscreenFrame(
     onKeepAwake: (Boolean) -> Unit,
     onBack: () -> Unit,
     backTint: Color = Color.White,
+    /** 右上の「暗くしない」を出すか（写真のスクリーンセーバーでは出さない）。 */
+    awakeToggle: Boolean = true,
     content: @Composable BoxScope.(shown: Boolean, melt: Float) -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -83,7 +85,7 @@ internal fun FullscreenFrame(
         ) {
             Icon(WdIcons.Back, L("戻る", "Back"), tint = backTint, modifier = Modifier.size(30.dp))
         }
-        AwakeToggle(
+        if (awakeToggle) AwakeToggle(
             keepAwake,
             enabled = shown,
             onToggle = { onKeepAwake(!keepAwake) },
