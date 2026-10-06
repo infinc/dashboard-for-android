@@ -28,7 +28,7 @@ fun gitOut(vararg args: String): String? = runCatching {
     }.standardOutput.asText.get().trim().takeIf { it.isNotEmpty() }
 }.getOrNull()
 
-val baseVersionName = "1.2.3"
+val baseVersionName = "1.2.4"
 
 val versionLabel: String = run {
     val tagPrefix = "dashboard_"
