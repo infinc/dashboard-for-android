@@ -160,12 +160,36 @@ internal fun clockParts(now: Long, units: UnitsConfig, display: DisplayConfig): 
     val h = d.hour
     val shownHour = if (units.clock24h) "%02d".format(h) else ((h % 12).takeIf { it != 0 } ?: 12).toString()
     val suffix = if (units.clock24h) "" else if (h < 12) "AM" else "PM"
-    val date = if (display.clockDateFormat == "slash") {
-        d.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + " (" + wday(d) + ")"
-    } else {
-        L("${d.year}年${d.monthValue}月${d.dayOfMonth}日 (${wday(d)})", "${wday(d)}, ${MONTHS[d.monthValue - 1]} ${d.dayOfMonth}, ${d.year}")
+    return Triple(shownHour, suffix, formatDate(d, display.clockDateFormat))
+}
+
+private val MONTHS_LONG = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+private val WDAY_EN = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+
+/** 1st・2nd・3rd・4th・11th・21st… */
+private fun ordinal(n: Int): String = n.toString() + when {
+    n % 100 in 11..13 -> "th"
+    n % 10 == 1 -> "st"
+    n % 10 == 2 -> "nd"
+    n % 10 == 3 -> "rd"
+    else -> "th"
+}
+
+/**
+ * 日付の書き方（[app.dashboard.data.DATE_FORMATS]）。英語の形（dmy・long）の曜日は、言語によらず英語の短い名前（Mon）。
+ * 設定画面の選択肢の見本にも使う。
+ */
+internal fun formatDate(d: java.time.ZonedDateTime, format: String): String {
+    val longDate = "${MONTHS_LONG[d.monthValue - 1]} ${ordinal(d.dayOfMonth)}, ${d.year}"
+    val en = WDAY_EN[d.dayOfWeek.value % 7]
+    return when (format) {
+        "slash" -> d.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + " (" + wday(d) + ")"
+        "dmy" -> d.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " " + en
+        "long" -> "$longDate $en"
+        "iso" -> d.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        "longNoDay" -> longDate
+        else -> L("${d.year}年${d.monthValue}月${d.dayOfMonth}日 (${wday(d)})", "${wday(d)}, ${MONTHS[d.monthValue - 1]} ${d.dayOfMonth}, ${d.year}")
     }
-    return Triple(shownHour, suffix, date)
 }
 
 // ---------------------------------------------------------------- 天気

@@ -103,6 +103,7 @@
     display.theme = $("theme").value;
     display.cardOpacity = Number($("cardOpacity").value) / 100;
     display.cardColor = $("cardColor").value;
+    display.cardRadius = Number($("cardRadius").value);
     display.burnInShiftEnabled = $("burnIn").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
@@ -232,7 +233,7 @@
       memo: memo,
       ships: ships,
       github: github,
-      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim() }
+      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked }
     };
   }
 
@@ -287,6 +288,7 @@
     $("theme").value = d.theme || "dark";
     $("cardColor").value = d.cardColor || "";
     $("cardOpacity").value = Math.round((d.cardOpacity == null ? 0.6 : d.cardOpacity) * 100);
+    $("cardRadius").value = d.cardRadius == null ? 18 : d.cardRadius;
     renderWallpaper();
     $("burnIn").checked = d.burnInShiftEnabled;
     $("normalBrightness").value = Math.round(d.normalBrightness * 100);
@@ -388,6 +390,7 @@
     var sp = config.spotify || {};
     $("spotifyEnabled").checked = !!sp.enabled;
     $("spotifyClientId").value = sp.clientId || "";
+    $("spotifySaveLyrics").checked = sp.saveLyrics !== false;
     renderSpotify();
 
     $("disasterSound").checked = n.disasterSound !== false;
@@ -447,11 +450,15 @@
     $("idleDimBrightnessValue").textContent = $("idleDimBrightness").value + "%";
     $("noticeVolumeValue").textContent = $("noticeVolume").value + "%";
     $("cardOpacityValue").textContent = $("cardOpacity").value + "%";
+    $("cardRadiusValue").textContent = $("cardRadius").value + " dp";
+    var cards = document.querySelectorAll(".radius-card");
+    for (var i = 0; i < cards.length; i++) cards[i].style.borderRadius = $("cardRadius").value + "px";
   }
   $("normalBrightness").addEventListener("input", updateRangeLabels);
   $("idleDimBrightness").addEventListener("input", updateRangeLabels);
   $("noticeVolume").addEventListener("input", updateRangeLabels);
   $("cardOpacity").addEventListener("input", updateRangeLabels);
+  $("cardRadius").addEventListener("input", updateRangeLabels);
   $("spotifyClientId").addEventListener("input", renderSpotify);
 
   function renderDevice() {

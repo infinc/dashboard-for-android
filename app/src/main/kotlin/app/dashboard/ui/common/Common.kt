@@ -34,10 +34,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.dashboard.ui.theme.Wd
+import app.dashboard.ui.theme.cardShape
 import app.dashboard.ui.theme.cardSurface
 import app.dashboard.ui.theme.tu
-
-private val CardShape = RoundedCornerShape(18.dp)
 
 /** カード 1 枚の枠。見出し（左）と注記（右上の角）、残りの高さが本文。 */
 @Composable
@@ -54,6 +53,7 @@ fun WdCard(
 ) {
     // 背景画像の上では面を透かす（枠線と文字はそのまま）
     val alpha = Wd.cardAlpha
+    val CardShape = cardShape()
     Column(
         modifier
             .clip(CardShape)
@@ -201,6 +201,9 @@ object WdIcons {
             "M4.2 5.6l1.4-1.4 2.3 2.3-1.4 1.4zM16.1 17.5l1.4-1.4 2.3 2.3-1.4 1.4z" +
             "M16.1 6.5l2.3-2.3 1.4 1.4-2.3 2.3zM4.2 18.4l2.3-2.3 1.4 1.4-2.3 2.3z",
     )
+    val Check = icon("M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z")
+    /** プリセット（重ねた板）。 */
+    val Layers = icon("M12 2.5 2 8l10 5.5L22 8zM4.3 11.3 2 12.6l10 5.6 10-5.6-2.3-1.3L12 15.6zM4.3 15.4 2 16.7l10 5.6 10-5.6-2.3-1.3L12 19.7z")
     val Close = icon("M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z")
 
     private fun icon(d: String): ImageVector = ImageVector.Builder(

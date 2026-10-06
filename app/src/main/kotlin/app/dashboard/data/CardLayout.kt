@@ -55,6 +55,7 @@ object CardLayout {
         FLIGHTS(8, 5, "飛行機", "Flights", "showFlights", { it.showFlights }, { d, on -> d.copy(showFlights = on) }),
         SHIPS(8, 5, "船舶", "Ships", "showShips", { it.showShips }, { d, on -> d.copy(showShips = on) }),
         GITHUB(10, 6, "GitHub", "GitHub", "showGithub", { it.showGithub }, { d, on -> d.copy(showGithub = on) }),
+        TODO(6, 5, "Todo", "To-do", "showTodo", { it.showTodo }, { d, on -> d.copy(showTodo = on) }),
         ;
 
         /** 表示の名前（いまの言語）。 */

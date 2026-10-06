@@ -20,6 +20,7 @@ import app.dashboard.data.ShipStream
 import app.dashboard.data.SpotifyRepository
 import app.dashboard.data.StocksRepository
 import app.dashboard.data.TodayRepository
+import app.dashboard.data.TodoRepository
 import app.dashboard.data.TrainRepository
 import app.dashboard.data.WallpaperStore
 import app.dashboard.data.WeatherRepository
@@ -60,16 +61,18 @@ class AppGraph private constructor(context: Context) {
     val crypto = CryptoRepository(http, config)
     val holidays = HolidayRepository(this.context, http)
     val photos = PhotoRepository(config)
-    val lyrics = LyricsRepository(this.context, http)
+    val lyrics = LyricsRepository(this.context, http) { config.get().spotify.saveLyrics }
     val rain = RainForecast(http)
     val flights = FlightRepository(http)
     val ships = ShipStream(config, scope)
     val github = GithubRepository(http, config)
+    val todos = TodoRepository(this.context)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
     val notices = NoticePlayer(this.context, config)
     val settings = SettingsController(this)
+    val presets = PresetController(this)
     val server = DashboardServer(this)
 
     /** 画面と Web の設定画面が読む、いまの全データ。 */

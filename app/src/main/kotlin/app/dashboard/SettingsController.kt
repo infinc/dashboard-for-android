@@ -119,7 +119,7 @@ class SettingsController(private val graph: AppGraph) {
         graph.scope.launch { refreshAll() }
     }
 
-    private fun sourcesChanged(a: Config, b: Config): Boolean =
+    internal fun sourcesChanged(a: Config, b: Config): Boolean =
         a.location != b.location || a.units != b.units || a.disaster != b.disaster ||
             a.feed != b.feed || a.memo != b.memo || a.spotify.enabled != b.spotify.enabled ||
             a.train != b.train || a.calendar != b.calendar || a.stocks != b.stocks || a.crypto != b.crypto ||
@@ -186,6 +186,7 @@ class SettingsController(private val graph: AppGraph) {
     private fun applySpotify(current: SpotifyConfig, patch: SpotifyPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,
         clientId = patch.clientId?.trim() ?: current.clientId,
+        saveLyrics = patch.saveLyrics ?: current.saveLyrics,
     )
 
     /**

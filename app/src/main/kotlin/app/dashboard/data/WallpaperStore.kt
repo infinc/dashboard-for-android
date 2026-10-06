@@ -60,6 +60,47 @@ class WallpaperStore(context: Context) {
         tmpFile.delete()
     }
 
+    /** プリセットの背景画像の置き場（filesDir/presets/{id}.jpg）。 */
+    private val presetDir = File(context.filesDir, "presets")
+
+    private fun presetFile(id: String) = File(presetDir, "$id.jpg")
+
+    /** いまの背景画像をプリセット [id] の控えにする（背景画像が無ければ控えも消す）。 */
+    fun stash(id: String) {
+        val dest = presetFile(id)
+        runCatching {
+            if (file.exists()) {
+                presetDir.mkdirs()
+                file.copyTo(dest, overwrite = true)
+            } else {
+                dest.delete()
+            }
+        }
+    }
+
+    /** プリセット [id] の控えを背景画像に戻す。控えが無ければ背景画像を外す。戻したら true。 */
+    fun restore(id: String): Boolean {
+        val src = presetFile(id)
+        return runCatching {
+            if (src.exists()) {
+                src.copyTo(tmpFile, overwrite = true)
+                if (!tmpFile.renameTo(file)) {
+                    file.writeBytes(tmpFile.readBytes())
+                    tmpFile.delete()
+                }
+                true
+            } else {
+                clear()
+                false
+            }
+        }.getOrDefault(false)
+    }
+
+    /** プリセット [id] の背景画像の控えを消す。 */
+    fun drop(id: String) {
+        presetFile(id).delete()
+    }
+
     /** 画面に描く大きさで読み出す。無い・読めないときは null。 */
     fun load(): Bitmap? = if (file.exists()) runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() else null
 

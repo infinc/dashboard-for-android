@@ -125,6 +125,9 @@
       <button class="nav-item" type="button" data-pane="github">
         <i class="dot" data-w="showGithub"></i><span>GitHub</span>
       </button>
+      <button class="nav-item" type="button" data-pane="todo">
+        <i class="dot" data-w="showTodo"></i><span>Todo</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -263,6 +266,17 @@
         <label for="cardOpacity">カードの不透明度 <b id="cardOpacityValue" class="val"></b></label>
         <input id="cardOpacity" type="range" min="20" max="100" step="5">
         <div class="hint">背景画像があるときだけ効きます。小さいほどカードが透けて背景が見えます（100% で透けません）。</div>
+      </div>
+
+      <div class="field">
+        <label for="cardRadius">カードの角の丸み <b id="cardRadiusValue" class="val"></b></label>
+        <input id="cardRadius" type="range" min="0" max="32" step="2">
+        <div class="hint">0 で四角、大きいほど丸くなります（既定は 18）。下の見本はいまの値で描いています。</div>
+        <div class="radius-preview">
+          <div class="radius-card" style="flex:1.2"><span>時刻</span><b>12:34</b></div>
+          <div class="radius-card"><span>天気</span><i></i></div>
+          <div class="radius-card" style="flex:0.8"><span>Todo</span><small>• 買い物<br>• 洗濯</small></div>
+        </div>
       </div>
     </section>
 
@@ -417,6 +431,10 @@
         <select id="clockDateFormat">
           <option value="ja">2026年9月21日 (月)</option>
           <option value="slash">2026/09/21 (月)</option>
+          <option value="dmy">21/09/2026 Mon</option>
+          <option value="long">September 21st, 2026 Mon</option>
+          <option value="iso">2026-09-21</option>
+          <option value="longNoDay">September 21st, 2026</option>
         </select>
       </div>
 
@@ -556,6 +574,7 @@
         <label for="memoInterval">取得間隔（秒）</label>
         <input id="memoInterval" type="number" min="10" max="600">
       </div>
+      <div class="hint" style="margin:-8px 0 18px">10〜600 秒。おすすめは 30 秒（既定）です。届いてすぐ見たいなら 10〜15 秒、ふだんは 30〜60 秒、たまにしか送らないなら 120〜300 秒で十分です。短くするほど早く届きますが、通信と電池の消費が増え、Cloudflare の無料枠（Workers のリクエスト・KV の読み取りとも 1 日 10 万回）にも近づきます（10 秒で 1 日 8,640 回、30 秒で 2,880 回）。</div>
 
       <div class="notice">
         LINE は公開された HTTPS の Webhook にしかメッセージを届けません。このタブレットは家庭内 NAT の内側にあり、
@@ -600,6 +619,11 @@
 
       <div class="field">
         <label class="toggle"><input type="checkbox" id="spotifyEnabled"> 再生中の曲を取得する</label>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="spotifySaveLyrics"> 直近 300 曲の歌詞を端末に保存する</label>
+        <div class="hint">オンにすると、全画面で見つけた歌詞を直近 300 曲までこの端末に保存し、次からは通信せずに出します（古いものから消します）。オフの間は保存も、保存した歌詞を使うこともしません。保存済みの歌詞は、アプリの設定画面の「Spotify」から消せます。</div>
       </div>
 
       <div class="field">
@@ -1124,6 +1148,15 @@
         <label class="toggle"><input type="checkbox" id="githubShowRepos"> 人気のリポジトリ（スターの多い順）</label>
       </div>
       <div class="status" id="githubStatus"></div>
+    </section>
+
+    <section class="pane" data-pane="todo">
+      <h1>Todo</h1>
+      <p class="lead">やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます（ダッシュボードで直接操作します）。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showTodo" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">Todo の中身は設定ではなくタブレットのデータなので、プリセットを切り替えても変わりません（最大 50 件）。</div>
     </section>
 
     <section class="pane" data-pane="hamster">
