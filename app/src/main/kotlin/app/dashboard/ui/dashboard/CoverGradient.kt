@@ -15,10 +15,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.runtime.withFrameNanos
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
@@ -45,7 +47,8 @@ fun Modifier.coverGradient(palette: List<Color>): Modifier {
             }
         }
     }
-    val bg by animateColorAsState(palette.first().tone(0.28f), tween(COLOR_MS), label = "gradBg")
+    // 地はジャケットのいちばん暗い色（黒や紺が多いジャケットなら暗い紺の地になる）
+    val bg by animateColorAsState(palette.minBy { it.luminance() }.tone(0.24f), tween(COLOR_MS), label = "gradBg")
     val blobs = List(BLOBS) { i ->
         animateColorAsState(palette[i % palette.size].tone(BLOB_TONES[i]), tween(COLOR_MS), label = "grad$i")
     }
@@ -101,16 +104,21 @@ private fun knot(seed: Int, i: Int): Float {
     return (h and 0xFFFF) / 32767.5f - 1f
 }
 
-/** 色合いは保ったまま、明るさを [value] に、彩度をほどほどにそろえる（灰色に近いものは灰色のまま）。 */
+/**
+ * 色合いは保ったまま、明るさをおよそ [value] に、彩度をほどほどにそろえる（灰色に近いものは灰色のまま）。
+ * 元の色が暗いほど少し暗めにして、暗いジャケットは暗い雰囲気のままにする。
+ */
 private fun Color.tone(value: Float): Color {
     val hsv = FloatArray(3)
     android.graphics.Color.RGBToHSV((red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt(), hsv)
     val saturation = if (hsv[1] < 0.08f) hsv[1] else (hsv[1] * 1.4f).coerceIn(0.35f, 0.85f)
-    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], saturation, value)))
+    val v = value * (0.7f + 0.3f * (hsv[2] * 2.5f).coerceAtMost(1f))
+    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], saturation, v)))
 }
 
 /**
- * ジャケットに使われている色（多い順に最大 5 色）。縮めた画像の画素を色相で 12 に分け、鮮やかな画素の多い色相から順に平均をとる。
+ * ジャケットに使われている色（多い順に最大 5 色）。縮めた画像の画素を色相で 12 に分け、画素の多い色相から順に平均をとる。
+ * 暗い紺や肌色のようなくすんだ色も拾う（真っ黒・灰色に近い画素だけ除く）。重みは彩度の平方根と明るさで、暗い画素は軽くする。
  * 色の少ないジャケットは、見つかった色の明るさ違い・少し色相をずらした色で埋める。白黒に近いジャケットは灰色の濃淡にする。
  */
 fun coverPalette(image: ImageBitmap?): List<Color> = runCatching {
@@ -128,14 +136,14 @@ fun coverPalette(image: ImageBitmap?): List<Color> = runCatching {
         val b = android.graphics.Color.blue(p)
         all[0] += r.toDouble(); all[1] += g.toDouble(); all[2] += b.toDouble()
         android.graphics.Color.RGBToHSV(r, g, b, hsv)
-        if (hsv[1] < 0.25f || hsv[2] < 0.2f) return@forEach
+        if (hsv[1] < 0.12f || hsv[2] < 0.05f) return@forEach
         val bucket = (hsv[0] / 30f).toInt().coerceIn(0, 11)
-        val w = (hsv[1] * hsv[2]).toDouble()
+        val w = sqrt(hsv[1].toDouble()) * (hsv[2] * 3.0 + 0.15).coerceAtMost(1.0)
         weight[bucket] += w
         sum[bucket][0] += r * w; sum[bucket][1] += g * w; sum[bucket][2] += b * w
     }
     val found = weight.indices
-        .filter { weight[it] >= pixels.size * 0.02 }
+        .filter { weight[it] >= pixels.size * 0.015 }
         .sortedByDescending { weight[it] }
         .take(5)
         .map { Color((sum[it][0] / weight[it]).toInt(), (sum[it][1] / weight[it]).toInt(), (sum[it][2] / weight[it]).toInt()) }

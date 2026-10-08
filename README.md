@@ -8,19 +8,27 @@
 
 ホーム画面
 
-<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/7ce8f7a1-08c8-45f4-b693-8bc8f2faa51b" />
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/9644bbf4-026a-4e0d-a9bb-8a99d72ede67" />
 
-Spotify全画面
+Spotify全画面 (ボタンあり、歌詞なし)
 
-<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/a8f1f9fb-2f54-427c-8644-fe4f85ba01a1" />
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/0bd42e8d-6779-4eb7-bbd4-f7d480d9b5c7" />
+
+Spotify全画面 (ボタンなし、歌詞あり)
+
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/611187db-f9e1-48a8-9779-9efc7374dc76" />
 
 カード設定画面
 
-<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/5172c8b6-a417-4a5e-8694-b3fe54c6531a" />
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/bc4eee42-8b6f-4e1e-b0dc-52260c5769cc" />
 
 ブラウザ画面
 
-<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/bc79331b-dad4-4607-8ceb-25a52fa779f1" />
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/12d4a121-50ef-4fc0-b743-2039ff468a59" />
+
+台風進路情報の画面
+
+<img width="640" height="400" alt="Image" src="https://github.com/user-attachments/assets/80334148-e6a1-4375-a4b0-844f613d59cf" />
 
 ---
 
@@ -511,7 +519,7 @@ LINE Bot に送ったメッセージが壁に並ぶ。中継の作り方は [`wo
 ## Spotify
 
 Spotify で再生中の曲のジャケットと曲名を出し、再生・一時停止・曲送りができる。
-再生中は見出しの右に小さなボタンが出て、押すと再生中の曲を画面いっぱいに出す（ジャケットに使われている色がゆっくり漂うグラデーションの背景、下の真ん中に前の曲・再生／一時停止・次の曲のボタン、右下に再生時間、左上の「<」で閉じる）。
+再生中は見出しの右に小さなボタンが出て、押すと再生中の曲を画面いっぱいに出す（ジャケットに使われている色（暗い紺や肌色のようなくすんだ色も含む）がゆっくり漂うグラデーションの背景、下の真ん中に前の曲・再生／一時停止・次の曲のボタン、右下に再生時間、左上の「<」で閉じる）。
 タブレットから音は出ない（操作は Spotify を鳴らしている端末に送られる）。曲送りには Spotify Premium が必要。
 
 再生中はカードの見出しの右のボタンで、曲を画面いっぱいに出せる。操作ボタン・再生時間・右上の「暗くしない」は、
