@@ -165,6 +165,9 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     }
 
     val shift = burnInShift(d.burnInShiftEnabled)
+    // 全画面の間もずらすかは設定で選ぶ（オフなら全画面の層だけ 0 に戻す。下のカードはずらし続ける）
+    val anyFull = fullscreen || photoFull || typhoonId != null
+    val fullShift = if (d.fullscreenShiftEnabled) shift else IntOffset.Zero
     val screen = LocalConfiguration.current
     // 縦向きと、横でも幅の狭い端末（スマホなど）は 2 列にして縦にスクロールさせる
     val compact = CardLayout.isCompact(screen.screenWidthDp, screen.screenHeightDp)
@@ -172,7 +175,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
     Box(Modifier.fillMaxSize().background(Wd.Bg).drawBehind { if (wallpaper == null) glow() }) {
         wallpaper?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-        // 焼き付き防止のずらしは、全画面（Spotify・時刻・雨雲レーダー・写真など）を含めた画面全体に効かせる
+        // 焼き付き防止のずらし。カードとフッターには常に、全画面（Spotify・時刻・雨雲レーダー・写真など）には設定で許したときだけ
         Box(Modifier.fillMaxSize().offset { shift }) {
             Column(Modifier.fillMaxSize()) {
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(GAP)) {
@@ -213,7 +216,9 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             }
 
             if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+        }
 
+        Box(Modifier.fillMaxSize().offset { fullShift }) {
             AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
                 NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, vm::lyrics, onBack = { nowPlaying = false })
             }
@@ -278,7 +283,10 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                     )
                 }
             }
-            // 通知のバナーは全画面の上にも出す
+        }
+
+        // 通知のバナーは全画面の上にも出す
+        Box(Modifier.fillMaxSize().offset { if (anyFull) fullShift else shift }) {
             AnimatedVisibility(
                 visible = toast != null,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),

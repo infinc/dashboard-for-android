@@ -49,7 +49,7 @@ let config = {
   units: { temperature: "c", wind: "kmh", clock24h: true, showSeconds: true },
   display: {
     showClock: true, showWifi: true, showWeather: true, showHourly: true, showDaily: true, showSun: true,
-    accent: "#4DD4FF", theme: "dark", language: process.env.MOCK_LANG === "en" ? "en" : "ja", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true,
+    accent: "#4DD4FF", theme: "dark", language: process.env.MOCK_LANG === "en" ? "en" : "ja", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true, fullscreenShiftEnabled: true,
     idleDimEnabled: true, idleDimAfterSeconds: 300, idleDimBrightness: 0.15,
     showDisaster: true, showFeed: true, showDeviceStats: true, showMemo: true,
     showTimer: true, showWord: true, showSpotify: true, showHamster: true,

@@ -85,7 +85,9 @@ fun BigClockScreen(
     val accent = LocalAccent.current
     val (hour, suffix, date) = clockParts(now, units, display)
     val t = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
-    val step = (now / 60_000L % DRIFT.size).toInt()
+    // 全画面のずらしを許していないときは真ん中に置いたまま
+    val drift = display.burnInShiftEnabled && display.fullscreenShiftEnabled
+    val step = if (drift) (now / 60_000L % DRIFT.size).toInt() else 0
     val dx by animateDpAsState(DRIFT[step].first.dp, tween(4000), label = "driftX")
     val dy by animateDpAsState(DRIFT[step].second.dp, tween(4000), label = "driftY")
 

@@ -643,6 +643,9 @@ private fun PaneContent(
             Field(hint = L("同じ位置に同じ絵を長時間映し続けると形が薄く残ることがあるため、5 分ごとに画面全体を最大 2 ピクセルだけ動かします。", "Showing the same image in the same place for a long time can leave a faint ghost, so the whole screen shifts by up to 2 pixels every 5 minutes.")) {
                 SwitchRow(L("焼き付き防止のシフト", "Burn-in protection shift"), disp.burnInShiftEnabled, { display { copy(burnInShiftEnabled = it) } })
             }
+            Field(hint = L("Spotify・時刻・暗号通貨・雨雲レーダー・写真などを画面いっぱいに出している間も、画面をずらします。オフにすると、全画面の間は動かしません。焼き付き防止のシフトがオフのときは効きません。", "Keeps shifting the screen while Spotify, the clock, crypto, the rain radar, photos and other views are shown fullscreen. When off, fullscreen views stay still. Has no effect while the burn-in protection shift is off.")) {
+                SwitchRow(L("全画面表示でもシフトする", "Shift in fullscreen views"), disp.fullscreenShiftEnabled, { display { copy(fullscreenShiftEnabled = it) } }, enabled = disp.burnInShiftEnabled)
+            }
         }
 
         Pane.Place -> PlacePane(graph, config, d, set)

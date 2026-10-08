@@ -413,6 +413,8 @@ data class DisplayConfig(
      */
     val normalBrightness: Double = 1.0,
     val burnInShiftEnabled: Boolean = true,
+    /** 全画面（Spotify・時刻・暗号通貨・雨雲レーダー・写真など）の間も焼き付き防止のずらしを掛けるか。[burnInShiftEnabled] がオフなら効かない。 */
+    val fullscreenShiftEnabled: Boolean = true,
     /** 一定時間タッチが無いときに画面を暗くする（バックライト自体を落とす）。 */
     val idleDimEnabled: Boolean = true,
     val idleDimAfterSeconds: Int = 300,

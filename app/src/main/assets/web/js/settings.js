@@ -105,6 +105,7 @@
     display.cardColor = $("cardColor").value;
     display.cardRadius = Number($("cardRadius").value);
     display.burnInShiftEnabled = $("burnIn").checked;
+    display.fullscreenShiftEnabled = $("fullscreenShift").checked;
     display.normalBrightness = Number($("normalBrightness").value) / 100;
     display.idleDimEnabled = $("idleDimEnabled").checked;
     display.idleDimAfterSeconds = Number($("idleDimAfter").value);
@@ -291,6 +292,7 @@
     $("cardRadius").value = d.cardRadius == null ? 18 : d.cardRadius;
     renderWallpaper();
     $("burnIn").checked = d.burnInShiftEnabled;
+    $("fullscreenShift").checked = d.fullscreenShiftEnabled !== false;
     $("normalBrightness").value = Math.round(d.normalBrightness * 100);
     $("idleDimEnabled").checked = d.idleDimEnabled !== false;
     $("idleDimAfter").value = d.idleDimAfterSeconds;
