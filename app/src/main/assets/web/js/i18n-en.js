@@ -268,6 +268,12 @@ window.EN_HTML = {
  "ログイン": "Sign in"
 };
 window.EN_TEXT = {
+ "全画面の背景": "Full-screen background",
+ "いまの背景": "Current background",
+ "単色（動かない、ほんの少しのグラデーション）": "Solid (still, a subtle gradient)",
+ "ぼやけた光（ゆっくり漂う）": "Soft glow (slowly drifting)",
+ "尖った光（ぼやけた縦の光が揺れる）": "Spikes (soft vertical shards swaying)",
+ "どれもジャケットから拾った色で描きます。": "All use colors picked from the album cover.",
  "直近 300 曲の歌詞を端末に保存する": "Save lyrics of the latest 300 songs on the tablet",
  "日本語": "日本語",
  "ダーク": "Dark",
@@ -277,6 +283,8 @@ window.EN_TEXT = {
  "無操作が続いたら画面を暗くする": "Dim the screen when idle",
  "暗くしたときの明るさ": "Dimmed brightness",
  "焼き付き防止のシフト": "Burn-in protection shift",
+ "全画面表示でもシフトする": "Shift in fullscreen views",
+ "Spotify・時刻・暗号通貨・雨雲レーダー・写真などを画面いっぱいに出している間も、画面をずらします。 オフにすると、全画面の間は動かしません。焼き付き防止のシフトがオフのときは効きません。": "Keeps shifting the screen while Spotify, the clock, crypto, the rain radar, photos and other views are shown fullscreen. When off, fullscreen views stay still. Has no effect while the burn-in protection shift is off.",
  "防災情報の音を鳴らす": "Play a sound for disaster alerts",
  "充電ケーブルの抜き差しの音を鳴らす": "Play a sound when the charging cable is plugged or unplugged",
  "電池の残量が少ないことを知らせる": "Notify when the battery is low",

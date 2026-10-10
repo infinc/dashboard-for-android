@@ -254,6 +254,10 @@
           タブレット本体の設定画面からは、端末の写真から選べます。
         </div>
         <div class="status" id="wallpaperStatus"></div>
+        <div class="wallpaper-preview">
+          <span>いまの背景</span>
+          <div id="wallpaperPreview" class="wallpaper-frame"></div>
+        </div>
       </div>
 
       <div class="field" style="max-width:320px">
@@ -315,6 +319,14 @@
           有機 EL や一部の液晶では、同じ位置に同じ絵を長時間映し続けるとその形が薄く残ることがあります
           （時計の数字や枠線など、動かない部分ほど起きやすい）。
           これを避けるため、5 分ごとに画面全体を上下左右へ最大 2 ピクセルだけゆっくり動かします。
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" id="fullscreenShift"> 全画面表示でもシフトする</label>
+        <div class="hint">
+          Spotify・時刻・暗号通貨・雨雲レーダー・写真などを画面いっぱいに出している間も、画面をずらします。
+          オフにすると、全画面の間は動かしません。焼き付き防止のシフトがオフのときは効きません。
         </div>
       </div>
     </section>
@@ -619,6 +631,16 @@
 
       <div class="field">
         <label class="toggle"><input type="checkbox" id="spotifyEnabled"> 再生中の曲を取得する</label>
+      </div>
+
+      <div class="field">
+        <label for="spotifyBackground">全画面の背景</label>
+        <select id="spotifyBackground">
+          <option value="still">単色（動かない、ほんの少しのグラデーション）</option>
+          <option value="flow">ぼやけた光（ゆっくり漂う）</option>
+          <option value="spike">尖った光（ぼやけた縦の光が揺れる）</option>
+        </select>
+        <div class="hint">どれもジャケットから拾った色で描きます。</div>
       </div>
 
       <div class="field">

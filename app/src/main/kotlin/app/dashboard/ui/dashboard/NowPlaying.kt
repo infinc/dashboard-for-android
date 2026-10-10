@@ -60,7 +60,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +76,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Spotify の再生中の曲を画面いっぱいに出す。
- * 背景はジャケットの色から作り、中央にジャケット、左下に曲名とアーティスト名、下の真ん中に操作ボタン
+ * 背景はジャケットに使われている色のグラデーション（[coverGradient]。動かない単色・漂う光・尖った光を設定の [background] で選ぶ）、中央にジャケット、左下に曲名とアーティスト名、下の真ん中に操作ボタン
  * （前の曲・再生／一時停止・次の曲。アーティスト名と同じくらいの大きさ）、右下にボタンと同じ高さ・大きさで再生時間。左上の「<」か端末の戻る操作で閉じる。
  * 右上の小さなボタンで「画面を暗くしない」を切り替える（[keepAwake]）。
  * 操作ボタン・右上のボタン・再生時間は、[IDLE_HIDE_MS] 触られなければ溶けるように消え、どこかに触れると戻る。
@@ -91,6 +90,7 @@ fun NowPlayingScreen(
     keepAwake: Boolean,
     onKeepAwake: (Boolean) -> Unit,
     onControl: (String) -> Unit,
+    background: String,
     loadLyrics: suspend (SpotifyState) -> Result<LyricsRepository.Lyrics?>,
     onBack: () -> Unit,
 ) {
@@ -111,13 +111,12 @@ fun NowPlayingScreen(
         label = "melt",
     )
     val cover = album?.takeIf { sp?.albumImageUrl != null && it.first == sp.albumImageUrl }
-    val base = remember(cover?.first) { cover?.second?.let(::coverColor) ?: FALLBACK }
-    val top by animateColorAsState(base.shade(0.34f), tween(800), label = "top")
-    val bottom by animateColorAsState(base.shade(0.17f), tween(800), label = "bottom")
+    // 背景はジャケットの色で動くグラデーション（CoverGradient.kt）
+    val palette = remember(cover?.first) { coverPalette(cover?.second) }
 
     BoxWithConstraints(
         Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(top, bottom)))
+            .coverGradient(palette, background)
             // 画面のどこに触れても（ボタンの上でも）操作の表示を戻す。触れた操作はそのままボタンにも届く
             .pointerInput(Unit) {
                 awaitPointerEventScope {
@@ -428,48 +427,3 @@ private fun ControlButton(icon: ImageVector, label: String, enabled: Boolean, on
     }
 }
 
-private val FALLBACK = Color(0xFF3A4150)
-
-/**
- * 同じ色合いのまま、明るさだけを [value]（HSV の V）にする。
- * 淡い色のジャケットでも色が分かるよう彩度を少し上げ、派手になりすぎないよう上限を設ける（灰色に近いものは灰色のまま）。
- */
-private fun Color.shade(value: Float): Color {
-    val hsv = FloatArray(3)
-    android.graphics.Color.RGBToHSV((red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt(), hsv)
-    val saturation = if (hsv[1] < 0.08f) hsv[1] else (hsv[1] * 1.5f).coerceIn(0.3f, 0.7f)
-    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], saturation, value)))
-}
-
-/**
- * ジャケットの代表色。縮めた画像の画素を色相で 12 に分け、鮮やかな画素の多い色相の平均をとる。
- * 白黒に近いジャケットは、全体の平均（ほぼ灰色）にする。
- */
-private fun coverColor(image: ImageBitmap): Color = runCatching {
-    val small = android.graphics.Bitmap.createScaledBitmap(image.asAndroidBitmap(), 32, 32, true)
-    val pixels = IntArray(32 * 32)
-    small.getPixels(pixels, 0, 32, 0, 0, 32, 32)
-    val weight = DoubleArray(12)
-    val sum = Array(12) { DoubleArray(3) }
-    val all = DoubleArray(3)
-    val hsv = FloatArray(3)
-    pixels.forEach { p ->
-        val r = android.graphics.Color.red(p)
-        val g = android.graphics.Color.green(p)
-        val b = android.graphics.Color.blue(p)
-        all[0] += r.toDouble(); all[1] += g.toDouble(); all[2] += b.toDouble()
-        android.graphics.Color.RGBToHSV(r, g, b, hsv)
-        if (hsv[1] < 0.25f || hsv[2] < 0.2f) return@forEach
-        val bucket = (hsv[0] / 30f).toInt().coerceIn(0, 11)
-        val w = (hsv[1] * hsv[2]).toDouble()
-        weight[bucket] += w
-        sum[bucket][0] += r * w; sum[bucket][1] += g * w; sum[bucket][2] += b * w
-    }
-    val best = weight.indices.maxBy { weight[it] }
-    if (weight[best] < pixels.size * 0.02) {
-        Color((all[0] / pixels.size).toInt(), (all[1] / pixels.size).toInt(), (all[2] / pixels.size).toInt())
-    } else {
-        val w = weight[best]
-        Color((sum[best][0] / w).toInt(), (sum[best][1] / w).toInt(), (sum[best][2] / w).toInt())
-    }
-}.getOrDefault(FALLBACK)

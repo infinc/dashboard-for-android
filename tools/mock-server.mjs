@@ -42,6 +42,9 @@ function readChoices() {
 
 // Kotlin の PublicConfig と同じ形。Models.kt に項目を足したらここにも足すこと
 // （欠けていても設定画面は動いてしまうので、違いに気づきにくい）。
+/** 背景画像（GET /api/wallpaper のプレビュー用）。 */
+let wallpaperBytes = null;
+let wallpaperType = "image/jpeg";
 let config = {
   configVersion: 1,
   lan: { enabled: false, pinSet: false },
@@ -49,7 +52,7 @@ let config = {
   units: { temperature: "c", wind: "kmh", clock24h: true, showSeconds: true },
   display: {
     showClock: true, showWifi: true, showWeather: true, showHourly: true, showDaily: true, showSun: true,
-    accent: "#4DD4FF", theme: "dark", language: process.env.MOCK_LANG === "en" ? "en" : "ja", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true,
+    accent: "#4DD4FF", theme: "dark", language: process.env.MOCK_LANG === "en" ? "en" : "ja", cardOpacity: 0.6, cardColor: "", normalBrightness: 1.0, burnInShiftEnabled: true, fullscreenShiftEnabled: true,
     idleDimEnabled: true, idleDimAfterSeconds: 300, idleDimBrightness: 0.15,
     showDisaster: true, showFeed: true, showDeviceStats: true, showMemo: true,
     showTimer: true, showWord: true, showSpotify: true, showHamster: true,
@@ -67,7 +70,7 @@ let config = {
   disaster: { enabled: true, minIntensity: "3" },
   feed: { enabled: true, urls: ["https://example.com/rss.xml"], maxItems: 6 },
   memo: { enabled: true, endpoint: "https://example.workers.dev/memo", tokenSet: true, pollIntervalMs: 30000 },
-  spotify: { enabled: false, clientId: "", connected: false, saveLyrics: true },
+  spotify: { enabled: false, clientId: "", connected: false, saveLyrics: true, background: "flow" },
   notifications: {
     disasterSound: true, chargingSound: true, volume: 0.7,
     disasterTone: "chime", chargingTone: "rise", timerTone: "beep",
@@ -361,12 +364,22 @@ const server = createServer(async (req, res) => {
         layout: display.cardLayout ?? [], rows: editorRows(display), autoMessage: autoMessage(display),
       });
     }
+    if (path === "/api/wallpaper" && !post) {
+      if (!wallpaperBytes) return json(res, 404, { error: "no_wallpaper" });
+      res.writeHead(200, { "Content-Type": wallpaperType });
+      return res.end(wallpaperBytes);
+    }
     if (path === "/api/wallpaper" && post) {
-      await drain(req);
+      // プレビュー用に送られた画像をそのまま覚える（実機のような縮小はしない）
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      wallpaperBytes = Buffer.concat(chunks);
+      wallpaperType = req.headers["content-type"] || "application/octet-stream";
       config.wallpaper = { imageSetAt: Date.now() };
       return json(res, 200, config);
     }
     if (path === "/api/wallpaper/clear" && post) {
+      wallpaperBytes = null;
       config.wallpaper = { imageSetAt: 0 };
       return json(res, 200, config);
     }

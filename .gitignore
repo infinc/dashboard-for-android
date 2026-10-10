@@ -33,3 +33,6 @@ dashboard.apk
 
 screenshots/
 .wrangler/
+
+# APK を作る手元用のスクリプト（build-apk.sh）
+build-apk.sh

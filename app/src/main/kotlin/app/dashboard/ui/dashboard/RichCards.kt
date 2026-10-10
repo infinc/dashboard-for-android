@@ -124,7 +124,11 @@ private fun DisasterBody(d: DisasterState, display: DisplayConfig, onTyphoon: (T
         Column(Modifier.weight(1f).verticalScroll(scroll)) {
             if (d.tsunami.isNotEmpty()) {
                 Section(L("津波", "Tsunami"), Wd.Red)
-                d.tsunami.forEach { NameRow(Jma.tsunami(it.title) ?: L("津波情報", "Tsunami information"), hhmm(it.reportedAt), Wd.Red, Wd.Text3) }
+                d.tsunami.forEach {
+                    val title = (if (Lang.en) it.titleEn else null) ?: Jma.tsunami(it.title) ?: L("津波情報", "Tsunami information")
+                    val area = Jma.pick(it.area, it.areaEn)
+                    NameRow(if (area != null) "$title$SEP$area" else title, hhmm(it.reportedAt), Wd.Red, Wd.Text3)
+                }
             }
             when {
                 d.areaName == null -> Text(

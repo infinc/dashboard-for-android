@@ -102,6 +102,9 @@ class WallpaperStore(context: Context) {
     }
 
     /** 画面に描く大きさで読み出す。無い・読めないときは null。 */
+    /** 保存してある JPEG のバイト列（Web の設定画面のプレビュー用）。無ければ null。 */
+    fun bytes(): ByteArray? = if (file.exists()) runCatching { file.readBytes() }.getOrNull() else null
+
     fun load(): Bitmap? = if (file.exists()) runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() else null
 
     private fun ExifInterface.rotationDegrees(): Int = when (getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {

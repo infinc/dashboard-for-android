@@ -205,6 +205,14 @@ class DashboardServer(private val graph: AppGraph) {
                 call.respond(graph.settings.setWallpaper { bytes.inputStream() }.toPublic())
             }
 
+            /** いまの背景画像（設定の「テーマ」のプレビュー）。無ければ 404。 */
+            get("/api/wallpaper") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                val bytes = graph.wallpaper.bytes()
+                if (bytes == null) call.respond(HttpStatusCode.NotFound, ApiError("no_wallpaper", L("背景画像はありません", "No background image")))
+                else call.respondBytes(bytes, ContentType.Image.JPEG)
+            }
+
             post("/api/wallpaper/clear") {
                 if (!guardWrite(call)) return@post
                 call.respond(graph.settings.clearWallpaper().toPublic())
