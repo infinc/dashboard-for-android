@@ -76,7 +76,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Spotify の再生中の曲を画面いっぱいに出す。
- * 背景はジャケットに使われている色が漂うグラデーション（[coverGradient]）、中央にジャケット、左下に曲名とアーティスト名、下の真ん中に操作ボタン
+ * 背景はジャケットに使われている色のグラデーション（[coverGradient]。動かない単色・漂う光・尖った光を設定の [background] で選ぶ）、中央にジャケット、左下に曲名とアーティスト名、下の真ん中に操作ボタン
  * （前の曲・再生／一時停止・次の曲。アーティスト名と同じくらいの大きさ）、右下にボタンと同じ高さ・大きさで再生時間。左上の「<」か端末の戻る操作で閉じる。
  * 右上の小さなボタンで「画面を暗くしない」を切り替える（[keepAwake]）。
  * 操作ボタン・右上のボタン・再生時間は、[IDLE_HIDE_MS] 触られなければ溶けるように消え、どこかに触れると戻る。
@@ -90,6 +90,7 @@ fun NowPlayingScreen(
     keepAwake: Boolean,
     onKeepAwake: (Boolean) -> Unit,
     onControl: (String) -> Unit,
+    background: String,
     loadLyrics: suspend (SpotifyState) -> Result<LyricsRepository.Lyrics?>,
     onBack: () -> Unit,
 ) {
@@ -115,7 +116,7 @@ fun NowPlayingScreen(
 
     BoxWithConstraints(
         Modifier.fillMaxSize()
-            .coverGradient(palette)
+            .coverGradient(palette, background)
             // 画面のどこに触れても（ボタンの上でも）操作の表示を戻す。触れた操作はそのままボタンにも届く
             .pointerInput(Unit) {
                 awaitPointerEventScope {

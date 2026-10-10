@@ -91,6 +91,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import app.dashboard.ui.dashboard.glow
 
 /** 「全て保存」でまとめて保存する値。トークンは書き込み専用なので、入力されたときだけ送る。 */
 private data class Draft(
@@ -109,6 +118,7 @@ private data class Draft(
     val spotifyEnabled: Boolean,
     val spotifyClientId: String,
     val spotifySaveLyrics: Boolean,
+    val spotifyBackground: String,
     val trainEnabled: Boolean,
     val trainToken: String,
     val trainChallengeToken: String,
@@ -177,7 +187,7 @@ private data class Draft(
             token = memoToken.takeIf { it.isNotEmpty() },
             pollIntervalMs = (memoIntervalSec.toLongOrNull() ?: 30) * 1000,
         ),
-        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim(), saveLyrics = spotifySaveLyrics),
+        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim(), saveLyrics = spotifySaveLyrics, background = spotifyBackground),
         photos = PhotoPatch(
             enabled = photosEnabled,
             albumUrl = photosUrl.takeIf { it.isNotEmpty() },
@@ -215,6 +225,7 @@ private data class Draft(
             spotifyEnabled = c.spotify.enabled,
             spotifyClientId = c.spotify.clientId,
             spotifySaveLyrics = c.spotify.saveLyrics,
+            spotifyBackground = c.spotify.background,
             trainEnabled = c.train.enabled,
             trainToken = "",
             trainChallengeToken = "",
@@ -964,6 +975,30 @@ private fun PaneContent(
     }
 }
 
+/**
+ * いまダッシュボードの背景にしているものの縮図（画面の縦横比）。背景画像があればその画像、無ければ既定の背景（地の色と上の淡い光）。
+ * 画像は背景画像が変わったとき（[imageSetAt]）だけ読み直す。
+ */
+@Composable
+private fun WallpaperPreview(graph: AppGraph, imageSetAt: Long) {
+    val image by produceState<ImageBitmap?>(null, imageSetAt) {
+        value = if (imageSetAt > 0) withContext(Dispatchers.IO) { graph.wallpaper.load()?.asImageBitmap() } else null
+    }
+    val screen = LocalConfiguration.current
+    val ratio = (screen.screenWidthDp.toFloat() / screen.screenHeightDp.coerceAtLeast(1)).coerceIn(0.5f, 2.5f)
+    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(L("いまの背景", "Current background"), color = Wd.Text2, fontSize = 13.tu)
+        Box(
+            Modifier.width(240.dp).aspectRatio(ratio).clip(RoundedCornerShape(10.dp))
+                .border(1.dp, Wd.Border, RoundedCornerShape(10.dp))
+                .background(Wd.Bg)
+                .drawBehind { if (image == null) glow() },
+        ) {
+            image?.let { Image(it, L("いまの背景画像", "Current background image"), Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        }
+    }
+}
+
 @Composable
 private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit) {
     val disp = d.display
@@ -1002,6 +1037,7 @@ private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
             ActionButton(L("背景画像を外す", "Remove background image"), { report(L("背景画像を外しました", "Background image removed")) { graph.settings.clearWallpaper() } }, enabled = hasImage)
         }
         StatusText(if (status.isNotEmpty()) status else if (hasImage) L("背景画像を表示中", "Showing a background image") else L("背景画像なし", "No background image"), if (status.isNotEmpty()) statusColor else Wd.Text2)
+        WallpaperPreview(graph, config.wallpaper.imageSetAt)
     }
     Field(L("カードの背景色", "Card color"), L("すべてのカードの面の色です。文字が読めるよう、選んだ色をテーマの面の色に混ぜて使います（ダークは 3 割ほど、ホワイトは 2 割ほど）。背景画像があるときは下の不透明度も効きます。", "The surface color of all cards. To keep text readable, the color is mixed into the theme's surface color (about 30% for Dark, 20% for White). With a background image, the opacity below also applies.")) {
         ColorSwatches(app.dashboard.data.CardColors.ALL.map { it.hex to it.label }, disp.cardColor) { set(d.copy(display = disp.copy(cardColor = it))) }
@@ -1268,6 +1304,19 @@ private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) 
     Field("Client ID", L("秘密の値ではありません。入力したら「全て保存」してから「Spotify と連携」を押してください。", "Not a secret. After entering it, press Save all, then \"Connect Spotify\".")) {
         Input(d.spotifyClientId, { set(d.copy(spotifyClientId = it)) }, placeholder = L("例: 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c", "e.g. 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c"))
     }
+    Field(
+        L("全画面の背景", "Full-screen background"),
+        L("どれもジャケットから拾った色で描きます。", "All use colors picked from the album cover."),
+    ) {
+        Select(
+            listOf(
+                "still" to L("単色（動かない、ほんの少しのグラデーション）", "Solid (still, a subtle gradient)"),
+                "flow" to L("ぼやけた光（ゆっくり漂う）", "Soft glow (slowly drifting)"),
+                "spike" to L("尖った光（ぼやけた縦の光が揺れる）", "Spikes (soft vertical shards swaying)"),
+            ),
+            d.spotifyBackground, { set(d.copy(spotifyBackground = it)) },
+        )
+    }
     LyricsField(graph, d, set)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         ActionButton(L("Spotify と連携", "Connect Spotify"), { onOpenBrowser("http://127.0.0.1:${DashboardServer.PORT}/api/spotify/start") }, enabled = savedId)
@@ -1518,7 +1567,7 @@ private fun InfoPane(onVersionArt: () -> Unit) {
     var taps by remember { mutableStateOf(0) }
     var lastTap by remember { mutableStateOf(0L) }
     PaneTitle(L("情報", "About"), L("このアプリについて。", "About this app."))
-    Field(L("バージョン", "Version"), L("Releases の APK は v1.2.3 の形、ソースコードから自分でビルドしたものは「それより前の最新のバージョン-コミットの名前」の形です。", "APKs from Releases show v1.2.3; builds from source show \"latest earlier version-commit name\".")) {
+    Field(L("バージョン", "Version"), L("「バージョン-日付」の形です（ソースコードの直下の VERSION に書いてある値）。", "In the form \"version-date\" (the value in the VERSION file at the top of the source code).")) {
         Text(
             app.dashboard.BuildConfig.VERSION_LABEL,
             fontSize = 22.tu,

@@ -144,7 +144,7 @@ class DisasterRepository(
 
             // 津波・台風・噴火は警報や地震とは別系統。個別に失敗を受けて、
             // 取れなかったものだけ前回の値を残す。
-            val tsunami = runCatching { fetchTsunami() }
+            val tsunami = runCatching { fetchTsunami(area) }
                 .onFailure { Log.w(TAG, "津波情報の取得に失敗", it) }
                 .getOrElse { state.tsunami }
             val typhoons = runCatching { fetchTyphoons() }
@@ -202,22 +202,75 @@ class DisasterRepository(
     // ------------------------------------------------------------ 津波
 
     /**
-     * 津波警報・注意報。
+     * 津波警報・注意報・予報のうち、いまこの地点に関係するもの。
      *
-     * 一覧 JSON は津波が無い間はずっと空配列なので、要素の形を実データで確かめられない。
-     * 決め打ちの DTO にすると想定外のキー構成で丸ごと落ちるため、JSON のまま受けて
-     * 分かるものだけ拾う。題名が取れなくても件数は分かるようにしておく。
+     * `list.json` は「いま出ている津波情報」ではなく発表の履歴で、期限の切れた古い発表も、同じ地震の続報も並ぶ
+     * （2026-10-10 に、9/30 の与那国島近海の津波予報と、10/10 の中米の地震の津波予報の 2 件が並び、カードに 2 つ出ていた）。
+     * また 1 つの発表は全国の沿岸（津波予報区）ごとの内容を持ち、海から遠い地点には関係しない。そこで:
+     * 1. 同じ地震（`eid`）は最新の発表だけにし、取り消されたものは除く
+     * 2. 本文（`{json}`）の `Head.ValidDateTime` を過ぎたものは除く
+     * 3. 地点の近くに海岸線のある予報区（[TsunamiCoast.nearby]）の項目のうち、「津波なし」「解除」以外があるものだけ残す
+     * 題名は残った項目でいちばん強い種別（例: 「津波予報（若干の海面変動）」）。内陸の地点では何も出ない。
      */
-    private suspend fun fetchTsunami(): List<TsunamiInfo> {
+    private suspend fun fetchTsunami(area: ResolvedArea): List<TsunamiInfo> {
         val list: JsonArray = client.get("$BASE/tsunami/data/list.json").body()
+        val near = tsunamiAreas(area)
+        if (near.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis()
         return list.mapNotNull { it as? JsonObject }
-            .take(3)
-            .map { o ->
+            // 発表時刻（JST の同じ書式）の新しい順にして、地震ごとに最新だけ
+            .sortedByDescending { it.str("rdt").orEmpty() }
+            .distinctBy { it.str("eid") ?: it.str("json") }
+            .filter { it.str("ift") != "取消" }
+            .take(MAX_TSUNAMI_EVENTS)
+            .mapNotNull { o ->
+                val file = o.str("json") ?: return@mapNotNull null
+                val doc = tsunamiDocs[file] ?: client.get("$BASE/tsunami/data/$file").body<JsonObject>().also { tsunamiDocs[file] = it }
+                val valid = doc.str("Head", "ValidDateTime")?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
+                if (valid != null && valid < now) return@mapNotNull null
+                val items = ((doc["Body"] as? JsonObject)?.get("Tsunami") as? JsonObject)
+                    ?.let { (it["Forecast"] as? JsonObject)?.get("Item") as? JsonArray }
+                    .orEmpty()
+                    .mapNotNull { it as? JsonObject }
+                    .filter { it.str("Area", "Code") in near }
+                    .filter { item ->
+                        val kind = item.str("Category", "Kind", "Name").orEmpty()
+                        kind.isNotEmpty() && "なし" !in kind && "解除" !in kind
+                    }
+                val top = items.maxByOrNull { tsunamiRank(it.str("Category", "Kind", "Name").orEmpty()) } ?: return@mapNotNull null
                 TsunamiInfo(
-                    title = o.str("ttl") ?: o.str("title"),
-                    reportedAt = o.str("rdt") ?: o.str("at") ?: o.str("reportDatetime"),
+                    title = top.str("Category", "Kind", "Name"),
+                    reportedAt = o.str("rdt") ?: doc.str("Head", "ReportDateTime"),
+                    titleEn = top.str("Category", "Kind", "enName"),
+                    area = items.mapNotNull { it.str("Area", "Name") }.distinct().joinToString("・").ifEmpty { null },
+                    areaEn = items.mapNotNull { it.str("Area", "enName") }.distinct().joinToString(", ").ifEmpty { null },
                 )
             }
+            .take(1)
+    }
+
+    /** 地点の近くの津波予報区。海岸線（約 115KB）はプロセスで 1 度だけ読み、地点ごとの結果も覚える。 */
+    private suspend fun tsunamiAreas(area: ResolvedArea): Set<String> {
+        val key = area.latitude to area.longitude
+        tsunamiNear?.let { (k, v) -> if (k == key) return v }
+        val coasts = tsunamiCoasts ?: TsunamiCoast.parse(client.get("$BASE/common/const/geojson/tsunami.json").body<JsonElement>())
+            .also { tsunamiCoasts = it }
+        return TsunamiCoast.nearby(coasts, area.latitude, area.longitude).also { tsunamiNear = key to it }
+    }
+
+    /** 津波の種別の強さ（大きいほど強い）。 */
+    private fun tsunamiRank(kind: String) = when {
+        "大津波警報" in kind -> 4
+        "津波警報" in kind -> 3
+        "注意報" in kind -> 2
+        else -> 1
+    }
+
+    @Volatile private var tsunamiCoasts: Map<String, List<List<DoubleArray>>>? = null
+    @Volatile private var tsunamiNear: Pair<Pair<Double, Double>, Set<String>>? = null
+    /** 津波の本文はファイル名ごとに中身が変わらないので覚える（数件だけ）。 */
+    private val tsunamiDocs = object : LinkedHashMap<String, JsonObject>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JsonObject>?) = size > 8
     }
 
     // ------------------------------------------------------------ 台風
@@ -490,6 +543,8 @@ class DisasterRepository(
 
         /** 同時に発生する台風は多くても数個。壁に並べて読めるのはこの程度まで。 */
         const val MAX_TYPHOONS = 3
+        /** 見る津波の発表（地震）の数。 */
+        const val MAX_TSUNAMI_EVENTS = 3
 
         /**
          * 入れ子の JSON から文字列を 1 つ取り出す。

@@ -5,6 +5,7 @@ import app.dashboard.data.Config
 import app.dashboard.data.MemoConfig
 import app.dashboard.data.MemoPatch
 import app.dashboard.data.SaveAllRequest
+import app.dashboard.data.SPOTIFY_BACKGROUNDS
 import app.dashboard.data.SpotifyConfig
 import app.dashboard.data.SpotifyPatch
 import app.dashboard.data.WallpaperConfig
@@ -187,6 +188,7 @@ class SettingsController(private val graph: AppGraph) {
         enabled = patch.enabled ?: current.enabled,
         clientId = patch.clientId?.trim() ?: current.clientId,
         saveLyrics = patch.saveLyrics ?: current.saveLyrics,
+        background = patch.background?.takeIf { it in SPOTIFY_BACKGROUNDS } ?: current.background,
     )
 
     /**

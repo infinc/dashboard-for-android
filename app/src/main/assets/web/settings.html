@@ -254,6 +254,10 @@
           タブレット本体の設定画面からは、端末の写真から選べます。
         </div>
         <div class="status" id="wallpaperStatus"></div>
+        <div class="wallpaper-preview">
+          <span>いまの背景</span>
+          <div id="wallpaperPreview" class="wallpaper-frame"></div>
+        </div>
       </div>
 
       <div class="field" style="max-width:320px">
@@ -627,6 +631,16 @@
 
       <div class="field">
         <label class="toggle"><input type="checkbox" id="spotifyEnabled"> 再生中の曲を取得する</label>
+      </div>
+
+      <div class="field">
+        <label for="spotifyBackground">全画面の背景</label>
+        <select id="spotifyBackground">
+          <option value="still">単色（動かない、ほんの少しのグラデーション）</option>
+          <option value="flow">ぼやけた光（ゆっくり漂う）</option>
+          <option value="spike">尖った光（ぼやけた縦の光が揺れる）</option>
+        </select>
+        <div class="hint">どれもジャケットから拾った色で描きます。</div>
       </div>
 
       <div class="field">

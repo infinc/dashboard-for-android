@@ -13,7 +13,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -24,17 +29,22 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * Spotify の全画面の背景。ジャケットに使われている色（[coverPalette]）の大きな光の玉を何個か重ね、
- * それぞれをゆっくり、決まった周期を持たずに漂わせる（[wander]）。曲が変わると色だけがゆっくり移る。
+ * Spotify の全画面の背景。色はどれもジャケットに使われている色（[coverPalette]）から取り、曲が変わると色だけがゆっくり移る。
+ * [style] は設定の `spotify.background`:
+ * - "still": 動かない。いちばん暗い色の地に、いちばん多い色をほんの少しだけ斜めに重ねる
+ * - "flow": 大きな光の玉を何個か重ね、それぞれをゆっくり、決まった周期を持たずに漂わせる（[wander]）
+ * - "spike": 上下から伸びる尖った光（三角形）を重ね、ぼかして揺らす（[spikes]）
  * 曲名などの白い文字が読めるよう、色は明るさを抑え、下に向かって少し暗くする。
  */
 @Composable
-fun Modifier.coverGradient(palette: List<Color>): Modifier {
+fun Modifier.coverGradient(palette: List<Color>, style: String = "flow"): Modifier {
     // 開くたびに違う動きにする（同じ動きを繰り返さない）
     val seed = remember { Random.nextInt() }
     val start = remember { Random.nextFloat() * 1000f }
     val time = remember { mutableFloatStateOf(start) }
-    LaunchedEffect(Unit) {
+    val moving = style != "still"
+    LaunchedEffect(moving) {
+        if (!moving) return@LaunchedEffect
         var last = 0L
         while (true) {
             withFrameNanos { t ->
@@ -49,15 +59,130 @@ fun Modifier.coverGradient(palette: List<Color>): Modifier {
     }
     // 地はジャケットのいちばん暗い色（黒や紺が多いジャケットなら暗い紺の地になる）
     val bg by animateColorAsState(palette.minBy { it.luminance() }.tone(0.24f), tween(COLOR_MS), label = "gradBg")
-    val blobs = List(BLOBS) { i ->
-        animateColorAsState(palette[i % palette.size].tone(BLOB_TONES[i]), tween(COLOR_MS), label = "grad$i")
+    val count = if (style == "spike") SPIKES else BLOBS
+    val colors = List(count) { i ->
+        val tones = if (style == "spike") SPIKE_TONES else BLOB_TONES
+        animateColorAsState(palette[i % palette.size].tone(tones[i]), tween(COLOR_MS), label = "grad$i")
     }
+    val canvas = remember { SpikeCanvas() }
     return drawBehind {
         drawRect(bg)
-        val t = time.floatValue
-        blobs.forEachIndexed { i, c -> blob(c, seed + i * 7919, t) }
+        when (style) {
+            "still" -> drawRect(
+                Brush.linearGradient(
+                    0f to colors[0].value.copy(alpha = 0.30f),
+                    1f to Color.Transparent,
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height),
+                ),
+            )
+            "spike" -> spikes(canvas, bg, colors, seed, time.floatValue)
+            else -> colors.forEachIndexed { i, c -> blob(c, seed + i * 7919, time.floatValue) }
+        }
         // 下ほど暗く（左下の曲名・下の操作ボタンを読みやすく）
         drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.06f), 0.55f to Color.Black.copy(alpha = 0.16f), 1f to Color.Black.copy(alpha = 0.50f)))
+    }
+}
+
+/**
+ * 尖った光の背景の下書き。小さな画像（横 [SPIKE_W] 画素）に三角形を描いてぼかし、画面いっぱいに引き伸ばす。
+ * 引き伸ばすことで、ぼかしの重い処理をせずに「ぼやけてはいるが尖っている」形になり、古い Android でも同じに見える。
+ * 画像と作業用の配列は使い回す。
+ */
+private class SpikeCanvas {
+    var bitmap: android.graphics.Bitmap? = null
+    var image: ImageBitmap? = null
+    var pixels = IntArray(0)
+    var work = IntArray(0)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val path = android.graphics.Path()
+
+    fun ensure(w: Int, h: Int) {
+        if (bitmap?.width == w && bitmap?.height == h) return
+        val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap = b
+        image = b.asImageBitmap()
+        pixels = IntArray(w * h)
+        work = IntArray(w * h)
+    }
+}
+
+/**
+ * 尖った光。下から上へ・上から下へ伸びる三角形を交互に重ねる。根元の位置・幅、先の高さ・左右の傾きを [wander] で揺らし、
+ * 根元から先へ少し薄くする。描いたら横に強く・縦に弱くぼかし（[boxBlur]）、画面へ引き伸ばす。
+ */
+private fun DrawScope.spikes(canvas: SpikeCanvas, bg: Color, colors: List<State<Color>>, seed: Int, t: Float) {
+    if (size.width <= 0f || size.height <= 0f) return
+    val w = SPIKE_W
+    val h = (w * size.height / size.width).toInt().coerceIn(16, 160)
+    canvas.ensure(w, h)
+    val bitmap = canvas.bitmap ?: return
+    val c = android.graphics.Canvas(bitmap)
+    c.drawColor(bg.toArgb())
+    val paint = canvas.paint
+    val path = canvas.path
+    colors.forEachIndexed { i, state ->
+        val s = seed + i * 7919
+        val up = i % 2 == 0
+        // 根元は横に散らし（等間隔に見えないよう少しずらす）、そこから揺らす。前に描くものほど細く
+        val home = (i + 0.5f + 0.35f * knot(s, 0)) / colors.size
+        val baseX = w * (home + 0.09f * wander(s, t / 11f) + 0.03f * wander(s + 1, t / 3.7f))
+        val thin = 1f - 0.55f * i / colors.size
+        val half = w * thin * (0.13f + 0.05f * knot(s, 1) + 0.04f * wander(s + 2, t / 7.3f))
+        val tipX = baseX + w * (0.06f * wander(s + 3, t / 5.1f) + 0.025f * wander(s + 4, t / 1.9f))
+        val reach = h * (0.70f + 0.18f * knot(s, 2) + 0.16f * wander(s + 5, t / 6.1f) + 0.05f * wander(s + 6, t / 2.3f))
+        val baseY = if (up) h.toFloat() else 0f
+        val tipY = if (up) h - reach else reach
+        path.rewind()
+        path.moveTo(baseX - half, baseY)
+        path.lineTo(baseX + half, baseY)
+        path.lineTo(tipX, tipY)
+        path.close()
+        val color = state.value
+        paint.shader = android.graphics.LinearGradient(
+            baseX, baseY, tipX, tipY,
+            color.toArgb(), color.copy(alpha = 0.55f).toArgb(),
+            android.graphics.Shader.TileMode.CLAMP,
+        )
+        c.drawPath(path, paint)
+    }
+    paint.shader = null
+    bitmap.getPixels(canvas.pixels, 0, w, 0, 0, w, h)
+    boxBlur(canvas.pixels, canvas.work, w, h, 2, horizontal = true)
+    boxBlur(canvas.work, canvas.pixels, w, h, 1, horizontal = false)
+    bitmap.setPixels(canvas.pixels, 0, w, 0, 0, w, h)
+    val image = canvas.image ?: return
+    drawImage(
+        image,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(w, h),
+        dstOffset = IntOffset.Zero,
+        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+        filterQuality = FilterQuality.Low,
+    )
+}
+
+/** 半径 [r] の箱ぼかしを、横か縦の 1 方向だけ掛ける（端は端の画素を伸ばす）。[src] から [dst] へ。 */
+private fun boxBlur(src: IntArray, dst: IntArray, w: Int, h: Int, r: Int, horizontal: Boolean) {
+    val lines = if (horizontal) h else w
+    val len = if (horizontal) w else h
+    val n = 2 * r + 1
+    for (line in 0 until lines) {
+        val at = { k: Int -> if (horizontal) line * w + k.coerceIn(0, len - 1) else k.coerceIn(0, len - 1) * w + line }
+        var a = 0; var rr = 0; var g = 0; var b = 0
+        for (k in -r..r) {
+            val p = src[at(k)]
+            a += p ushr 24; rr += (p shr 16) and 0xFF; g += (p shr 8) and 0xFF; b += p and 0xFF
+        }
+        for (k in 0 until len) {
+            dst[at(k)] = ((a / n) shl 24) or ((rr / n) shl 16) or ((g / n) shl 8) or (b / n)
+            val out = src[at(k - r)]
+            val inn = src[at(k + r + 1)]
+            a += (inn ushr 24) - (out ushr 24)
+            rr += ((inn shr 16) and 0xFF) - ((out shr 16) and 0xFF)
+            g += ((inn shr 8) and 0xFF) - ((out shr 8) and 0xFF)
+            b += (inn and 0xFF) - (out and 0xFF)
+        }
     }
 }
 
@@ -169,6 +294,11 @@ private val FALLBACK_PALETTE = listOf(Color(0xFF3A4150), Color(0xFF2E3A52), Colo
 /** 光の玉の数と、それぞれの明るさ（HSV の V）。 */
 private const val BLOBS = 5
 private val BLOB_TONES = floatArrayOf(0.80f, 0.66f, 0.74f, 0.60f, 0.76f)
+
+/** 尖った光の数と、それぞれの明るさ。下書きの画像の横の画素数。 */
+private const val SPIKES = 11
+private val SPIKE_TONES = floatArrayOf(0.78f, 0.70f, 0.82f, 0.62f, 0.74f, 0.66f, 0.80f, 0.60f, 0.72f, 0.76f, 0.64f)
+private const val SPIKE_W = 160
 
 /** 曲が変わったときに色が移る時間。 */
 private const val COLOR_MS = 1500

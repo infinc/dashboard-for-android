@@ -15,40 +15,14 @@ val keystoreProps = Properties().apply {
 }
 
 /**
- * 設定の「情報」に出すバージョン。git のタグ（dashboard_v1.2.3）から決める。
- *  - いまのコミットにタグが付いている（Releases の APK）: "v1.2.3"
- *  - それ以外（自分でビルド）: そのコミットより前に付いたタグのうち最も新しいもの + "-" + コミットの名前（"v1.2.2-20261002"）
- *  - git が無い（ZIP でダウンロードしたソースなど）: versionName + "-source"
+ * バージョンは直下の VERSION（1 行。"v1.2.4-20261010" の形）だけで管理する。
+ * 設定の「情報」（BuildConfig.VERSION_LABEL）・APK の versionName / versionCode はすべてここから取る。
+ * versionCode は先頭の 3 つの数から作る（v1.2.4 → 10204）。上げるときは VERSION を書き換えるだけでよい。
  */
-fun gitOut(vararg args: String): String? = runCatching {
-    providers.exec {
-        commandLine("git", *args)
-        workingDir = rootDir
-        isIgnoreExitValue = true
-    }.standardOutput.asText.get().trim().takeIf { it.isNotEmpty() }
-}.getOrNull()
-
-val baseVersionName = "1.2.4"
-
-val versionLabel: String = run {
-    val tagPrefix = "dashboard_"
-    fun clean(tag: String) = tag.removePrefix(tagPrefix)
-    val headTime = gitOut("log", "-1", "--format=%ct", "HEAD")?.toLongOrNull() ?: return@run "v$baseVersionName-source"
-    val exact = gitOut("tag", "--points-at", "HEAD", "--list", "${tagPrefix}v*")?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }
-    if (!exact.isNullOrEmpty()) return@run clean(exact.sorted().last())
-    // タグは main の取り込みのコミットに付くので、祖先かどうかではなく時刻で「そのコード以前」を決める
-    val tags = gitOut("for-each-ref", "--format=%(refname:short) %(*committerdate:unix)%(committerdate:unix)", "refs/tags/${tagPrefix}v*")
-        ?.lines()?.mapNotNull { line ->
-            val parts = line.trim().split(" ")
-            val time = parts.getOrNull(1)?.toLongOrNull() ?: return@mapNotNull null
-            parts[0] to time
-        }.orEmpty()
-    val base = tags.filter { it.second <= headTime }.maxByOrNull { it.second }?.first?.let(::clean) ?: "v$baseVersionName"
-    val subject = gitOut("log", "-1", "--format=%s", "HEAD")?.lines()?.firstOrNull()
-        ?.replace(Regex("[^0-9A-Za-z._-]+"), "-")?.trim('-')?.take(40)
-        ?.takeIf { it.isNotEmpty() } ?: gitOut("rev-parse", "--short", "HEAD") ?: "dev"
-    "$base-$subject"
+val versionLabel: String = rootProject.file("VERSION").readText().trim().also {
+    require(Regex("""v\d+\.\d+\.\d+(-[0-9A-Za-z._-]+)?""").matches(it)) { "VERSION の形が違います: '$it'（例: v1.2.4-20261010）" }
 }
+val versionNumbers: List<Int> = Regex("""v(\d+)\.(\d+)\.(\d+)""").find(versionLabel)!!.destructured.toList().map(String::toInt)
 
 android {
     namespace = "app.dashboard"
@@ -60,7 +34,7 @@ android {
         // targetSdk 35 固定: Android 16 (API 36) の挙動変更を Phase 2 のゲート通過まで踏まない。
         // 通過後に 36 へ上げ、Phase 2 の合格条件を再度流す。
         targetSdk = 35
-        versionCode = 1
+        versionCode = versionNumbers[0] * 10000 + versionNumbers[1] * 100 + versionNumbers[2]
         versionName = versionLabel.removePrefix("v")
         buildConfigField("String", "VERSION_LABEL", "\"$versionLabel\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -185,8 +185,13 @@ data class DisasterState(
  */
 @Serializable
 data class TsunamiInfo(
+    /** 地点の近くの予報区でいちばん強い種別（「津波予報（若干の海面変動）」など）。 */
     val title: String? = null,
     val reportedAt: String? = null,
+    val titleEn: String? = null,
+    /** 該当した予報区の名前（「〇〇県」「〇〇湾」など。複数なら「・」でつなぐ）。 */
+    val area: String? = null,
+    val areaEn: String? = null,
 )
 
 /** 台風。数値はすべて気象庁の文字列表記のまま持つ（単位換算はしない）。 */
@@ -608,7 +613,12 @@ data class SpotifyConfig(
     val refreshToken: String? = null,
     /** 見つけた歌詞を端末に保存する（直近 300 曲まで。次からは通信せずに出せる）。 */
     val saveLyrics: Boolean = true,
+    /** 全画面の背景。[SPOTIFY_BACKGROUNDS] のどれか（still = 動かない単色・flow = 漂う光の玉・spike = 尖った光）。 */
+    val background: String = "flow",
 )
+
+/** Spotify の全画面の背景の選択肢（保存する値）。 */
+val SPOTIFY_BACKGROUNDS = listOf("still", "flow", "spike")
 
 /**
  * ブラウズ画面のお気に入り 1 件。
@@ -1236,6 +1246,7 @@ data class SpotifyPublic(
     val clientId: String = "",
     val connected: Boolean = false,
     val saveLyrics: Boolean = true,
+    val background: String = "flow",
 )
 
 @Serializable
@@ -1311,6 +1322,7 @@ fun Config.toPublic() = PublicConfig(
         clientId = spotify.clientId,
         connected = !spotify.refreshToken.isNullOrBlank(),
         saveLyrics = spotify.saveLyrics,
+        background = spotify.background,
     ),
     notifications = notifications,
     wallpaper = wallpaper,
@@ -1388,6 +1400,7 @@ data class SpotifyPatch(
     val enabled: Boolean? = null,
     val clientId: String? = null,
     val saveLyrics: Boolean? = null,
+    val background: String? = null,
 )
 
 /** メモ設定の更新。token は書き込み専用で、読み出し経路は用意しない。 */

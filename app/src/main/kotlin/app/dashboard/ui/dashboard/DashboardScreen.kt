@@ -220,7 +220,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
         Box(Modifier.fillMaxSize().offset { fullShift }) {
             AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-                NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, vm::lyrics, onBack = { nowPlaying = false })
+                NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, config.spotify.background, vm::lyrics, onBack = { nowPlaying = false })
             }
             AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
                 BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
@@ -315,8 +315,8 @@ private fun burnInShift(enabled: Boolean): IntOffset {
     return shifted
 }
 
-/** 画面上部のごく淡い光。 */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.glow() {
+/** 画面上部のごく淡い光（背景画像が無いときの背景。設定の「テーマ」のプレビューも使う）。 */
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.glow() {
     val c = Offset(size.width / 2, -size.height * 0.25f)
     scale(1.3f * size.width / (0.8f * size.height), 1f, c) {
         drawCircle(

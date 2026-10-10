@@ -234,7 +234,7 @@
       memo: memo,
       ships: ships,
       github: github,
-      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked }
+      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked, background: $("spotifyBackground").value }
     };
   }
 
@@ -393,6 +393,7 @@
     $("spotifyEnabled").checked = !!sp.enabled;
     $("spotifyClientId").value = sp.clientId || "";
     $("spotifySaveLyrics").checked = sp.saveLyrics !== false;
+    $("spotifyBackground").value = sp.background || "flow";
     renderSpotify();
 
     $("disasterSound").checked = n.disasterSound !== false;
@@ -1170,6 +1171,10 @@
     var on = !!(config.wallpaper && config.wallpaper.imageSetAt > 0);
     $("wallpaperClear").disabled = !on;
     setStatus("wallpaperStatus", on ? L("背景画像を表示中", "Showing a background image") : L("背景画像なし", "No background image"));
+    // いまの背景の縮図。画像は設定した時刻を付けて読み、変わったときだけ取り直す。無ければ既定の背景（地の色と上の淡い光）
+    var frame = $("wallpaperPreview");
+    frame.style.backgroundImage = on ? "url(/api/wallpaper?at=" + config.wallpaper.imageSetAt + ")" : "";
+    frame.classList.toggle("default", !on);
   }
 
   /** 画像はそのまま送り、縮小と向きの補正はタブレット側で行う。 */

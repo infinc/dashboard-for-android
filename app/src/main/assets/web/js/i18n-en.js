@@ -268,6 +268,12 @@ window.EN_HTML = {
  "ログイン": "Sign in"
 };
 window.EN_TEXT = {
+ "全画面の背景": "Full-screen background",
+ "いまの背景": "Current background",
+ "単色（動かない、ほんの少しのグラデーション）": "Solid (still, a subtle gradient)",
+ "ぼやけた光（ゆっくり漂う）": "Soft glow (slowly drifting)",
+ "尖った光（ぼやけた縦の光が揺れる）": "Spikes (soft vertical shards swaying)",
+ "どれもジャケットから拾った色で描きます。": "All use colors picked from the album cover.",
  "直近 300 曲の歌詞を端末に保存する": "Save lyrics of the latest 300 songs on the tablet",
  "日本語": "日本語",
  "ダーク": "Dark",
