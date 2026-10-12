@@ -1568,7 +1568,7 @@ private fun InfoPane(graph: AppGraph, onVersionArt: () -> Unit) {
     var taps by remember { mutableStateOf(0) }
     var lastTap by remember { mutableStateOf(0L) }
     PaneTitle(L("情報", "About"), L("このアプリについて。", "About this app."))
-    Field(L("バージョン", "Version"), L("「バージョン-日付」の形です（ソースコードの直下の VERSION に書いてある値）。", "In the form \"version-date\" (the value in the VERSION file at the top of the source code).")) {
+    Field(L("バージョン", "Version"), L("ソースコードの直下の VERSION に書いてある値です（「v1.2.5」、日付を付けたときは「v1.2.5-20261012」の形）。", "The value in the VERSION file at the top of the source code (\"v1.2.5\", or \"v1.2.5-20261012\" with a date).")) {
         Text(
             app.dashboard.BuildConfig.VERSION_LABEL,
             fontSize = 22.tu,

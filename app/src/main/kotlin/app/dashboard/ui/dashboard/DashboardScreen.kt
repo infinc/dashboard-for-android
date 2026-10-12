@@ -48,7 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -382,9 +382,6 @@ private fun Footer(
     hasUpdate: Boolean,
     onUpdate: () -> Unit,
 ) {
-    val spin by rememberInfiniteTransition(label = "refresh").animateFloat(
-        0f, 360f, infiniteRepeatable(tween(800, easing = LinearEasing)), label = "spin",
-    )
     Row(
         Modifier.fillMaxWidth().padding(start = GAP, end = GAP, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -401,7 +398,7 @@ private fun Footer(
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             // 新しい版があるときだけ。押すと起動時と同じ真ん中の案内
             if (hasUpdate) FooterButton(WdIcons.Download, L("アップデート", "Update"), onUpdate, tint = app.dashboard.ui.theme.LocalAccent.current)
-            FooterButton(WdIcons.Refresh, L("更新", "Refresh"), onRefresh, Modifier.rotate(if (refreshing) spin else 0f))
+            FooterButton(WdIcons.Refresh, L("更新", "Refresh"), onRefresh, if (refreshing) Modifier.spinning() else Modifier)
             PresetButton(presets, onPreset)
             FooterButton(WdIcons.Gear, L("設定", "Settings"), onSettings)
             FooterButton(WdIcons.Browse, L("ブラウズ", "Browse"), onBrowse)
@@ -477,3 +474,11 @@ private fun ToastBanner(t: DashboardViewModel.Toast) {
     }
 }
 
+/** 取得中の「更新」ボタンを回す。取得中のときだけ付ける（付けていない間はフレームを求めない）。 */
+@Composable
+private fun Modifier.spinning(): Modifier {
+    val spin by rememberInfiniteTransition(label = "refresh").animateFloat(
+        0f, 360f, infiniteRepeatable(tween(800, easing = LinearEasing)), label = "spin",
+    )
+    return graphicsLayer { rotationZ = spin }
+}

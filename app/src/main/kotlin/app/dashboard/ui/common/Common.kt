@@ -18,7 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -56,7 +57,13 @@ fun WdCard(
     val CardShape = cardShape()
     Column(
         modifier
-            .clip(CardShape)
+            // カードごとに描いた結果を GPU に取っておく（中身が変わったカードだけ描き直す）。
+            // ハムスターなど動く絵のために画面を合成し直すたび、全カードの文字や図形を描き直すと古いタブレットでは重い
+            .graphicsLayer {
+                shape = CardShape
+                clip = true
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
             .background(Brush.verticalGradient(listOf(cardSurface(Wd.Surface2).copy(alpha = alpha), cardSurface(Wd.Surface).copy(alpha = alpha))))
             .border(1.dp, borderColor, CardShape)
             .drawWithContent {

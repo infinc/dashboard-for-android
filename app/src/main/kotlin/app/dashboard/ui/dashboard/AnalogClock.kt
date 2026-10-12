@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -24,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import app.dashboard.ui.common.WdCard
+import app.dashboard.ui.common.awaitTick
 import app.dashboard.ui.theme.LocalAccent
 import app.dashboard.ui.theme.Wd
 import java.time.Instant
@@ -52,27 +53,21 @@ fun AnalogClockCard(now: Long, sweep: Boolean, numerals: Boolean, modifier: Modi
         LaunchedEffect(Unit) {
             var last = 0L
             while (true) {
-                withFrameMillis {
-                    val t = System.currentTimeMillis()
-                    if (t - last >= 33) {
-                        smooth = t
-                        last = t
-                    }
-                }
+                // ほかの絵（ハムスターなど）と同じ刻みで描き直す
+                last = awaitTick(last) { smooth = System.currentTimeMillis() }
             }
         }
     }
-    val t = if (sweep) smooth else now
     val zone = ZoneId.systemDefault()
     val date = Instant.ofEpochMilli(now).atZone(zone)
     val measurer = rememberTextMeasurer()
     val accent = LocalAccent.current
     WdCard(L("アナログ時計", "Analog clock"), modifier, note = L("${date.monthValue}/${date.dayOfMonth}（${wday(date)}）", "${date.monthValue}/${date.dayOfMonth} (${wday(date)})")) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize().aspectRatio(1f, matchHeightConstraintsFirst = true)) {
-                dial(measurer, numerals, date.dayOfMonth, accent)
-                hands(t, zone, accent)
-            }
+            val face = Modifier.fillMaxSize().aspectRatio(1f, matchHeightConstraintsFirst = true)
+            // 文字盤（数字の文字を含む）は日付が変わるまで描き直さない。針だけを自分の層で描き直す
+            Canvas(face) { dial(measurer, numerals, date.dayOfMonth, accent) }
+            Canvas(face.graphicsLayer()) { hands(if (sweep) smooth else now, zone, accent) }
         }
     }
 }

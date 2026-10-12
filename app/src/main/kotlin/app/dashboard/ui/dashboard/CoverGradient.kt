@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.withFrameMillis
+import app.dashboard.ui.common.awaitTick
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -45,16 +46,11 @@ fun Modifier.coverGradient(palette: List<Color>, style: String = "flow"): Modifi
     val moving = style != "still"
     LaunchedEffect(moving) {
         if (!moving) return@LaunchedEffect
-        var last = 0L
+        var last = withFrameMillis { it }
         while (true) {
-            withFrameNanos { t ->
-                if (last == 0L) last = t
-                // 古いタブレットでも重くならないよう、およそ 30 コマ／秒で進める
-                if (t - last >= 33_000_000L) {
-                    time.floatValue += (t - last) / 1e9f
-                    last = t
-                }
-            }
+            // 古いタブレットでも重くならないよう、ほかの絵と同じ刻み（約 30 コマ／秒）で進める
+            val from = last
+            last = awaitTick(from) { time.floatValue += (it - from) / 1e3f }
         }
     }
     // 地はジャケットのいちばん暗い色（黒や紺が多いジャケットなら暗い紺の地になる）

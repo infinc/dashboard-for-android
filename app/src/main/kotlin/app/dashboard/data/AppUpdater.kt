@@ -104,7 +104,19 @@ class AppUpdater(
         val updated = if (last != null) isNewer(currentLabel, last) else wasReinstalled()
         val pendingTag = prefs.getString(KEY_PENDING_TAG, null)
         val pendingNotes = prefs.getString(KEY_PENDING_NOTES, null)
-        prefs.edit().remove(KEY_PENDING_TAG).remove(KEY_PENDING_NOTES).apply()
+        // ダウンロードしたまま入れていない新しい版のノートは残す（あとでインストールしたときに出す）
+        if (pendingTag == null || !isNewer(pendingTag, currentLabel)) {
+            prefs.edit().remove(KEY_PENDING_TAG).remove(KEY_PENDING_NOTES).apply()
+        }
+        // 前の起動でダウンロードした APK（入れ替えたあとの古いものを含む）はもう使わない。キャッシュに 20 MB ほど残り続けないよう消す
+        // （この起動でダウンロード中・ダウンロード済みのものは消さない）
+        if (lock.tryLock()) {
+            try {
+                if (_state.value !is UpdateState.Ready) withContext(Dispatchers.IO) { dir.deleteRecursively() }
+            } finally {
+                lock.unlock()
+            }
+        }
         if (!updated) return
         val label = versionOf(currentLabel)?.let { "v${it[0]}.${it[1]}.${it[2]}" } ?: currentLabel
         val notes = if (pendingTag != null && versionOf(pendingTag) == versionOf(currentLabel)) {

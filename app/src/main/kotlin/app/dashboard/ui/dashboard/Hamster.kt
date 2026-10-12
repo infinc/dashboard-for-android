@@ -20,20 +20,21 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.boundingRect
 import androidx.compose.ui.geometry.translate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import app.dashboard.ui.common.TICK_MS
+import app.dashboard.ui.common.awaitTick
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
@@ -164,14 +165,13 @@ fun Hamster(modifier: Modifier = Modifier) {
     val rest by animateFloatAsState(if (mode == Mode.REST) 1f else 0f, tween(800), label = "rest")
 
     LaunchedEffect(Unit) {
-        var last = 0L
         var prev = 0L
         while (true) {
             withFrameMillis {
-                // 動きは毎フレーム進め、描き直しは約 30 コマ/秒にする
+                // 動きは毎フレーム進め、描き直しはほかの絵と同じ刻み（約 30 コマ/秒、TICK_MS）にする
                 motion.step(mode, it, if (prev == 0L) 0f else (it - prev).coerceAtMost(100) / 1000f)
                 prev = it
-                if (it - last >= 33) { time = it; last = it }
+                if (it / TICK_MS != time / TICK_MS) time = it
             }
         }
     }
@@ -184,10 +184,10 @@ fun Hamster(modifier: Modifier = Modifier) {
             dir = if (target < x) -1 else 1
             var prev = withFrameMillis { it }
             while (abs(target - x) > 0.5f) {
-                val now = withFrameMillis { it }
-                val step = WALK_SPEED * ((now - prev).coerceAtMost(100) / 1000f)
-                prev = now
-                x = if (abs(target - x) <= step) target else x + dir * step
+                prev = awaitTick(prev) { now ->
+                    val step = WALK_SPEED * ((now - prev).coerceAtMost(100) / 1000f)
+                    x = if (abs(target - x) <= step) target else x + dir * step
+                }
             }
         }
         fun spot(): Float {
@@ -223,7 +223,8 @@ fun Hamster(modifier: Modifier = Modifier) {
         }
     }
 
-    Canvas(modifier.size(78.dp)) {
+    // 自分の層で描く（描き直しのたびに、下のフッターなどまで描き直さない）
+    Canvas(modifier.size(78.dp).graphicsLayer()) {
         drawHamster(time, mode, x, dir, rest, motion)
     }
 }
@@ -258,9 +259,16 @@ private fun DrawScope.wheel(em: Float) {
 
 private fun DrawScope.spoke(em: Float, turn: Float) {
     rotate(turn, center) {
-        clipPath(Path().apply { addOval(Rect(center, 5.94f * em)) }) {
-            drawRect(SPOKE, Offset(center.x - 5.94f * em, center.y - 0.355f * em), androidx.compose.ui.geometry.Size(11.88f * em, 0.71f * em))
+        val (bar) = cached(listOf("spoke", em, center)) {
+            listOf(
+                Path.combine(
+                    PathOperation.Intersect,
+                    Path().apply { addOval(Rect(center, 5.94f * em)) },
+                    Path().apply { addRect(Rect(Offset(center.x - 5.94f * em, center.y - 0.355f * em), androidx.compose.ui.geometry.Size(11.88f * em, 0.71f * em))) },
+                ),
+            )
         }
+        drawPath(bar, SPOKE)
         drawCircle(WHEEL, 0.576f * em, center)
     }
 }
@@ -370,11 +378,11 @@ private fun DrawScope.frontLimb(em: Float, deg: Float, fur: Color, paw: Color) {
         translate(0.5f * em, 2f * em) {
             val w = 1f * em
             val h = 1.5f * em
-            val poly = polygon(w, h, 0f to 0f, 1f to 0f, 0.7f to 0.8f, 0.6f to 1f, 0f to 1f, 0.4f to 0.8f)
-            clipPath(poly) {
-                drawRect(fur, size = androidx.compose.ui.geometry.Size(w, h * 0.8f))
-                drawRect(paw, Offset(0f, h * 0.8f), androidx.compose.ui.geometry.Size(w, h * 0.2f))
+            val (furPath, pawPath) = cached(listOf("front", w, h)) {
+                split(polygon(w, h, 0f to 0f, 1f to 0f, 0.7f to 0.8f, 0.6f to 1f, 0f to 1f, 0.4f to 0.8f), w, h, 0.8f)
             }
+            drawPath(furPath, fur)
+            drawPath(pawPath, paw)
         }
     }
 }
@@ -385,14 +393,15 @@ private fun DrawScope.backLimb(em: Float, deg: Float, fur: Color, paw: Color) {
         translate(2.8f * em, 1f * em) {
             val w = 1.5f * em
             val h = 2.5f * em
-            val top = Path().apply {
-                addRoundRect(RoundRect(Rect(0f, 0f, w, h), CornerRadius(0.75f * em), CornerRadius(0.75f * em), CornerRadius.Zero, CornerRadius.Zero))
+            val (furPath, pawPath) = cached(listOf("back", w, h)) {
+                val top = Path().apply {
+                    addRoundRect(RoundRect(Rect(0f, 0f, w, h), CornerRadius(0.75f * em), CornerRadius(0.75f * em), CornerRadius.Zero, CornerRadius.Zero))
+                }
+                val poly = polygon(w, h, 0f to 0f, 1f to 0f, 1f to 0.3f, 0.7f to 0.9f, 0.7f to 1f, 0.3f to 1f, 0.4f to 0.9f, 0f to 0.3f)
+                split(Path.combine(PathOperation.Intersect, top, poly), w, h, 0.9f)
             }
-            val poly = polygon(w, h, 0f to 0f, 1f to 0f, 1f to 0.3f, 0.7f to 0.9f, 0.7f to 1f, 0.3f to 1f, 0.4f to 0.9f, 0f to 0.3f)
-            clipPath(Path.combine(PathOperation.Intersect, top, poly)) {
-                drawRect(fur, size = androidx.compose.ui.geometry.Size(w, h * 0.9f))
-                drawRect(paw, Offset(0f, h * 0.9f), androidx.compose.ui.geometry.Size(w, h * 0.1f))
-            }
+            drawPath(furPath, fur)
+            drawPath(pawPath, paw)
         }
     }
 }
@@ -415,15 +424,33 @@ private fun polygon(w: Float, h: Float, vararg pts: Pair<Float, Float>): Path = 
     close()
 }
 
+/**
+ * 形はカードの大きさ（em）だけで決まり、動きは座標の変換で付けるので、図形の合成（Path.combine）の結果を使い回す。
+ * 毎コマ合成し直すと、それだけで主スレッドがかなり重くなる。
+ */
+private val pathCache = HashMap<Any, List<Path>>()
+
+private fun cached(key: Any, build: () -> List<Path>): List<Path> =
+    pathCache[key] ?: build().also {
+        if (pathCache.size > 64) pathCache.clear()
+        pathCache[key] = it
+    }
+
+/** [path] を高さの [at] の割合で上下に分ける（上 = 毛、下 = 肉球）。 */
+private fun split(path: Path, w: Float, h: Float, at: Float): List<Path> = listOf(
+    Path.combine(PathOperation.Intersect, path, Path().apply { addRect(Rect(0f, 0f, w, h * at)) }),
+    Path.combine(PathOperation.Intersect, path, Path().apply { addRect(Rect(0f, h * at, w, h)) }),
+)
+
 /** 塗りと内側の影（CSS の inset box-shadow）。影は先に書いたものが上に来る。 */
 private fun DrawScope.shape(box: RoundRect, fill: Color, insets: List<Triple<Float, Float, Color>>) {
-    val path = Path().apply { addRoundRect(box) }
-    drawPath(path, fill)
-    clipPath(path) {
-        val bounds = Path().apply { addRect(box.boundingRect.inflate(box.width)) }
-        insets.asReversed().forEach { (dx, dy, color) ->
-            val moved = Path().apply { addRoundRect(box.translate(Offset(dx, dy))) }
-            drawPath(Path.combine(PathOperation.Difference, bounds, moved), color)
+    // 影 = 形から、ずらした形をくり抜いたもの
+    val paths = cached(box to insets) {
+        val path = Path().apply { addRoundRect(box) }
+        listOf(path) + insets.asReversed().map { (dx, dy, _) ->
+            Path.combine(PathOperation.Difference, path, Path().apply { addRoundRect(box.translate(Offset(dx, dy))) })
         }
     }
+    drawPath(paths[0], fill)
+    insets.asReversed().forEachIndexed { i, (_, _, color) -> drawPath(paths[i + 1], color) }
 }
