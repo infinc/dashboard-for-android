@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -285,6 +286,23 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 if (active) poll()
                 delay(POLL_MS)
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            // アプリの更新。起動のすぐあとに 1 回確認し、新しい版があれば画面の真ん中で知らせる。
+            // そのあとは点けっぱなしの端末のために 12 時間ごとに静かに確認する（フッターのボタンだけ出す）
+            delay(UPDATE_FIRST_DELAY_MS)
+            // 更新のあとの最初の起動ならリリースノートを出す（このときは新しい版の案内を重ねない）
+            graph.updater.checkJustUpdated()
+            graph.updater.check()
+            if (graph.updater.whatsNew.value != null) {
+                // ノートを閉じてから、さらに新しい版があれば案内する
+                graph.updater.whatsNew.first { it == null }
+            }
+            if (graph.updater.hasUpdate) graph.updater.showDialog()
+            while (true) {
+                delay(UPDATE_CHECK_MS)
+                graph.updater.check()
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -981,6 +999,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         private const val TIMER_END = "timerEndAt"
         private const val MEMO_SEEN = "memoSeenAt"
         private const val RAIN_CHECK_MS = 300_000L
+        private const val UPDATE_FIRST_DELAY_MS = 5_000L
+        private const val UPDATE_CHECK_MS = 12 * 3_600_000L
         private const val KEEP_AWAKE = "nowPlayingKeepAwake"
         private const val KMONI_URL = "http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/acmap_s/"
         private const val KMONI_BASE_URL = "http://www.kmoni.bosai.go.jp/data/map_img/CommonImg/base_map_w.gif"

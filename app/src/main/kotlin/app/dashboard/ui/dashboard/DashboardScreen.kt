@@ -98,6 +98,9 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val ships by vm.ships.collectAsStateWithLifecycle()
     val shipStatus by vm.shipStatus.collectAsStateWithLifecycle()
     val todos by vm.todos.collectAsStateWithLifecycle()
+    val updateState by vm.graph.updater.state.collectAsStateWithLifecycle()
+    val updateDialog by vm.graph.updater.dialogOpen.collectAsStateWithLifecycle()
+    val whatsNew by vm.graph.updater.whatsNew.collectAsStateWithLifecycle()
 
     val d = config.display
     val s = state
@@ -212,7 +215,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                     }
                     if (rowHeight > fit) Box(Modifier.verticalScroll(rememberScrollState())) { body() } else body()
                 }
-                Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser, vm.graph.presets.list(config), vm::switchPreset)
+                Footer(credits(d), now, s?.serverTime ?: 0L, refreshing, overflow, vm::refreshAll, onOpenSettings, onOpenBrowser, vm.graph.presets.list(config), vm::switchPreset, updateState.hasUpdate, vm.graph.updater::showDialog)
             }
 
             if (d.showHamster) Hamster(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
@@ -296,6 +299,18 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                 toast?.let { ToastBanner(it) }
             }
         }
+
+        // アプリの更新の案内（起動時・フッターのボタン）。全画面・通知より上
+        AnimatedVisibility(updateDialog, enter = fadeIn(tween(200)), exit = fadeOut(tween(150))) {
+            UpdateDialog(vm.graph)
+        }
+        // 更新のあとの最初の起動で、その版のリリースノート
+        AnimatedVisibility(whatsNew != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(150))) {
+            // 閉じる途中（null になったあと）も中身を描けるように、最後の値を持っておく
+            var shown by remember { mutableStateOf(whatsNew) }
+            whatsNew?.let { shown = it }
+            shown?.let { WhatsNewDialog(vm.graph, it) }
+        }
     }
 }
 
@@ -364,6 +379,8 @@ private fun Footer(
     onBrowse: () -> Unit,
     presets: app.dashboard.data.PresetsConfig,
     onPreset: (String) -> Unit,
+    hasUpdate: Boolean,
+    onUpdate: () -> Unit,
 ) {
     val spin by rememberInfiniteTransition(label = "refresh").animateFloat(
         0f, 360f, infiniteRepeatable(tween(800, easing = LinearEasing)), label = "spin",
@@ -382,6 +399,8 @@ private fun Footer(
             modifier = Modifier.weight(1f),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            // 新しい版があるときだけ。押すと起動時と同じ真ん中の案内
+            if (hasUpdate) FooterButton(WdIcons.Download, L("アップデート", "Update"), onUpdate, tint = app.dashboard.ui.theme.LocalAccent.current)
             FooterButton(WdIcons.Refresh, L("更新", "Refresh"), onRefresh, Modifier.rotate(if (refreshing) spin else 0f))
             PresetButton(presets, onPreset)
             FooterButton(WdIcons.Gear, L("設定", "Settings"), onSettings)
@@ -433,12 +452,12 @@ private fun PresetButton(presets: app.dashboard.data.PresetsConfig, onPreset: (S
 }
 
 @Composable
-private fun FooterButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun FooterButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = Wd.Text) {
     Box(
         Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = Wd.Text, modifier = modifier.size(20.dp))
+        Icon(icon, label, tint = tint, modifier = modifier.size(20.dp))
     }
 }
 

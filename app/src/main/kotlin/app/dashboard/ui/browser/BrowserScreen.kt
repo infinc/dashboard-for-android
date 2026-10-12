@@ -128,7 +128,8 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
             Modifier.fillMaxWidth().background(bar).padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolText(L("ホーム", "Home"), onClose)
+            ToolIcon(WdIcons.Dashboard, L("ダッシュボードに戻る", "Back to dashboard"), onClose)
+            ToolIcon(WdIcons.Home, L("Google のホーム", "Google home")) { focus.clearFocus(); webView?.loadUrl(HOME_URL) }
             ToolIcon(WdIcons.Back, L("戻る", "Back")) { webView?.takeIf { it.canGoBack() }?.goBack() }
             ToolIcon(WdIcons.Forward, L("進む", "Forward")) { webView?.takeIf { it.canGoForward() }?.goForward() }
             ToolIcon(WdIcons.Refresh, L("再読み込み", "Reload")) { webView?.reload() }
@@ -385,13 +386,6 @@ private fun NameDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text(L("キャンセル", "Cancel")) } },
     )
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
-}
-
-@Composable
-private fun ToolText(label: String, onClick: () -> Unit) {
-    Box(Modifier.heightIn(min = 40.dp).clickable(onClick = onClick).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-        Text(label, fontSize = 15.tu)
-    }
 }
 
 @Composable
