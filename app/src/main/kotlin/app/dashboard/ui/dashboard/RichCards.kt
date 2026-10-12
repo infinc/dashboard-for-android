@@ -2,12 +2,6 @@ package app.dashboard.ui.dashboard
 
 import app.dashboard.i18n.L
 import app.dashboard.i18n.SEP
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -34,6 +28,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import app.dashboard.ui.common.awaitTick
+import app.dashboard.ui.common.TICK_MS
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -399,6 +399,9 @@ private fun Sparkline(history: List<Int?>, modifier: Modifier) {
 /** ホワイトのテーマで球に塗る海の色（白い面の上だと白い陸が見えなくなるため）。 */
 private val GLOBE_SEA_LIGHT = Color(0xFF26364A)
 
+/** 1 周の時間（ms）。 */
+private const val GLOBE_TURN_MS = 18_000L
+
 /** 海岸線の帯を円でくり抜いた中で左へ流し、回っているように見せる（1 周 18 秒）。 */
 @Composable
 private fun Globe(modifier: Modifier) {
@@ -408,12 +411,15 @@ private fun Globe(modifier: Modifier) {
             GlobeData.LAND.forEach { addPath(PathParser().parsePathString(it).toPath()) }
         }
     }
-    val spin by rememberInfiniteTransition(label = "globe").animateFloat(
-        0f, GlobeData.STRIP_WIDTH,
-        infiniteRepeatable(tween(18_000, easing = LinearEasing), RepeatMode.Restart),
-        label = "spin",
-    )
-    Canvas(modifier) {
+    // ゆっくりなので 10 コマ/秒で足りる。ほかの絵と同じ刻み（awaitTick）で描き直し、自分の層だけを描き直す
+    var spin by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var t = withFrameMillis { it }
+        while (true) {
+            t = awaitTick(t, TICK_MS * 3) { spin = (it % GLOBE_TURN_MS) / GLOBE_TURN_MS.toFloat() * GlobeData.STRIP_WIDTH }
+        }
+    }
+    Canvas(modifier.graphicsLayer()) {
         scale(size.minDimension / 48f, pivot = Offset.Zero) {
             val center = Offset(24f, 24f)
             drawCircle(if (Wd.palette.light) GLOBE_SEA_LIGHT else Color.White.copy(alpha = 0.06f), 19f, center)

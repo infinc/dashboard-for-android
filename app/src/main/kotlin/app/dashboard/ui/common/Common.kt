@@ -18,7 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -56,7 +57,13 @@ fun WdCard(
     val CardShape = cardShape()
     Column(
         modifier
-            .clip(CardShape)
+            // カードごとに描いた結果を GPU に取っておく（中身が変わったカードだけ描き直す）。
+            // ハムスターなど動く絵のために画面を合成し直すたび、全カードの文字や図形を描き直すと古いタブレットでは重い
+            .graphicsLayer {
+                shape = CardShape
+                clip = true
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
             .background(Brush.verticalGradient(listOf(cardSurface(Wd.Surface2).copy(alpha = alpha), cardSurface(Wd.Surface).copy(alpha = alpha))))
             .border(1.dp, borderColor, CardShape)
             .drawWithContent {
@@ -205,6 +212,12 @@ object WdIcons {
     /** プリセット（重ねた板）。 */
     val Layers = icon("M12 2.5 2 8l10 5.5L22 8zM4.3 11.3 2 12.6l10 5.6 10-5.6-2.3-1.3L12 15.6zM4.3 15.4 2 16.7l10 5.6 10-5.6-2.3-1.3L12 19.7z")
     val Close = icon("M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z")
+    /** アプリの更新のダウンロード（下向きの矢印と受け皿）。 */
+    val Download = icon("M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16 6.3 10.3l1.4-1.4 3.3 3.3zM4 18h16v2H4z")
+    /** ダッシュボードに戻る（4 つの四角）。 */
+    val Dashboard = icon("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z")
+    /** ブラウズの Google のホーム（家）。 */
+    val Home = icon("M12 3 2.5 11.5 3.8 13 5 11.9V20h5.5v-5.5h3V20H19v-8.1l1.2 1.1 1.3-1.5z")
 
     private fun icon(d: String): ImageVector = ImageVector.Builder(
         defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,

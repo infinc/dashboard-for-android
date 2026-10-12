@@ -362,7 +362,8 @@ private fun MeterTop(label: String, value: String, warn: String? = null) {
 
 @Composable
 private fun Meter(label: String, warn: String?, value: String, fraction: Float, color: Color?) {
-    val shown by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(600), label = "meter")
+    // メモリなどは 2 秒ごとにわずかに動く。見えない差（0.5% 未満）では動かさない（そのたびに 0.6 秒、毎フレーム描き直すことになる）
+    val shown by animateFloatAsState((fraction.coerceIn(0f, 1f) * 200).roundToInt() / 200f, tween(600), label = "meter")
     Column(Modifier.padding(bottom = 3.dp)) {
         MeterTop(label, value, warn)
         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Wd.BorderSoft)) {

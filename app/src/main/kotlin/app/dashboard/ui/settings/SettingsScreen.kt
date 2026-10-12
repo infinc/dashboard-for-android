@@ -79,6 +79,7 @@ import app.dashboard.i18n.Lang
 import app.dashboard.data.StockSymbol
 import app.dashboard.data.StocksConfig
 import app.dashboard.data.TrainPatch
+import app.dashboard.data.UpdateState
 import app.dashboard.data.Tones
 import app.dashboard.data.UnitsConfig
 import app.dashboard.server.DashboardServer
@@ -965,7 +966,7 @@ private fun PaneContent(
         Pane.Network -> NetworkPane(graph, config)
         Pane.Presets -> PresetsPane(graph, config, dirty)
         Pane.Lock -> LockPane(graph, config)
-        Pane.Info -> InfoPane(onVersionArt)
+        Pane.Info -> InfoPane(graph, onVersionArt)
 
         Pane.Todo -> {
             PaneTitle("Todo", L("やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます。", "A card listing things to do. Type in the box at the bottom of the card to add one; tap the circle on the left to remove it."))
@@ -1563,11 +1564,11 @@ private fun LockPane(graph: AppGraph, config: Config) {
 
 /** 情報（バージョン）。 */
 @Composable
-private fun InfoPane(onVersionArt: () -> Unit) {
+private fun InfoPane(graph: AppGraph, onVersionArt: () -> Unit) {
     var taps by remember { mutableStateOf(0) }
     var lastTap by remember { mutableStateOf(0L) }
     PaneTitle(L("情報", "About"), L("このアプリについて。", "About this app."))
-    Field(L("バージョン", "Version"), L("「バージョン-日付」の形です（ソースコードの直下の VERSION に書いてある値）。", "In the form \"version-date\" (the value in the VERSION file at the top of the source code).")) {
+    Field(L("バージョン", "Version"), L("ソースコードの直下の VERSION に書いてある値です（「v1.2.5」、日付を付けたときは「v1.2.5-20261012」の形）。", "The value in the VERSION file at the top of the source code (\"v1.2.5\", or \"v1.2.5-20261012\" with a date).")) {
         Text(
             app.dashboard.BuildConfig.VERSION_LABEL,
             fontSize = 22.tu,
@@ -1586,6 +1587,7 @@ private fun InfoPane(onVersionArt: () -> Unit) {
                 .padding(vertical = 4.dp),
         )
     }
+    UpdateField(graph)
     Field(L("ライセンス", "License")) { Text("MIT License", color = Wd.Text2, fontSize = 14.tu) }
     Notice(
         L(
@@ -1593,6 +1595,32 @@ private fun InfoPane(onVersionArt: () -> Unit) {
             "Weather: Open-Meteo.com (CC BY 4.0) · Alerts & rain: JMA · Seismic monitor: NIED · Hamster: \"Loader\" by Nawsome on Uiverse.io (MIT)",
         ),
     )
+}
+
+/** 情報の「アップデート」。開いたら確認する。ダッシュボードの真ん中の案内と同じ状態（`AppUpdater`）を使う。 */
+@Composable
+private fun UpdateField(graph: AppGraph) {
+    val updater = graph.updater
+    val state by updater.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { updater.check() }
+    Field(
+        L("アップデート", "Updates"),
+        L(
+            "GitHub の Releases から新しい APK をダウンロードし、Android のインストールの画面を開きます。設定はそのまま残ります。PC でビルドしたアプリは署名が違うため、この方法では上書きできません。",
+            "Downloads the new APK from GitHub Releases and opens Android's installer. Your settings are kept. Apps built on your own PC are signed differently and can't be updated this way.",
+        ),
+    ) {
+        app.dashboard.ui.dashboard.UpdateDetails(updater, state)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ActionButton(L("更新を確認", "Check for updates"), { graph.scope.launch { updater.check() } }, enabled = state !is UpdateState.Checking && state !is UpdateState.Downloading)
+            when {
+                state is UpdateState.Ready -> ActionButton(L("インストール", "Install"), { graph.scope.launch { updater.downloadAndInstall() } }, primary = true)
+                state.hasUpdate && state !is UpdateState.Downloading ->
+                    ActionButton(L("ダウンロードしてインストール", "Download and install"), { graph.scope.launch { updater.downloadAndInstall() } }, primary = true)
+            }
+        }
+    }
 }
 
 @Composable

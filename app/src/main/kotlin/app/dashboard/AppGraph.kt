@@ -1,6 +1,7 @@
 package app.dashboard
 
 import android.content.Context
+import app.dashboard.data.AppUpdater
 import app.dashboard.data.CalendarRepository
 import app.dashboard.data.ConfigStore
 import app.dashboard.data.CryptoRepository
@@ -67,6 +68,7 @@ class AppGraph private constructor(context: Context) {
     val ships = ShipStream(config, scope)
     val github = GithubRepository(http, config)
     val todos = TodoRepository(this.context)
+    val updater = AppUpdater(this.context, http, BuildConfig.VERSION_LABEL)
 
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
