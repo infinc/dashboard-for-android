@@ -20,10 +20,13 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
@@ -86,9 +89,22 @@ class DashboardServer(private val graph: AppGraph) {
             exception<SettingsController.SettingsException> { call, cause ->
                 call.respond(HttpStatusCode.BadRequest, ApiError(cause.code, cause.message))
             }
+            // 壊れた JSON・型の合わない本文は送った側の誤り。内部の文言は返さない
+            exception<BadRequestException> { call, _ ->
+                call.respond(HttpStatusCode.BadRequest, ApiError("bad_request"))
+            }
             exception<Throwable> { call, cause ->
                 Log.e(TAG, "リクエスト処理で例外", cause)
-                call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", cause.message))
+                call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error"))
+            }
+        }
+
+        // DNS rebinding 対策。Host がこの端末（loopback・端末の IP・lan.extraHosts）でなければ何も返さない。
+        // 悪いページの名前を 127.0.0.1 に向け直されると、接続元は loopback のままで Origin と Host も一致してしまうため
+        intercept(ApplicationCallPipeline.Plugins) {
+            if (!HostPolicy.isSelf(call.request.headers["Host"], graph.config.get().lan.extraHosts)) {
+                call.respond(HttpStatusCode.Forbidden, ApiError("bad_host"))
+                finish()
             }
         }
 

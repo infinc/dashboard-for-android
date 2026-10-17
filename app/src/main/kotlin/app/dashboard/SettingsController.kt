@@ -89,6 +89,8 @@ class SettingsController(private val graph: AppGraph) {
             throw SettingsException("pin_required", L("LAN 公開を有効にする前に PIN を設定してください", "Set a PIN before enabling LAN access"))
         }
         val updated = graph.config.update { c -> c.copy(lan = c.lan.copy(enabled = enabled)) }
+        // 切ったら LAN の端末を締め出す（24 時間以内に入れ直したとき、前のクッキーで入れてしまわないように）
+        if (!enabled) graph.auth.clearSessions()
         graph.server.restartLater()
         return updated
     }
@@ -128,17 +130,25 @@ class SettingsController(private val graph: AppGraph) {
             a.github.user != b.github.user || a.github.token != b.github.token || a.github.days != b.github.days ||
             a.display.language != b.display.language
 
-    private fun applyMemo(current: MemoConfig, patch: MemoPatch) = current.copy(
-        enabled = patch.enabled ?: current.enabled,
-        endpoint = patch.endpoint?.let(::normalizeMemoEndpoint) ?: current.endpoint,
-        // 空文字はトークンを消す意図、null は変更しない
-        token = when {
-            patch.token == null -> current.token
-            patch.token.isBlank() -> null
-            else -> patch.token.trim()
-        },
-        pollIntervalMs = (patch.pollIntervalMs ?: current.pollIntervalMs).coerceIn(10_000, 600_000),
-    )
+    private fun applyMemo(current: MemoConfig, patch: MemoPatch): MemoConfig {
+        val endpoint = patch.endpoint?.let(::normalizeMemoEndpoint) ?: current.endpoint
+        // 送り先のホストだけ変えると、保存済みのトークンがそのまま新しいホストへ送られる。トークンも入れ直してもらう
+        val moved = hostOf(endpoint) != hostOf(current.endpoint)
+        return current.copy(
+            enabled = patch.enabled ?: current.enabled,
+            endpoint = endpoint,
+            // 空文字はトークンを消す意図、null は変更しない
+            token = when {
+                patch.token == null -> current.token.takeUnless { moved }
+                patch.token.isBlank() -> null
+                else -> patch.token.trim()
+            },
+            pollIntervalMs = (patch.pollIntervalMs ?: current.pollIntervalMs).coerceIn(10_000, 600_000),
+        )
+    }
+
+    private fun hostOf(url: String?): String? =
+        url?.takeIf { it.isNotBlank() }?.let { runCatching { java.net.URI(it.trim()).host?.lowercase() }.getOrNull() }
 
     private fun applyTrain(current: TrainConfig, patch: TrainPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,

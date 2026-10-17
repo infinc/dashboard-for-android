@@ -362,6 +362,11 @@ data class LanConfig(
      * 端末を跨いで設定を持ち運ばないが、OS 更新後も既存 PIN を検証できるよう保存する。
      */
     val pinAlgorithm: String = "PBKDF2WithHmacSHA256",
+    /**
+     * Web の設定画面を開くときの、IP 以外の名前（dashboard.local など）。サーバーは Host ヘッダーがこの端末の
+     * IP・loopback・ここに書いた名前のどれかでなければ断る（DNS rebinding 対策、server/HostPolicy.kt）。画面からは編集しない。
+     */
+    val extraHosts: List<String> = emptyList(),
 )
 
 @Serializable
