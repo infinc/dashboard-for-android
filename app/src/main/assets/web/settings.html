@@ -131,6 +131,9 @@
       <button class="nav-item" type="button" data-pane="health">
         <i class="dot" data-w="showHealth"></i><span>空気・体調</span>
       </button>
+      <button class="nav-item" type="button" data-pane="widgets">
+        <i class="dot" id="widgetsDot"></i><span>自作カード</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -645,15 +648,6 @@
         <label class="toggle"><input type="checkbox" id="spotifyEnabled"> 再生中の曲を取得する</label>
       </div>
 
-      <div class="field">
-        <label for="spotifyBackground">全画面の背景</label>
-        <select id="spotifyBackground">
-          <option value="still">単色（動かない、ほんの少しのグラデーション）</option>
-          <option value="flow">ぼやけた光（ゆっくり漂う）</option>
-          <option value="spike">尖った光（ぼやけた縦の光が揺れる）</option>
-        </select>
-        <div class="hint">どれもジャケットから拾った色で描きます。</div>
-      </div>
 
       <div class="field">
         <label class="toggle"><input type="checkbox" id="spotifySaveLyrics"> 直近 300 曲の歌詞を端末に保存する</label>
@@ -691,6 +685,10 @@
         で「Create app」→ <strong>Redirect URI</strong> に
         <code>http://127.0.0.1:8080/api/spotify/callback</code> を追加 → API は「Web API」を選択。
         できた <strong>Client ID</strong> を上に貼ってください（Client Secret は使いません）。
+      </div>
+
+      <div class="notice info">
+        全画面モードの見た目（背景・部品の位置と大きさなど）は、タブレットの設定の「Spotify」→「全画面モードを編集する」で、実際の画面の上で変えます。
       </div>
     </section>
 
@@ -1193,6 +1191,19 @@
       <div class="notice info">暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。</div>
     </section>
 
+    <section class="pane" data-pane="widgets">
+      <h1>自作カード</h1>
+      <p class="lead">取得先と見せ方を自分で決めるカードです（4 枚まで）。JSON を返す URL（Home Assistant・家のセンサー・好きな API）から取る、ほかの機器から送ってもらう、サーバーが動いているかを見張る、のどれかを選びます。</p>
+      <div class="wg-tabs" id="widgetTabs"></div>
+      <div class="field card-switch">
+        <label class="toggle" data-wg-show="w1"><input type="checkbox" data-w="showWidget1" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w2" hidden><input type="checkbox" data-w="showWidget2" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w3" hidden><input type="checkbox" data-w="showWidget3" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w4" hidden><input type="checkbox" data-w="showWidget4" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div id="widgetForm"></div>
+    </section>
+
     <section class="pane" data-pane="todo">
       <h1>Todo</h1>
       <p class="lead">やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます（ダッシュボードで直接操作します）。</p>
@@ -1323,6 +1334,7 @@
 </div>
 <script src="/static/js/i18n-en.js"></script>
 <script src="/static/js/i18n.js"></script>
+<script src="/static/js/widgets.js"></script>
 <script src="/static/js/settings.js"></script>
 </body>
 </html>

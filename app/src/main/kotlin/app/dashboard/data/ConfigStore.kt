@@ -91,6 +91,7 @@ class ConfigStore(context: Context) {
                 countdown = sanitizeCountdown(incoming.countdown),
                 crypto = sanitizeCrypto(incoming.crypto),
                 browser = sanitizeBrowser(incoming.browser),
+                widgets = WidgetSanitize.config(incoming.widgets),
                 lan = current.lan,
                 settingsLock = current.settingsLock,
                 wallpaper = current.wallpaper,

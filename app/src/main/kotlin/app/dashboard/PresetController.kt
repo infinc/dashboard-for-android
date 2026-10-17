@@ -1,5 +1,6 @@
 package app.dashboard
 
+import app.dashboard.data.WidgetRepository
 import app.dashboard.data.BrowserConfig
 import app.dashboard.data.Config
 import app.dashboard.data.LanConfig
@@ -147,6 +148,15 @@ class PresetController(private val graph: AppGraph) {
         ships = current.ships,
         notifyApi = current.notifyApi,
         github = if (base.github.user == current.github.user) base.github.copy(token = current.github.token) else base.github,
+        // 外から送る口はプリセットで変えない。ヘッダーの値（トークン）は同じ送り先・同じ名前のときだけいまの値
+        widgets = base.widgets.copy(
+            pushEnabled = current.widgets.pushEnabled,
+            pushToken = current.widgets.pushToken,
+            items = base.widgets.items.map { b ->
+                val cur = current.widgets.def(b.id)
+                if (b.headerName == cur.headerName && WidgetRepository.hostOf(b.url) == WidgetRepository.hostOf(cur.url)) b.copy(headerValue = cur.headerValue) else b
+            },
+        ),
     )
 
     private fun newId(p: PresetsConfig): String =

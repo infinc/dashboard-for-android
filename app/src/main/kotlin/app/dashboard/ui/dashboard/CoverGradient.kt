@@ -35,10 +35,11 @@ import kotlin.random.Random
  * - "still": 動かない。いちばん暗い色の地に、いちばん多い色をほんの少しだけ斜めに重ねる
  * - "flow": 大きな光の玉を何個か重ね、それぞれをゆっくり、決まった周期を持たずに漂わせる（[wander]）
  * - "spike": 上下から伸びる尖った光（三角形）を重ね、ぼかして揺らす（[spikes]）
+ * - "mono": "flow" と同じ漂う光を、利用者の選んだ 1 色（[mono]）の明るい・暗いだけで描く（ジャケットの色は使わない）
  * 曲名などの白い文字が読めるよう、色は明るさを抑え、下に向かって少し暗くする。
  */
 @Composable
-fun Modifier.coverGradient(palette: List<Color>, style: String = "flow"): Modifier {
+fun Modifier.coverGradient(palette: List<Color>, style: String = "flow", mono: Color? = null): Modifier {
     // 開くたびに違う動きにする（同じ動きを繰り返さない）
     val seed = remember { Random.nextInt() }
     val start = remember { Random.nextFloat() * 1000f }
@@ -53,12 +54,14 @@ fun Modifier.coverGradient(palette: List<Color>, style: String = "flow"): Modifi
             last = awaitTick(from) { time.floatValue += (it - from) / 1e3f }
         }
     }
-    // 地はジャケットのいちばん暗い色（黒や紺が多いジャケットなら暗い紺の地になる）
-    val bg by animateColorAsState(palette.minBy { it.luminance() }.tone(0.24f), tween(COLOR_MS), label = "gradBg")
+    val single = if (style == "mono") mono ?: FALLBACK_PALETTE[1] else null
+    // 地はジャケットのいちばん暗い色（黒や紺が多いジャケットなら暗い紺の地になる）。1 色のときはその色を暗くしたもの
+    val bg by animateColorAsState(single?.shade(MONO_BG) ?: palette.minBy { it.luminance() }.tone(0.24f), tween(COLOR_MS), label = "gradBg")
     val count = if (style == "spike") SPIKES else BLOBS
     val colors = List(count) { i ->
         val tones = if (style == "spike") SPIKE_TONES else BLOB_TONES
-        animateColorAsState(palette[i % palette.size].tone(tones[i]), tween(COLOR_MS), label = "grad$i")
+        val target = single?.shade(MONO_TONES[i]) ?: palette[i % palette.size].tone(tones[i])
+        animateColorAsState(target, tween(COLOR_MS), label = "grad$i")
     }
     val canvas = remember { SpikeCanvas() }
     return drawBehind {
@@ -238,6 +241,16 @@ private fun Color.tone(value: Float): Color {
 }
 
 /**
+ * 色合いと彩度はそのまま、明るさだけを元の色の [scale] 倍にする（1 色の背景で使う。明るい・暗いだけの違いにする）。
+ * 元がとても暗い色でも光が見えるよう、明るさは少なくとも 0.35 として掛ける。
+ */
+private fun Color.shade(scale: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV((red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt(), hsv)
+    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], (max(hsv[2], 0.35f) * scale).coerceIn(0f, 1f))))
+}
+
+/**
  * ジャケットに使われている色（多い順に最大 5 色）。縮めた画像の画素を色相で 12 に分け、画素の多い色相から順に平均をとる。
  * 暗い紺や肌色のようなくすんだ色も拾う（真っ黒・灰色に近い画素だけ除く）。重みは彩度の平方根と明るさで、暗い画素は軽くする。
  * 色の少ないジャケットは、見つかった色の明るさ違い・少し色相をずらした色で埋める。白黒に近いジャケットは灰色の濃淡にする。
@@ -290,6 +303,10 @@ private val FALLBACK_PALETTE = listOf(Color(0xFF3A4150), Color(0xFF2E3A52), Colo
 /** 光の玉の数と、それぞれの明るさ（HSV の V）。 */
 private const val BLOBS = 5
 private val BLOB_TONES = floatArrayOf(0.80f, 0.66f, 0.74f, 0.60f, 0.76f)
+
+/** 1 色の背景の、地と光の玉それぞれの明るさ（選んだ色の明るさに対する倍率）。 */
+private const val MONO_BG = 0.26f
+private val MONO_TONES = floatArrayOf(0.95f, 0.62f, 0.80f, 0.48f, 0.72f)
 
 /** 尖った光の数と、それぞれの明るさ。下書きの画像の横の画素数。 */
 private const val SPIKES = 11

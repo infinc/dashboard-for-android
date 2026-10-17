@@ -3,6 +3,7 @@
  * settings.html / login.html の文を変えたら、ここのキーも合わせて直すこと（合わないと日本語のまま出る。ブラウザのコンソールで I18N.missing() を呼ぶと漏れが分かる）。
  */
 window.EN_HTML = {
+ "全画面モードの見た目（背景・部品の位置と大きさなど）は、タブレットの設定の「Spotify」→「全画面モードを編集する」で、実際の画面の上で変えます。": "The full-screen look (background, part positions and sizes, and so on) is changed on the tablet itself: Settings → Spotify → \"Edit full-screen mode\".",
  "<i class=\"dot\" data-w=\"showTodo\"></i><span>Todo</span>": "<i class=\"dot\" data-w=\"showTodo\"></i><span>To-do</span>",
  "カードの角の丸み <b id=\"cardRadiusValue\" class=\"val\"></b>": "Card corner radius <b id=\"cardRadiusValue\" class=\"val\"></b>",
  "0 で四角、大きいほど丸くなります（既定は 18）。下の見本はいまの値で描いています。": "0 is square; larger is rounder (default 18). The preview below uses the current value.",
@@ -294,14 +295,11 @@ window.EN_HTML = {
  "空気・体調": "Air &amp; health",
  "暑さ指数（WBGT）・紫外線・PM2.5 の今の値と段階、今日のいちばん高い値を出すカードです。地点は「場所」で決めます。Open-Meteo から 30 分ごとに取得します。": "Shows the current heat index (WBGT), UV index and PM2.5 with their levels, and today's highest values. The location is set in \"Location\". Fetched from Open-Meteo every 30 minutes.",
  "暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。": "The heat index is an estimate from temperature, humidity, sunlight and wind (not the Ministry of the Environment's figure). Levels follow the Japanese Society of Biometeorology guideline; UV uses the WHO categories; PM2.5 uses Japan's standard (35 µg/m³ daily mean) and alert guide (70 µg/m³). Pollen isn't shown because there's no free source of forecasts for Japan.",
+ "自作カード": "Custom cards",
+ "取得先と見せ方を自分で決めるカードです（4 枚まで）。JSON を返す URL（Home Assistant・家のセンサー・好きな API）から取る、ほかの機器から送ってもらう、サーバーが動いているかを見張る、のどれかを選びます。": "Cards whose source and look you choose yourself (up to 4). Get a value from a URL that returns JSON (Home Assistant, home sensors, any API), have another device push it, or watch whether servers are up.",
 };
 window.EN_TEXT = {
- "全画面の背景": "Full-screen background",
  "いまの背景": "Current background",
- "単色（動かない、ほんの少しのグラデーション）": "Solid (still, a subtle gradient)",
- "ぼやけた光（ゆっくり漂う）": "Soft glow (slowly drifting)",
- "尖った光（ぼやけた縦の光が揺れる）": "Spikes (soft vertical shards swaying)",
- "どれもジャケットから拾った色で描きます。": "All use colors picked from the album cover.",
  "直近 300 曲の歌詞を端末に保存する": "Save lyrics of the latest 300 songs on the tablet",
  "日本語": "日本語",
  "ダーク": "Dark",

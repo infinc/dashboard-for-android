@@ -7,8 +7,14 @@ import app.dashboard.data.MemoPatch
 import app.dashboard.data.NotifyApiConfig
 import app.dashboard.data.NotifyApiInfo
 import app.dashboard.data.NotifyApiPatch
+import app.dashboard.data.WidgetPushInfo
+import app.dashboard.data.WidgetPushPatch
+import app.dashboard.data.WidgetSanitize
+import app.dashboard.data.WidgetsConfig
+import app.dashboard.data.WidgetsPatch
 import app.dashboard.data.SaveAllRequest
 import app.dashboard.data.SPOTIFY_BACKGROUNDS
+import app.dashboard.data.monoColorOrNull
 import app.dashboard.data.SpotifyConfig
 import app.dashboard.data.SpotifyPatch
 import app.dashboard.data.WallpaperConfig
@@ -57,6 +63,7 @@ class SettingsController(private val graph: AppGraph) {
             request.photos?.let { next = next.copy(photos = applyPhotos(next.photos, it)) }
             request.ships?.let { next = next.copy(ships = next.ships.copy(apiKey = secret(next.ships.apiKey, it.apiKey))) }
             request.github?.let { next = next.copy(github = applyGithub(next.github, it)) }
+            request.widgets?.let { next = next.copy(widgets = applyWidgets(next.widgets, it)) }
             next
         }
         if (sourcesChanged(before, updated)) refreshAllLater()
@@ -120,6 +127,33 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
         if (c.display.showGithub) runCatching { graph.github.refreshNow() }
         if (c.display.showHealth) runCatching { graph.healthRepo.refreshNow() }
+        runCatching { graph.widgets.refreshNow() }
+    }
+
+    // ------------------------------------------------------------ 自作カード
+
+    /** 自作カードの設定を当てる（[WidgetSanitize.patch]）。 */
+    internal fun applyWidgets(current: WidgetsConfig, patch: WidgetsPatch): WidgetsConfig = WidgetSanitize.patch(current, patch)
+
+    fun widgetPushInfo(): WidgetPushInfo {
+        val c = graph.config.get()
+        val ip = graph.wifi.snapshot().ipAddress
+        return WidgetPushInfo(
+            enabled = c.widgets.pushEnabled,
+            token = c.widgets.pushToken,
+            lanUrl = ip?.takeIf { c.lan.enabled }?.let { "http://$it:${DashboardServer.PORT}/api/widgets/" },
+            lanEnabled = c.lan.enabled,
+        )
+    }
+
+    /** 外から送る API のオン・オフと、トークンの作り直し。オンにするときトークンが無ければ作る。 */
+    fun updateWidgetPush(patch: WidgetPushPatch): WidgetPushInfo {
+        graph.config.update { c ->
+            val enabled = patch.enabled ?: c.widgets.pushEnabled
+            val token = if (patch.regenerate || (enabled && c.widgets.pushToken == null)) newNotifyToken() else c.widgets.pushToken
+            c.copy(widgets = c.widgets.copy(pushEnabled = enabled, pushToken = token))
+        }
+        return widgetPushInfo()
     }
 
     // ------------------------------------------------------------ 外から通知を出す API
@@ -247,6 +281,8 @@ class SettingsController(private val graph: AppGraph) {
         clientId = patch.clientId?.trim() ?: current.clientId,
         saveLyrics = patch.saveLyrics ?: current.saveLyrics,
         background = patch.background?.takeIf { it in SPOTIFY_BACKGROUNDS } ?: current.background,
+        monoColor = monoColorOrNull(patch.monoColor) ?: current.monoColor,
+        layout = patch.layout?.sanitized() ?: current.layout,
     )
 
     /**

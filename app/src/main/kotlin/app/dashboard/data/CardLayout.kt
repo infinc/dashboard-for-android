@@ -57,6 +57,11 @@ object CardLayout {
         GITHUB(10, 6, "GitHub", "GitHub", "showGithub", { it.showGithub }, { d, on -> d.copy(showGithub = on) }),
         TODO(6, 5, "Todo", "To-do", "showTodo", { it.showTodo }, { d, on -> d.copy(showTodo = on) }),
         HEALTH(8, 6, "空気・体調", "Air & health", "showHealth", { it.showHealth }, { d, on -> d.copy(showHealth = on) }),
+        // 自作カード（見出しは利用者の付けた名前。配置の画面では「自作 1」など）
+        WIDGET1(8, 4, "自作 1", "Custom 1", "showWidget1", { it.showWidget1 }, { d, on -> d.copy(showWidget1 = on) }),
+        WIDGET2(8, 4, "自作 2", "Custom 2", "showWidget2", { it.showWidget2 }, { d, on -> d.copy(showWidget2 = on) }),
+        WIDGET3(8, 4, "自作 3", "Custom 3", "showWidget3", { it.showWidget3 }, { d, on -> d.copy(showWidget3 = on) }),
+        WIDGET4(8, 4, "自作 4", "Custom 4", "showWidget4", { it.showWidget4 }, { d, on -> d.copy(showWidget4 = on) }),
         ;
 
         /** 表示の名前（いまの言語）。 */

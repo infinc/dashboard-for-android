@@ -71,6 +71,7 @@ import app.dashboard.data.MemoPatch
 import app.dashboard.data.NotificationConfig
 import app.dashboard.data.PhotoPatch
 import app.dashboard.data.SaveAllRequest
+import app.dashboard.data.WidgetsPatch
 import app.dashboard.data.SpotifyPatch
 import app.dashboard.data.ShipPatch
 import app.dashboard.data.GithubPatch
@@ -122,7 +123,6 @@ private data class Draft(
     val spotifyEnabled: Boolean,
     val spotifyClientId: String,
     val spotifySaveLyrics: Boolean,
-    val spotifyBackground: String,
     val trainEnabled: Boolean,
     val trainToken: String,
     val trainChallengeToken: String,
@@ -158,6 +158,7 @@ private data class Draft(
     val githubShowIssues: Boolean,
     val githubShowRepos: Boolean,
     val githubShowProfile: Boolean,
+    val widgets: List<WidgetDraft>,
 ) {
     fun toRequest() = SaveAllRequest(
         settings = ConfigPatch(
@@ -191,7 +192,7 @@ private data class Draft(
             token = memoToken.takeIf { it.isNotEmpty() },
             pollIntervalMs = (memoIntervalSec.toLongOrNull() ?: 30) * 1000,
         ),
-        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim(), saveLyrics = spotifySaveLyrics, background = spotifyBackground),
+        spotify = SpotifyPatch(enabled = spotifyEnabled, clientId = spotifyClientId.trim(), saveLyrics = spotifySaveLyrics),
         photos = PhotoPatch(
             enabled = photosEnabled,
             albumUrl = photosUrl.takeIf { it.isNotEmpty() },
@@ -210,6 +211,7 @@ private data class Draft(
             showRepos = githubShowRepos,
             showProfile = githubShowProfile,
         ),
+        widgets = WidgetsPatch(widgets.map { it.toDef() }),
     )
 
     companion object {
@@ -230,7 +232,6 @@ private data class Draft(
             spotifyEnabled = c.spotify.enabled,
             spotifyClientId = c.spotify.clientId,
             spotifySaveLyrics = c.spotify.saveLyrics,
-            spotifyBackground = c.spotify.background,
             trainEnabled = c.train.enabled,
             trainToken = "",
             trainChallengeToken = "",
@@ -265,6 +266,7 @@ private data class Draft(
             githubShowIssues = c.github.showIssues,
             githubShowRepos = c.github.showRepos,
             githubShowProfile = c.github.showProfile,
+            widgets = c.widgets.items.map(WidgetDraft::of),
         )
 
         const val CRYPTO_CUSTOM = "custom"
@@ -320,6 +322,7 @@ private enum class Pane(
     Github("GitHub", "GitHub", "カード", "Cards", { it.showGithub }),
     Todo("Todo", "To-do", "カード", "Cards", { it.showTodo }),
     Health("空気・体調", "Air & health", "カード", "Cards", { it.showHealth }),
+    Widgets("自作カード", "Custom cards", "カード", "Cards", { it.showWidget1 || it.showWidget2 || it.showWidget3 || it.showWidget4 }),
     Hamster("ハムスター", "Hamster", "カード", "Cards", { it.showHamster }),
     Device("ホームアプリ", "Home app", "端末", "Device"),
     Network("ネットワーク", "Network", "端末", "Device"),
@@ -345,6 +348,7 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
     var saveStatus by remember { mutableStateOf("") }
     var confirmClose by remember { mutableStateOf(false) }
     var versionArt by remember { mutableStateOf(false) }
+    var spotifyEditor by remember { mutableStateOf(false) }
     /** カードを増やせなかった理由。null でなければダイアログで出す。 */
     var blocked by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -396,7 +400,7 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
         if (dirty) confirmClose = true else onClose()
     }
 
-    BackHandler(enabled = !versionArt) { requestClose() }
+    BackHandler(enabled = !versionArt && !spotifyEditor) { requestClose() }
 
     Box(
         Modifier.fillMaxSize().background(Color(0xB8040609))
@@ -423,13 +427,15 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
                         .verticalScroll(rememberScrollState(), enabled = true)
                         .padding(horizontal = 28.dp, vertical = 22.dp),
                 ) {
-                    PaneContent(pane, graph, config, draft, ::update, onOpenBrowser, dirty) { versionArt = true }
+                    PaneContent(pane, graph, config, draft, ::update, onOpenBrowser, dirty, { spotifyEditor = true }) { versionArt = true }
                 }
             }
         }
     }
 
     if (versionArt) VersionArt(onBack = { versionArt = false })
+    // Spotify の全画面の編集（ダッシュボードと設定の上に画面いっぱいで重ねる）
+    if (spotifyEditor) SpotifyEditor(graph, config, onClose = { spotifyEditor = false })
 
     blocked?.let { message ->
         AlertDialog(
@@ -507,7 +513,7 @@ private fun Nav(
 @Composable
 private fun PaneContent(
     pane: Pane, graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit, onOpenBrowser: (String) -> Unit,
-    dirty: Boolean, onVersionArt: () -> Unit,
+    dirty: Boolean, onEditSpotify: () -> Unit, onVersionArt: () -> Unit,
 ) {
     val disp = d.display
     fun display(block: DisplayConfig.() -> DisplayConfig) = set(d.copy(display = disp.block()))
@@ -822,7 +828,7 @@ private fun PaneContent(
             }
         }
 
-        Pane.Spotify -> SpotifyPane(graph, config, d, set, onOpenBrowser)
+        Pane.Spotify -> SpotifyPane(graph, config, d, set, onOpenBrowser, onEditSpotify)
 
         Pane.Wifi -> {
             PaneTitle("Wi-Fi", L("Wi-Fi のリンク速度・電波の強さ・通信量を出すカードです。", "Shows Wi-Fi link speed, signal strength and traffic."))
@@ -994,6 +1000,11 @@ private fun PaneContent(
         Pane.Presets -> PresetsPane(graph, config, dirty)
         Pane.Lock -> LockPane(graph, config)
         Pane.NotifyApi -> NotifyApiPane(graph, config)
+        Pane.Widgets -> WidgetsPane(
+            graph, config, d.widgets, disp,
+            onDrafts = { set(d.copy(widgets = it)) },
+            onShown = { i, on -> set(d.copy(display = widgetCard(i).show(disp, on))) },
+        )
         Pane.Info -> InfoPane(graph, onVersionArt)
 
         Pane.Todo -> {
@@ -1319,7 +1330,7 @@ private fun PlacePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
 }
 
 @Composable
-private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit, onOpenBrowser: (String) -> Unit) {
+private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) -> Unit, onOpenBrowser: (String) -> Unit, onEditSpotify: () -> Unit) {
     val disp = d.display
     val connected = !config.spotify.refreshToken.isNullOrBlank()
     val savedId = config.spotify.clientId.isNotBlank() && d.spotifyClientId.trim() == config.spotify.clientId
@@ -1332,19 +1343,6 @@ private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) 
     }
     Field("Client ID", L("秘密の値ではありません。入力したら「全て保存」してから「Spotify と連携」を押してください。", "Not a secret. After entering it, press Save all, then \"Connect Spotify\".")) {
         Input(d.spotifyClientId, { set(d.copy(spotifyClientId = it)) }, placeholder = L("例: 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c", "e.g. 3f9a2c1b4d5e6f7a8b9c0d1e2f3a4b5c"))
-    }
-    Field(
-        L("全画面の背景", "Full-screen background"),
-        L("どれもジャケットから拾った色で描きます。", "All use colors picked from the album cover."),
-    ) {
-        Select(
-            listOf(
-                "still" to L("単色（動かない、ほんの少しのグラデーション）", "Solid (still, a subtle gradient)"),
-                "flow" to L("ぼやけた光（ゆっくり漂う）", "Soft glow (slowly drifting)"),
-                "spike" to L("尖った光（ぼやけた縦の光が揺れる）", "Spikes (soft vertical shards swaying)"),
-            ),
-            d.spotifyBackground, { set(d.copy(spotifyBackground = it)) },
-        )
     }
     LyricsField(graph, d, set)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1364,6 +1362,12 @@ private fun SpotifyPane(graph: AppGraph, config: Config, d: Draft, set: (Draft) 
             L("使うには Spotify Developer Dashboard で「Create app」→ Redirect URI に ${DashboardServer.SPOTIFY_REDIRECT_URI} を追加 → API は「Web API」を選び、", "To use it, in the Spotify Developer Dashboard choose \"Create app\" → add ${DashboardServer.SPOTIFY_REDIRECT_URI} as a Redirect URI → select \"Web API\", ") +
             L("できた Client ID を上に入力してください（Client Secret は使いません）。", "then enter the resulting Client ID above (the Client Secret isn't used)."),
     )
+    Field(
+        L("全画面モード", "Full-screen mode"),
+        L("再生中の曲を画面いっぱいに出したときの見た目（背景・部品の位置と大きさ・文字・自動で消すかなど）を、実際の画面の上で変えます。", "Change the full-screen look (background, part positions and sizes, text, auto-hide and more) right on the actual screen."),
+    ) {
+        ActionButton(L("全画面モードを編集する", "Edit full-screen mode"), onEditSpotify, primary = true)
+    }
 }
 
 /** 歌詞の保存（直近 [app.dashboard.data.LyricsRepository.MAX_SAVED] 曲）。 */

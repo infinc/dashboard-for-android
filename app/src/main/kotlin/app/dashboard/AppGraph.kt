@@ -28,7 +28,10 @@ import app.dashboard.data.TodoRepository
 import app.dashboard.data.TrainRepository
 import app.dashboard.data.WallpaperStore
 import app.dashboard.data.WeatherRepository
+import app.dashboard.data.WIDGET_IDS
+import app.dashboard.data.WidgetRepository
 import app.dashboard.data.WifiMonitor
+import app.dashboard.data.CardLayout
 import app.dashboard.data.toPublic
 import app.dashboard.i18n.L
 import app.dashboard.server.Auth
@@ -82,6 +85,8 @@ class AppGraph private constructor(context: Context) {
 
     /** 外から届いた通知（POST /api/notify）。ダッシュボードの画面が受け取ってバナーと音を出す。画面が無いときは捨てる。 */
     val externalNotices = kotlinx.coroutines.flow.MutableSharedFlow<app.dashboard.data.ExternalNotice>(extraBufferCapacity = 8)
+    /** 自作カード。しきい値の通知は外からの通知と同じ受け口（画面がバナーと音を出す）。 */
+    val widgets = WidgetRepository(this.context.filesDir, http, { config.get() }, scope, { externalNotices.tryEmit(it) })
     val settings = SettingsController(this)
     val presets = PresetController(this)
     val server = DashboardServer(this)
@@ -106,6 +111,7 @@ class AppGraph private constructor(context: Context) {
         crypto = crypto.state,
         github = github.state,
         health = healthRepo.state,
+        widgets = widgets.state,
         config = config.get().toPublic(),
     )
 
@@ -133,7 +139,13 @@ class AppGraph private constructor(context: Context) {
                 photos.state.let { h("写真", "Photos", d.showPhotos && c.photos.enabled, it.fetchedAt, it.lastError) },
                 github.state.let { h("GitHub", "GitHub", d.showGithub, it.fetchedAt, it.lastError) },
                 healthRepo.state.let { h("空気・体調", "Air & health", d.showHealth, it.fetchedAt, it.lastError) },
-            ),
+            ) + WIDGET_IDS.mapIndexed { i, id ->
+                val def = c.widgets.def(id)
+                val s = widgets.state.of(id)
+                val name = CardLayout.card("WIDGET${i + 1}")?.label.orEmpty() + (def.title.takeIf { it.isNotBlank() }?.let { L("（$it）", " ($it)") } ?: "")
+                val on = WidgetRepository.shown(d, i) && WidgetRepository.configured(def) && (def.source != "push" || c.widgets.pushEnabled)
+                SourceHealth(name, on, if (def.source == "push") s?.updatedAt ?: 0L else s?.fetchedAt ?: 0L, s?.lastError)
+            },
             quarantined = config.quarantined(),
         )
     }

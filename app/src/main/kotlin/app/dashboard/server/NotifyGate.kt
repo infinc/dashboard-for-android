@@ -7,7 +7,11 @@ import java.util.concurrent.ConcurrentHashMap
  * 外から通知を出す API（POST /api/notify）の門番。トークンの照合、まちがいが続く IP の締め出し、送りすぎの抑え。
  * ログインの PIN と違い、ブラウザからではなく Home Assistant などのプログラムから来るので、Cookie ではなくトークンで確かめる。
  */
-class NotifyGate(private val clock: () -> Long = System::currentTimeMillis) {
+class NotifyGate(
+    /** 続けて受け付けるまでの間（自作カードへ送る口は短くする）。 */
+    private val minIntervalMs: Long = MIN_INTERVAL_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
 
     sealed interface Result {
         data object Ok : Result
@@ -43,7 +47,7 @@ class NotifyGate(private val clock: () -> Long = System::currentTimeMillis) {
         }
         synchronized(this) {
             val now = clock()
-            if (now - lastAt < MIN_INTERVAL_MS) return Result.TooMany
+            if (now - lastAt < minIntervalMs) return Result.TooMany
             lastAt = now
         }
         return Result.Ok

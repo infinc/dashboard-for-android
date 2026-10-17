@@ -86,6 +86,7 @@
     if (location.hash !== "#" + name) location.hash = name;
     if (name === "status") loadStatus();
     if (name === "notifyapi") loadNotify();
+    if (name === "widgets") window.DashWidgets.onShow();
   }
 
   (function bindNav() {
@@ -236,7 +237,8 @@
       memo: memo,
       ships: ships,
       github: github,
-      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked, background: $("spotifyBackground").value }
+      widgets: window.DashWidgets.collect(),
+      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked }
     };
   }
 
@@ -395,7 +397,6 @@
     $("spotifyEnabled").checked = !!sp.enabled;
     $("spotifyClientId").value = sp.clientId || "";
     $("spotifySaveLyrics").checked = sp.saveLyrics !== false;
-    $("spotifyBackground").value = sp.background || "flow";
     renderSpotify();
 
     $("disasterSound").checked = n.disasterSound !== false;
@@ -407,6 +408,7 @@
 
     renderLan();
     updateRangeLabels();
+    window.DashWidgets.render(config);
     layoutSaved = copyRows(d.cardLayout || []);
     baseline = JSON.stringify(collect());
     updateDirty();

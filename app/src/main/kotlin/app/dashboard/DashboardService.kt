@@ -71,6 +71,7 @@ class DashboardService : LifecycleService() {
                 step("写真の定期取得でエラー") { graph.photos.refreshIfDue(d.showPhotos) }
                 step("GitHub の定期取得でエラー") { graph.github.refreshIfDue(d.showGithub) }
                 step("空気・体調の定期取得でエラー") { graph.healthRepo.refreshIfDue(d.showHealth) }
+                step("自作カードの定期取得でエラー") { graph.widgets.refreshIfDue(d) }
                 step("祝日の定期取得でエラー") { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }
                 delay(TICK_MS)
             }
@@ -95,6 +96,8 @@ class DashboardService : LifecycleService() {
 
     override fun onDestroy() {
         runCatching { AppGraph.get(applicationContext).server.stop() }
+        // 自作カードの値と履歴は数秒おきにまとめて書くので、止まる前に書き切る
+        runCatching { AppGraph.get(applicationContext).widgets.save() }
         super.onDestroy()
     }
 
