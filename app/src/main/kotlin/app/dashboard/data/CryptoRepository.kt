@@ -9,6 +9,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -90,6 +91,8 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
                 if (details.size >= MAX_CACHE) details.minByOrNull { e -> e.value.fetchedAt }?.let { e -> details.remove(e.key) }
                 details[key] = it
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "暗号通貨の詳しい値の取得に失敗: $coin", e)
             throw IllegalStateException(describe(e), e)
@@ -155,6 +158,8 @@ class CryptoRepository(private val client: HttpClient, private val configStore: 
             if (cache.size >= MAX_CACHE && key !in cache) cache.minByOrNull { it.value.fetchedAt }?.let { cache.remove(it.key) }
             cache[key] = fresh
             state = fresh
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "暗号通貨の取得に失敗: ${config.coin}", e)
             // 別の通貨・期間の値は、失敗したときに残さない

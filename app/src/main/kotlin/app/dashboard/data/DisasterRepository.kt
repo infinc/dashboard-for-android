@@ -6,6 +6,9 @@ import app.dashboard.i18n.L
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -58,8 +61,15 @@ class DisasterRepository(
     @Volatile
     private var resolved: ResolvedArea? = null
 
-    private var lastAttemptAt = 0L
-    private var consecutiveFailures = 0
+    @Volatile private var lastAttemptAt = 0L
+    @Volatile private var consecutiveFailures = 0
+
+    /**
+     * 常駐の定期取得と、設定の保存・更新ボタンからの取得が重ならないよう 1 本ずつにする。
+     * 重なると、地点を変えた直後に旧地点の結果が後から届いて上書きし、次の取得まで旧地点のままになる。
+     * ロックの中から同じロックを取る関数（refreshIfDue など）を呼ばないこと（Mutex は入れ子にできない）。
+     */
+    private val lock = Mutex()
 
     init {
         runCatching {
@@ -82,7 +92,7 @@ class DisasterRepository(
         refreshNow()
     }
 
-    suspend fun refreshNow() {
+    suspend fun refreshNow() = lock.withLock {
         lastAttemptAt = System.currentTimeMillis()
         val config = configStore.get()
         try {
@@ -192,6 +202,8 @@ class DisasterRepository(
             )
             consecutiveFailures = 0
             runCatching { cacheFile.writeText(Http.json.encodeToString(state)) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             consecutiveFailures += 1
             Log.w(TAG, "防災情報の取得に失敗（${consecutiveFailures}回目）", e)
@@ -268,7 +280,7 @@ class DisasterRepository(
 
     @Volatile private var tsunamiCoasts: Map<String, List<List<DoubleArray>>>? = null
     @Volatile private var tsunamiNear: Pair<Pair<Double, Double>, Set<String>>? = null
-    /** 津波の本文はファイル名ごとに中身が変わらないので覚える（数件だけ）。 */
+    /** 津波の本文はファイル名ごとに中身が変わらないので覚える（数件だけ）。[refreshNow] のロックの中でだけ読み書きする。 */
     private val tsunamiDocs = object : LinkedHashMap<String, JsonObject>() {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JsonObject>?) = size > 8
     }

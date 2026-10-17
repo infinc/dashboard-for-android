@@ -6,6 +6,7 @@ import android.util.Xml
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
@@ -68,6 +69,8 @@ class CalendarRepository(private val client: HttpClient, private val configStore
         try {
             val events = if (c.mode == "ics") fromIcs(c.icsUrl!!, from, to, zone) else fromCalDav(c, from, to, zone)
             state = CalendarState(events.take(MAX_EVENTS), System.currentTimeMillis(), null)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "予定の取得に失敗", e)
             state = state.copy(fetchedAt = System.currentTimeMillis(), lastError = e.message ?: e::class.java.simpleName)
@@ -95,7 +98,11 @@ class CalendarRepository(private val client: HttpClient, private val configStore
         val auth = Credentials.basic(c.appleId.trim(), c.password!!.replace(" ", "").trim())
         val key = c.appleId.trim()
         val list = calendars?.takeIf { calendarsFor == key } ?: discover(auth).also { calendars = it; calendarsFor = key }
-        if (list.isEmpty()) error(L("予定を入れられるカレンダーが見つかりませんでした", "No calendar that can hold events was found"))
+        if (list.isEmpty()) {
+            // 空のまま覚えると、後からカレンダーを作っても再起動まで見つからない
+            calendars = null
+            error(L("予定を入れられるカレンダーが見つかりませんでした", "No calendar that can hold events was found"))
+        }
         val start = utc(from)
         val end = utc(to)
         val body = """
@@ -107,10 +114,22 @@ class CalendarRepository(private val client: HttpClient, private val configStore
               </C:comp-filter></C:comp-filter></C:filter>
             </C:calendar-query>
         """.trimIndent()
-        list.flatMap { cal ->
-            val xml = send(cal.url, "REPORT", body, auth, depth = "1")
-            texts(xml, "calendar-data").flatMap { Ics.events(it, from, to, zone, cal.name, cal.color) }
-        }.sortedWith(compareBy({ it.start }, { !it.allDay }))
+        // カレンダーごとに失敗を受ける。iCloud 側で消した・共有を外したカレンダー 1 つの 404 で、ほかの予定まで消さない
+        val failures = mutableListOf<Exception>()
+        val events = list.flatMap { cal ->
+            try {
+                val xml = send(cal.url, "REPORT", body, auth, depth = "1")
+                texts(xml, "calendar-data").flatMap { Ics.events(it, from, to, zone, cal.name, cal.color) }
+            } catch (e: Exception) {
+                Log.w(TAG, "カレンダー ${cal.name} の取得に失敗", e)
+                failures += e
+                emptyList()
+            }
+        }
+        // 1 つでも失敗したら、次回はカレンダーの一覧から調べ直す（消えたカレンダーを覚え続けない）
+        if (failures.isNotEmpty()) calendars = null
+        if (failures.size == list.size) throw failures.first()
+        events.sortedWith(compareBy({ it.start }, { !it.allDay }))
     }
 
     /** caldav.icloud.com → 利用者の principal → calendar-home-set → その下の VEVENT を入れられるカレンダー。 */

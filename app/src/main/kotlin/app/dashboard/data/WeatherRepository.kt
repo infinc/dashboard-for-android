@@ -7,6 +7,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -35,8 +38,15 @@ class WeatherRepository(
     var state: WeatherState = WeatherState()
         private set
 
-    private var lastAttemptAt = 0L
-    private var consecutiveFailures = 0
+    @Volatile private var lastAttemptAt = 0L
+    @Volatile private var consecutiveFailures = 0
+
+    /**
+     * 常駐の定期取得と、設定の保存・更新ボタンからの取得が重ならないよう 1 本ずつにする。
+     * 重なると、地点を変えた直後に旧地点の結果が後から届いて上書きし、次の取得まで旧地点のままになる。
+     * ロックの中から同じロックを取る関数（refreshIfDue など）を呼ばないこと（Mutex は入れ子にできない）。
+     */
+    private val lock = Mutex()
 
     init {
         runCatching {
@@ -55,7 +65,7 @@ class WeatherRepository(
         refreshNow()
     }
 
-    suspend fun refreshNow() {
+    suspend fun refreshNow() = lock.withLock {
         lastAttemptAt = System.currentTimeMillis()
         val config = configStore.get()
         val loc = config.location
@@ -99,6 +109,8 @@ class WeatherRepository(
             consecutiveFailures = 0
             runCatching { cacheFile.writeText(json.encodeToString(state)) }
                 .onFailure { Log.w(TAG, "天気キャッシュの保存に失敗", it) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             consecutiveFailures += 1
             Log.w(TAG, "天気の取得に失敗（${consecutiveFailures}回目）。キャッシュを表示し続ける", e)

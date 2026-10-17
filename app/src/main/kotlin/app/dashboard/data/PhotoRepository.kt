@@ -2,6 +2,7 @@ package app.dashboard.data
 
 import app.dashboard.i18n.L
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -91,6 +92,8 @@ class PhotoRepository(private val configStore: ConfigStore) {
             val (name, list) = withContext(Dispatchers.IO) { if (key != null) loadCloudKit(key) else load(token!!) }
             photos = list
             state = PhotoState(name, list.size, System.currentTimeMillis(), if (list.isEmpty()) L("アルバムに写真がありません", "The album has no photos") else null)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "共有アルバムの取得に失敗", e)
             state = state.copy(fetchedAt = System.currentTimeMillis(), lastError = e.message ?: e::class.java.simpleName)

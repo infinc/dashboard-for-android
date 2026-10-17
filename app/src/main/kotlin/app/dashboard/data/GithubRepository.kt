@@ -11,6 +11,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -74,6 +75,8 @@ class GithubRepository(private val client: HttpClient, private val configStore: 
         }
         try {
             state = load(user, c.token?.trim()?.takeIf { it.isNotEmpty() }, c.days)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "GitHub の取得に失敗", e)
             // 前の値は残してエラーだけ添える（同じ人なら）

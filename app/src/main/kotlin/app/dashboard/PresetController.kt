@@ -92,12 +92,23 @@ class PresetController(private val graph: AppGraph) {
         presets = PresetsConfig(),
     )
 
-    /** 切り替え先の控え [base] に、切り替えても変わらないものを [current] から戻す。 */
+    /**
+     * 切り替え先の控え [base] に、切り替えても変わらないものを [current] から戻す。
+     * トークン・パスワード・API キーは、いまの値を引き継ぐ（控えの値は古い。Spotify の更新用トークンは使うたびに差し替わるので、
+     * 控えに戻すと認可が切れる。片方で連携を解除したのに、もう片方に残るのも防ぐ）。
+     * 同じアカウント・同じ送り先のときだけ引き継ぎ、別のアカウントを使うプリセットはその控えのままにする。
+     */
     private fun keep(base: Config, current: Config): Config = base.copy(
         configVersion = current.configVersion,
         browser = current.browser,
         lan = current.lan,
         settingsLock = current.settingsLock,
+        spotify = if (base.spotify.clientId == current.spotify.clientId) base.spotify.copy(refreshToken = current.spotify.refreshToken) else base.spotify,
+        calendar = if (base.calendar.appleId == current.calendar.appleId) base.calendar.copy(password = current.calendar.password) else base.calendar,
+        memo = if (base.memo.endpoint == current.memo.endpoint) base.memo.copy(token = current.memo.token) else base.memo,
+        train = base.train.copy(token = current.train.token, challengeToken = current.train.challengeToken),
+        ships = current.ships,
+        github = if (base.github.user == current.github.user) base.github.copy(token = current.github.token) else base.github,
     )
 
     private fun newId(p: PresetsConfig): String =

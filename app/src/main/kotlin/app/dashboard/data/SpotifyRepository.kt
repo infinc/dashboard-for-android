@@ -14,6 +14,9 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
@@ -38,10 +41,16 @@ class SpotifyRepository(
     var state: SpotifyState = SpotifyState()
         private set
 
-    private var accessToken: String? = null
-    private var accessTokenExpiresAt = 0L
-    private var lastAttemptAt = 0L
-    private var consecutiveFailures = 0
+    @Volatile private var accessToken: String? = null
+    @Volatile private var accessTokenExpiresAt = 0L
+    @Volatile private var lastAttemptAt = 0L
+    @Volatile private var consecutiveFailures = 0
+
+    /**
+     * アクセストークンの更新を 1 本にする（常駐の取得・操作・サーバーから同時に呼ばれ、期限切れの瞬間に同じ更新用トークンで 2 本飛ぶため）。
+     * ロックの中は通信と結果の確認だけ。設定の書き戻しは外で行う。
+     */
+    private val tokenLock = Mutex()
 
     /**
      * 認可の途中でだけ使う検証子。
@@ -107,6 +116,8 @@ class SpotifyRepository(
                 else -> throw IllegalStateException("HTTP ${response.status.value}")
             }
             consecutiveFailures = 0
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             consecutiveFailures += 1
             Log.w(TAG, "Spotify の取得に失敗（${consecutiveFailures}回目）", e)
@@ -255,28 +266,37 @@ class SpotifyRepository(
 
     /** 期限内のアクセストークンを返す。切れていれば更新用トークンで取り直す。 */
     private suspend fun validAccessToken(config: SpotifyConfig): String? {
-        val cached = accessToken
-        if (cached != null && System.currentTimeMillis() < accessTokenExpiresAt) return cached
+        accessToken?.takeIf { System.currentTimeMillis() < accessTokenExpiresAt }?.let { return it }
 
-        val refresh = config.refreshToken ?: return null
-        val clientId = config.clientId.trim().ifEmpty { return null }
+        val (access, refresh, rotated) = tokenLock.withLock {
+            // 待っている間に、ほかの呼び出しが更新を済ませていればそれを使う
+            accessToken?.takeIf { System.currentTimeMillis() < accessTokenExpiresAt }?.let { return it }
+            val refresh = configStore.get().spotify.refreshToken ?: return null
+            val clientId = config.clientId.trim().ifEmpty { return null }
 
-        val token: TokenDto = client.submitForm(
-            url = TOKEN_URL,
-            formParameters = Parameters.build {
-                append("grant_type", "refresh_token")
-                append("refresh_token", refresh)
-                append("client_id", clientId)
-            },
-        ).body()
+            val token: TokenDto = client.submitForm(
+                url = TOKEN_URL,
+                formParameters = Parameters.build {
+                    append("grant_type", "refresh_token")
+                    append("refresh_token", refresh)
+                    append("client_id", clientId)
+                },
+            ).body()
 
-        accessToken = token.accessToken
-        accessTokenExpiresAt = System.currentTimeMillis() + token.expiresIn * 1000L - SKEW_MS
-        // 更新用トークンが差し替わって返ることがある。取り落とすと次回から認可が切れる。
-        token.refreshToken?.takeIf { it.isNotBlank() && it != refresh }?.let { rotated ->
-            configStore.update { c -> c.copy(spotify = c.spotify.copy(refreshToken = rotated)) }
+            // 通信の間に連携を解除された（または連携し直された）なら、この結果は使わない
+            if (configStore.get().spotify.refreshToken != refresh) return null
+            accessToken = token.accessToken
+            accessTokenExpiresAt = System.currentTimeMillis() + token.expiresIn * 1000L - SKEW_MS
+            Triple(token.accessToken, refresh, token.refreshToken?.takeIf { it.isNotBlank() && it != refresh })
         }
-        return accessToken
+        // 更新用トークンが差し替わって返ることがある。取り落とすと次回から認可が切れる。
+        // 書き戻すのは、設定がまだ送ったトークンのままのときだけ（その間に解除されていたら復活させない）
+        if (rotated != null && configStore.get().spotify.refreshToken == refresh) {
+            configStore.update { c ->
+                if (c.spotify.refreshToken == refresh) c.copy(spotify = c.spotify.copy(refreshToken = rotated)) else c
+            }
+        }
+        return access
     }
 
     // ------------------------------------------------------------ 小道具
