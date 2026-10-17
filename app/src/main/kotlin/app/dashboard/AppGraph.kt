@@ -18,7 +18,9 @@ import app.dashboard.data.MemoRepository
 import app.dashboard.data.PhotoRepository
 import app.dashboard.data.RainForecast
 import app.dashboard.data.ShipStream
+import app.dashboard.data.SourceHealth
 import app.dashboard.data.SpotifyRepository
+import app.dashboard.data.StatusResponse
 import app.dashboard.data.StocksRepository
 import app.dashboard.data.TodayRepository
 import app.dashboard.data.TodoRepository
@@ -27,6 +29,7 @@ import app.dashboard.data.WallpaperStore
 import app.dashboard.data.WeatherRepository
 import app.dashboard.data.WifiMonitor
 import app.dashboard.data.toPublic
+import app.dashboard.i18n.L
 import app.dashboard.server.Auth
 import app.dashboard.server.DashboardServer
 import app.dashboard.sound.NoticePlayer
@@ -98,6 +101,34 @@ class AppGraph private constructor(context: Context) {
         github = github.state,
         config = config.get().toPublic(),
     )
+
+    /**
+     * 取得先ごとの状況（設定の「取得状況」・/api/status）。「全部の取得が失敗し続ける」ような不具合を、画面から見つけられるように。
+     * [SourceHealth.enabled] は、その取得先がいま動いているはずか（設定で使っていない・カードを出していないものは false）。
+     */
+    fun health(): StatusResponse {
+        val c = config.get()
+        val d = c.display
+        fun h(ja: String, en: String, enabled: Boolean, fetchedAt: Long, lastError: String?) =
+            SourceHealth(L(ja, en), enabled, fetchedAt, lastError)
+        return StatusResponse(
+            sources = listOf(
+                weather.state.let { h("天気", "Weather", true, it.fetchedAt, it.lastError) },
+                disaster.state.let { h("防災", "Alerts", c.disaster.enabled, it.fetchedAt, it.lastError) },
+                feed.state.let { h("ニュース", "News", c.feed.enabled, it.fetchedAt, it.lastError) },
+                memo.state.let { h("LINE メモ", "LINE memo", c.memo.enabled, it.fetchedAt, it.lastError) },
+                spotify.state.let { h("Spotify", "Spotify", c.spotify.enabled && !c.spotify.refreshToken.isNullOrBlank(), it.fetchedAt, it.lastError) },
+                train.state.let { h("運行情報", "Trains", c.train.enabled, it.fetchedAt, it.lastError) },
+                calendar.state.let { h("予定表", "Calendar", c.calendar.enabled, it.fetchedAt, it.lastError) },
+                today.state.let { h("今日は何の日", "On this day", d.showToday, it.fetchedAt, it.lastError) },
+                stocks.state.let { h("株価", "Stocks", d.showStocks, it.fetchedAt, it.lastError) },
+                crypto.state.let { h("暗号通貨", "Crypto", d.showCrypto, it.fetchedAt, it.lastError) },
+                photos.state.let { h("写真", "Photos", d.showPhotos && c.photos.enabled, it.fetchedAt, it.lastError) },
+                github.state.let { h("GitHub", "GitHub", d.showGithub, it.fetchedAt, it.lastError) },
+            ),
+            quarantined = config.quarantined(),
+        )
+    }
 
     companion object {
         @Volatile

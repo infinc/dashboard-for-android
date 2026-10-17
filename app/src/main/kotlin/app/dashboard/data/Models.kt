@@ -1457,3 +1457,14 @@ data class GeocodeResult(
 
 @Serializable
 data class ApiError(val error: String, val detail: String? = null)
+
+/** 取得先 1 つの状況（設定の「取得状況」）。[fetchedAt] は最後に取りに行った時刻（失敗も含む）。 */
+@Serializable
+data class SourceHealth(val name: String, val enabled: Boolean, val fetchedAt: Long, val lastError: String?)
+
+@Serializable
+data class StatusResponse(
+    val sources: List<SourceHealth>,
+    /** 読めずに退避した config.json（新しい順）。 */
+    val quarantined: List<String>,
+)

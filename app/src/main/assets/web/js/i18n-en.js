@@ -265,7 +265,22 @@ window.EN_HTML = {
  "設定画面へのログイン": "Sign in to settings",
  "この端末は LAN 公開が有効です。設定を変更するには PIN が必要です。": "LAN access is enabled on this device. A PIN is required to change settings.",
  "USB 接続（adb forward 経由の localhost）からは PIN なしで設定できます。": "Over USB (localhost via adb forward) you can change settings without a PIN.",
- "ログイン": "Sign in"
+ "ログイン": "Sign in",
+ "<i class=\"dot dot-off\"></i><span>バックアップ</span>": "<i class=\"dot dot-off\"></i><span>Backup</span>",
+ "<i class=\"dot dot-off\"></i><span>取得状況</span>": "<i class=\"dot dot-off\"></i><span>Fetch status</span>",
+ "バックアップ": "Backup",
+ "設定をまるごとファイルに書き出し、あとで読み込んで戻します。アプリを入れ直す前や、別のタブレットへ移すときに使います。": "Export all settings to a file and restore them later. Use it before reinstalling the app or when moving to another tablet.",
+ "書き出したファイルには、LINE メモ・Spotify・予定表・GitHub などの<strong>トークンやパスワードがそのまま入ります</strong>。 人に渡したり、共有のフォルダに置いたりしないでください。": "The exported file <strong>contains tokens and passwords as is</strong> (LINE memo, Spotify, calendar, GitHub and more). Don't give it to anyone or put it in a shared folder.",
+ "書き出す": "Export",
+ "設定を書き出す（.json）": "Export settings (.json)",
+ "読み込む": "Import",
+ "読み込んで置き換える": "Import and replace",
+ "いまの設定は、読み込んだ内容で置き換わります。LAN 公開・設定の PIN・背景画像は、この端末のいまのものが残ります。": "The current settings are replaced with the imported ones. LAN access, the settings PIN and the background image stay as they are on this tablet.",
+ "取得状況": "Fetch status",
+ "取得先ごとに、最後に取りに行った時刻とエラーを出します。カードが更新されないときに、どこで止まっているかを確かめられます。": "Shows when each source was last fetched and any error. Use it to find where things stopped when a card isn't updating.",
+ "読み直す": "Reload",
+ "読めなかった設定": "Settings that couldn't be read",
+ "起動のときに設定（config.json）が読めず、既定の設定で起動しました。読めなかったファイルは消さずに残してあります。 直したい場合は、下から戻すか、書き出しておいたバックアップを読み込んでください。": "The settings (config.json) couldn't be read at startup, so the app started with the defaults. The unreadable file was kept. To fix it, restore it below or import a backup you exported.",
 };
 window.EN_TEXT = {
  "全画面の背景": "Full-screen background",

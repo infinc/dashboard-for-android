@@ -66,6 +66,45 @@ class ConfigStore(context: Context) {
         next
     }
 
+    /** 書き出し用の設定（トークン・PIN のハッシュを含む、config.json と同じ形）。 */
+    fun export(): String = synchronized(lock) { json.encodeToString(get()) }
+
+    /**
+     * 書き出した設定（または退避した config.json）で置き換える。形の合わない値は保存のときと同じく整える。
+     * LAN 公開・設定の PIN・背景画像は、いまの端末のものを残す（読み込みで締め出されたり、無い画像を指したりしないように）。
+     * 読めない内容なら [IllegalArgumentException]。
+     */
+    fun restore(text: String): Config {
+        val incoming = try {
+            json.decodeFromString<Config>(text)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("config.json として読めません", e)
+        }
+        return update { current ->
+            incoming.copy(
+                configVersion = current.configVersion,
+                display = sanitizeDisplay(incoming.display),
+                refresh = sanitizeRefresh(incoming.refresh),
+                feed = sanitizeFeed(incoming.feed),
+                notifications = sanitizeNotifications(incoming.notifications),
+                stocks = sanitizeStocks(incoming.stocks),
+                countdown = sanitizeCountdown(incoming.countdown),
+                crypto = sanitizeCrypto(incoming.crypto),
+                browser = sanitizeBrowser(incoming.browser),
+                lan = current.lan,
+                settingsLock = current.settingsLock,
+                wallpaper = current.wallpaper,
+            )
+        }
+    }
+
+    /** 読めずに退避した config.json の名前（新しい順）。 */
+    fun quarantined(): List<String> = badFiles(dir).map { it.name }
+
+    /** 退避した config.json の中身。名前は [quarantined] の中のものに限る（ほかのファイルは読まない）。 */
+    fun quarantinedText(name: String): String? =
+        badFiles(dir).firstOrNull { it.name == name }?.readText()
+
     /** 公開設定の差分を当てた設定を返す（保存はしない）。PIN 等の機微な値はこの経路では変わらない。 */
     fun patched(c: Config, patch: ConfigPatch): Config = c.copy(
         location = patch.location ?: c.location,

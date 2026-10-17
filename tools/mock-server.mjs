@@ -383,6 +383,29 @@ const server = createServer(async (req, res) => {
       config.wallpaper = { imageSetAt: 0 };
       return json(res, 200, config);
     }
+    if (path === "/api/status") {
+      const now = Date.now();
+      return json(res, 200, {
+        sources: [
+          { name: "天気", enabled: true, fetchedAt: now - 120_000, lastError: null },
+          { name: "防災", enabled: true, fetchedAt: now - 30_000, lastError: null },
+          { name: "予定表", enabled: true, fetchedAt: now - 600_000, lastError: "iCloud が HTTP 404 を返しました" },
+          { name: "株価", enabled: false, fetchedAt: 0, lastError: null },
+        ],
+        quarantined: [],
+      });
+    }
+    if (path === "/api/backup") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="dashboard-config-mock.json"' });
+      return res.end(JSON.stringify(config, null, 2));
+    }
+    if ((path === "/api/restore" || path === "/api/restore/quarantined") && post) {
+      // 実機は設定を置き換える。モックは受け取ったことだけ記録する
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      console.log(`[mock] 設定の読み込み: ${Buffer.concat(chunks).length} バイト`);
+      return json(res, 200, config);
+    }
     if (path === "/api/device") {
       if (post) launcherHome = !!(await readBody(req)).launcherHomeEnabled;
       return json(res, 200, device());

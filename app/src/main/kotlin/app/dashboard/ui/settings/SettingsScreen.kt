@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1595,6 +1596,7 @@ private fun InfoPane(graph: AppGraph, onVersionArt: () -> Unit) {
         )
     }
     UpdateField(graph)
+    HealthField(graph)
     Field(L("ライセンス", "License")) { Text("MIT License", color = Wd.Text2, fontSize = 14.tu) }
     Notice(
         L(
@@ -1602,6 +1604,57 @@ private fun InfoPane(graph: AppGraph, onVersionArt: () -> Unit) {
             "Weather: Open-Meteo.com (CC BY 4.0) · Alerts & rain: JMA · Seismic monitor: NIED · Hamster: \"Loader\" by Nawsome on Uiverse.io (MIT)",
         ),
     )
+}
+
+/** 情報の「取得状況」。取得先ごとの最後の取得とエラー（Web の設定の「取得状況」と同じ /api/status の中身）。開いている間は 5 秒ごとに読み直す。 */
+@Composable
+private fun HealthField(graph: AppGraph) {
+    var health by remember { mutableStateOf(graph.health()) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(5_000)
+            health = graph.health()
+            now = System.currentTimeMillis()
+        }
+    }
+    Field(
+        L("取得状況", "Fetch status"),
+        L("カードが更新されないときに、どこで止まっているかを確かめられます。", "Find where things stopped when a card isn't updating."),
+    ) {
+        health.sources.forEach { src ->
+            val (text, color) = when {
+                !src.enabled -> L("使っていません", "Not in use") to Wd.Text3
+                src.fetchedAt == 0L -> L("まだ取りに行っていません", "Not fetched yet") to Wd.Amber
+                src.lastError != null -> "${ago(now - src.fetchedAt)} — ${src.lastError}" to Wd.Red
+                else -> ago(now - src.fetchedAt) to Wd.Green
+            }
+            Row(Modifier.padding(vertical = 3.dp)) {
+                Text(src.name, fontSize = 13.tu, modifier = Modifier.width(130.dp))
+                Text(text, color = color, fontSize = 13.tu, maxLines = 2)
+            }
+        }
+        if (health.quarantined.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                L(
+                    "起動のときに設定が読めず、既定の設定で起動しました。読めなかったファイル（${health.quarantined.first()}）は残してあります。Web の設定の「取得状況」から戻せます。",
+                    "The settings couldn't be read at startup, so the app started with the defaults. The unreadable file (${health.quarantined.first()}) was kept; restore it from \"Fetch status\" in the web settings.",
+                ),
+                color = Wd.Amber, fontSize = 13.tu,
+            )
+        }
+    }
+}
+
+private fun ago(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    return when {
+        s < 60 -> L("$s 秒前", "$s s ago")
+        s < 3600 -> L("${s / 60} 分前", "${s / 60} min ago")
+        s < 86_400 -> L("${s / 3600} 時間前", "${s / 3600} h ago")
+        else -> L("${s / 86_400} 日前", "${s / 86_400} d ago")
+    }
 }
 
 /** 情報の「アップデート」。開いたら確認する。ダッシュボードの真ん中の案内と同じ状態（`AppUpdater`）を使う。 */

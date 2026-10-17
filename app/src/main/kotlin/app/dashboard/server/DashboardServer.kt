@@ -32,6 +32,7 @@ import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.contentLength
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondRedirect
@@ -182,6 +183,42 @@ class DashboardServer(private val graph: AppGraph) {
             post("/api/settings") {
                 if (!guardWrite(call)) return@post
                 call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
+            }
+
+            /** 取得先ごとの状況と、読めずに退避した config.json の一覧。 */
+            get("/api/status") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.health())
+            }
+
+            /** 設定の書き出し（トークン・PIN のハッシュを含む config.json そのもの）。 */
+            get("/api/backup") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                val day = java.time.LocalDate.now().toString().replace("-", "")
+                call.response.headers.append("Content-Disposition", "attachment; filename=\"dashboard-config-$day.json\"")
+                call.response.headers.append("Cache-Control", "no-store")
+                call.respondText(graph.config.export(), ContentType.Application.Json)
+            }
+
+            /** 書き出した設定で置き換える。本文は書き出した .json そのもの。 */
+            post("/api/restore") {
+                if (!guardWrite(call)) return@post
+                val declared = call.request.contentLength()
+                if (declared != null && declared > MAX_BACKUP_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large")); return@post
+                }
+                val text = call.receiveText()
+                if (text.length > MAX_BACKUP_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large")); return@post
+                }
+                call.respond(graph.settings.restore(text).toPublic())
+            }
+
+            /** 読めずに退避した config.json（?name=config.json.bad-…）から戻す。 */
+            post("/api/restore/quarantined") {
+                if (!guardWrite(call)) return@post
+                val name = call.request.queryParameters["name"].orEmpty()
+                call.respond(graph.settings.restoreQuarantined(name).toPublic())
             }
 
             /**
@@ -461,6 +498,8 @@ class DashboardServer(private val graph: AppGraph) {
     companion object {
         const val PORT = 8080
         /** Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めない。USB の PC からも同じ URL で成立する。 */
+        /** 設定の書き出しの大きさの上限（ふつうは数十 KB。プリセットを 10 個持っても 1 MB に届かない）。 */
+        private const val MAX_BACKUP_BYTES = 2 * 1024 * 1024
         const val SPOTIFY_REDIRECT_URI = "http://127.0.0.1:$PORT/api/spotify/callback"
         private const val TAG = "DashboardServer"
         private const val LOOPBACK = "127.0.0.1"

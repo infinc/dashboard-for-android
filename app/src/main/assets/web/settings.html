@@ -139,6 +139,12 @@
       <button class="nav-item" type="button" data-pane="network">
         <i class="dot dot-off"></i><span>ネットワーク</span>
       </button>
+      <button class="nav-item" type="button" data-pane="backup">
+        <i class="dot dot-off"></i><span>バックアップ</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="status">
+        <i class="dot dot-off"></i><span>取得状況</span>
+      </button>
     </div>
 
     <div class="nav-foot">
@@ -1232,6 +1238,47 @@
       </div>
 
       <div class="row"><button id="lanToggle" class="ghost" type="button">—</button><span class="status" id="lanStatus"></span></div>
+    </section>
+
+    <!-- ============================================================ バックアップ -->
+    <section class="pane" data-pane="backup">
+      <h1>バックアップ</h1>
+      <p class="lead">設定をまるごとファイルに書き出し、あとで読み込んで戻します。アプリを入れ直す前や、別のタブレットへ移すときに使います。</p>
+
+      <div class="notice">
+        書き出したファイルには、LINE メモ・Spotify・予定表・GitHub などの<strong>トークンやパスワードがそのまま入ります</strong>。
+        人に渡したり、共有のフォルダに置いたりしないでください。
+      </div>
+
+      <div class="field" style="margin-top:16px">
+        <label>書き出す</label>
+        <div class="row"><button id="backupExport" type="button">設定を書き出す（.json）</button></div>
+      </div>
+
+      <div class="field">
+        <label for="backupFile">読み込む</label>
+        <div class="row"><input id="backupFile" type="file" accept=".json,application/json"><button id="backupImport" class="ghost" type="button">読み込んで置き換える</button></div>
+        <div class="hint">いまの設定は、読み込んだ内容で置き換わります。LAN 公開・設定の PIN・背景画像は、この端末のいまのものが残ります。</div>
+        <div class="status" id="backupStatus"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 取得状況 -->
+    <section class="pane" data-pane="status">
+      <h1>取得状況</h1>
+      <p class="lead">取得先ごとに、最後に取りに行った時刻とエラーを出します。カードが更新されないときに、どこで止まっているかを確かめられます。</p>
+
+      <div class="row"><button id="statusReload" class="ghost" type="button">読み直す</button><span class="status" id="statusStatus"></span></div>
+      <div id="statusList" style="margin-top:12px"></div>
+
+      <div id="quarantineBox" style="margin-top:24px" hidden>
+        <h2 class="sub">読めなかった設定</h2>
+        <div class="notice">
+          起動のときに設定（config.json）が読めず、既定の設定で起動しました。読めなかったファイルは消さずに残してあります。
+          直したい場合は、下から戻すか、書き出しておいたバックアップを読み込んでください。
+        </div>
+        <div id="quarantineList"></div>
+      </div>
     </section>
 
     <footer>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0) ・ 防災情報: 気象庁 ・ 強震モニタ: 防災科学技術研究所</footer>

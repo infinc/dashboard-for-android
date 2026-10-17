@@ -118,6 +118,24 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showGithub) runCatching { graph.github.refreshNow() }
     }
 
+    /** 書き出した設定で置き換える（[app.dashboard.data.ConfigStore.restore]）。取得先が変わるので取り直す。 */
+    fun restore(text: String): Config {
+        val restored = try {
+            graph.config.restore(text)
+        } catch (e: IllegalArgumentException) {
+            throw SettingsException("bad_backup", L("設定のファイルとして読めません（Dashboard で書き出した .json を選んでください）", "Couldn't read this as a settings file (choose a .json exported from Dashboard)"))
+        }
+        refreshAllLater()
+        return restored
+    }
+
+    /** 読めずに退避した config.json から戻す。 */
+    fun restoreQuarantined(name: String): Config {
+        val text = graph.config.quarantinedText(name)
+            ?: throw SettingsException("not_found", L("退避した設定が見つかりません", "The saved-aside settings file wasn't found"))
+        return restore(text)
+    }
+
     fun refreshAllLater() {
         graph.scope.launch { refreshAll() }
     }
