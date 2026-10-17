@@ -489,6 +489,7 @@ data class DisplayConfig(
     val showShips: Boolean = false,
     val showGithub: Boolean = false,
     val showTodo: Boolean = false,
+    val showHealth: Boolean = false,
 
     /** カードの角の丸み（dp）。[CARD_RADIUS_MIN]〜[CARD_RADIUS_MAX]。 */
     val cardRadius: Int = CARD_RADIUS_DEFAULT,
@@ -876,6 +877,24 @@ data class StockQuote(
 @Serializable
 data class StocksState(
     val quotes: List<StockQuote> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- 空気・体調
+
+/** 1 時間ぶん。[wbgt] は気温・湿度・日射・風からの推定（℃）。 */
+@Serializable
+data class HealthHour(val time: String, val wbgt: Double? = null, val uv: Double? = null, val pm25: Double? = null)
+
+/**
+ * 空気・体調のカード。暑さ指数（WBGT、推定）・紫外線・PM2.5。
+ * [hours] は今日の 0 時から明日の終わりまで（カードは今の時刻から先を描く）。
+ */
+@Serializable
+data class HealthState(
+    val hours: List<HealthHour> = emptyList(),
+    val timezone: String? = null,
     val fetchedAt: Long = 0,
     val lastError: String? = null,
 )
@@ -1484,6 +1503,7 @@ data class DeviceState(
     val photos: PhotoState = PhotoState(),
     val crypto: CryptoState = CryptoState(),
     val github: GithubState = GithubState(),
+    val health: HealthState = HealthState(),
     val config: PublicConfig,
 )
 

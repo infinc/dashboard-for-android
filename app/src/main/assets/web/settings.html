@@ -128,6 +128,9 @@
       <button class="nav-item" type="button" data-pane="todo">
         <i class="dot" data-w="showTodo"></i><span>Todo</span>
       </button>
+      <button class="nav-item" type="button" data-pane="health">
+        <i class="dot" data-w="showHealth"></i><span>空気・体調</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -1179,6 +1182,15 @@
         <label class="toggle"><input type="checkbox" id="githubShowRepos"> 人気のリポジトリ（スターの多い順）</label>
       </div>
       <div class="status" id="githubStatus"></div>
+    </section>
+
+    <section class="pane" data-pane="health">
+      <h1>空気・体調</h1>
+      <p class="lead">暑さ指数（WBGT）・紫外線・PM2.5 の今の値と段階、今日のいちばん高い値を出すカードです。地点は「場所」で決めます。Open-Meteo から 30 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showHealth" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。</div>
     </section>
 
     <section class="pane" data-pane="todo">

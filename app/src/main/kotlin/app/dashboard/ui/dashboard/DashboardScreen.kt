@@ -166,6 +166,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             )
             Slot.GITHUB -> GithubCard(s?.github, remember(config.github) { config.toPublic().github }, now, modifier)
             Slot.TODO -> TodoCard(todos, vm::addTodo, vm::doneTodo, modifier)
+            Slot.HEALTH -> HealthCard(s?.health, now, modifier)
         }
     }
 

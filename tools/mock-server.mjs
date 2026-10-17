@@ -63,7 +63,7 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    showCalculator: false, showPhotos: false, showCrypto: false, showFlights: false, showShips: false, showGithub: false, showTodo: false,
+    showCalculator: false, showPhotos: false, showCrypto: false, showFlights: false, showShips: false, showGithub: false, showTodo: false, showHealth: false,
     cardRadius: 18,
     todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
@@ -122,7 +122,7 @@ const CARDS = [
   ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
   ["CRYPTO", "showCrypto", 8, 5, "暗号通貨"],
   ["FLIGHTS", "showFlights", 8, 5, "飛行機"], ["SHIPS", "showShips", 8, 5, "船舶"], ["GITHUB", "showGithub", 10, 6, "GitHub"],
-  ["TODO", "showTodo", 6, 5, "Todo"],
+  ["TODO", "showTodo", 6, 5, "Todo"], ["HEALTH", "showHealth", 8, 6, "空気・体調"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 // 英語の名前（CardLayout.Card と同じ）
@@ -130,7 +130,7 @@ const CARD_EN = {
   CLOCK: "Clock", WEATHER: "Weather", DISASTER: "Alerts", MEMO: "LINE memo", HOURLY: "Hourly", SPOTIFY: "Spotify", WIFI: "Wi-Fi",
   STATS: "Device", NEWS: "News", DAILY: "Weekly", TIMER: "Timer", WORD: "Word of the hour", ANALOG_CLOCK: "Analog clock",
   CALENDAR: "Calendar", TRAIN: "Trains", RADAR: "Rain radar", SUN_MOON: "Sun & Moon", COUNTDOWN: "Countdown", TODAY: "On this day",
-  STOCKS: "Stocks", CALCULATOR: "Calculator", PHOTOS: "Photos", CRYPTO: "Crypto", FLIGHTS: "Flights", SHIPS: "Ships", GITHUB: "GitHub", TODO: "To-do",
+  STOCKS: "Stocks", CALCULATOR: "Calculator", PHOTOS: "Photos", CRYPTO: "Crypto", FLIGHTS: "Flights", SHIPS: "Ships", GITHUB: "GitHub", TODO: "To-do", HEALTH: "Air & health",
 };
 Object.defineProperty(config.choices, "cards", {
   enumerable: true,
@@ -140,7 +140,7 @@ config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto", "showFlights", "showShips", "showGithub", "showTodo"]);
+const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto", "showFlights", "showShips", "showGithub", "showTodo", "showHealth"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs

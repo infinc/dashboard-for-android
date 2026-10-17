@@ -290,6 +290,10 @@ window.EN_HTML = {
  "送り方": "How to send",
  "本文は JSON（title・text・sound（false で音なし）・tone（音の ID））か、ただの文字（そのまま本文になる）。1 秒に 1 回まで。トークンを 10 回まちがえた端末は 10 分受け付けません。": "The body is JSON (title, text, sound (false for silent), tone (a sound ID)) or plain text (used as the message). Up to once a second. A device that sends a wrong token 10 times is refused for 10 minutes.",
  "他の端末から送るには「ネットワーク」で LAN 公開を有効にしてください。": "To send from other devices, enable LAN access under \"Network\".",
+ "<i class=\"dot\" data-w=\"showHealth\"></i><span>空気・体調</span>": "<i class=\"dot\" data-w=\"showHealth\"></i><span>Air &amp; health</span>",
+ "空気・体調": "Air &amp; health",
+ "暑さ指数（WBGT）・紫外線・PM2.5 の今の値と段階、今日のいちばん高い値を出すカードです。地点は「場所」で決めます。Open-Meteo から 30 分ごとに取得します。": "Shows the current heat index (WBGT), UV index and PM2.5 with their levels, and today's highest values. The location is set in \"Location\". Fetched from Open-Meteo every 30 minutes.",
+ "暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。": "The heat index is an estimate from temperature, humidity, sunlight and wind (not the Ministry of the Environment's figure). Levels follow the Japanese Society of Biometeorology guideline; UV uses the WHO categories; PM2.5 uses Japan's standard (35 µg/m³ daily mean) and alert guide (70 µg/m³). Pollen isn't shown because there's no free source of forecasts for Japan.",
 };
 window.EN_TEXT = {
  "全画面の背景": "Full-screen background",

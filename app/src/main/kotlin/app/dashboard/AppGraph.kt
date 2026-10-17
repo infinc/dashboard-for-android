@@ -11,6 +11,7 @@ import app.dashboard.data.DisasterRepository
 import app.dashboard.data.FeedRepository
 import app.dashboard.data.FlightRepository
 import app.dashboard.data.GithubRepository
+import app.dashboard.data.HealthRepository
 import app.dashboard.data.HolidayRepository
 import app.dashboard.data.Http
 import app.dashboard.data.LyricsRepository
@@ -52,6 +53,8 @@ class AppGraph private constructor(context: Context) {
 
     val wifi = WifiMonitor(this.context).also { it.start() }
     val weather = WeatherRepository(this.context, http, config)
+    /** 空気・体調のカード（暑さ指数・紫外線・PM2.5）。 */
+    val healthRepo = HealthRepository(http, config)
     val disaster = DisasterRepository(this.context, http, config)
     val feed = FeedRepository(http, config)
     val memo = MemoRepository(http, config)
@@ -102,6 +105,7 @@ class AppGraph private constructor(context: Context) {
         photos = photos.state,
         crypto = crypto.state,
         github = github.state,
+        health = healthRepo.state,
         config = config.get().toPublic(),
     )
 
@@ -128,6 +132,7 @@ class AppGraph private constructor(context: Context) {
                 crypto.state.let { h("暗号通貨", "Crypto", d.showCrypto, it.fetchedAt, it.lastError) },
                 photos.state.let { h("写真", "Photos", d.showPhotos && c.photos.enabled, it.fetchedAt, it.lastError) },
                 github.state.let { h("GitHub", "GitHub", d.showGithub, it.fetchedAt, it.lastError) },
+                healthRepo.state.let { h("空気・体調", "Air & health", d.showHealth, it.fetchedAt, it.lastError) },
             ),
             quarantined = config.quarantined(),
         )

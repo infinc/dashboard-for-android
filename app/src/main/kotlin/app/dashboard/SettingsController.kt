@@ -119,6 +119,7 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showCountdown) runCatching { graph.holidays.refreshNow() }
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
         if (c.display.showGithub) runCatching { graph.github.refreshNow() }
+        if (c.display.showHealth) runCatching { graph.healthRepo.refreshNow() }
     }
 
     // ------------------------------------------------------------ 外から通知を出す API

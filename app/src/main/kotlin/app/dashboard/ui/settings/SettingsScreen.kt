@@ -319,6 +319,7 @@ private enum class Pane(
     Ships("船舶", "Ships", "カード", "Cards", { it.showShips }),
     Github("GitHub", "GitHub", "カード", "Cards", { it.showGithub }),
     Todo("Todo", "To-do", "カード", "Cards", { it.showTodo }),
+    Health("空気・体調", "Air & health", "カード", "Cards", { it.showHealth }),
     Hamster("ハムスター", "Hamster", "カード", "Cards", { it.showHamster }),
     Device("ホームアプリ", "Home app", "端末", "Device"),
     Network("ネットワーク", "Network", "端末", "Device"),
@@ -919,6 +920,23 @@ private fun PaneContent(
                 Select(listOf("1d" to L("1 日（5 分足）", "1 day (5-min bars)"), "5d" to L("5 日", "5 days"), "1mo" to L("1 か月", "1 month"), "6mo" to L("6 か月", "6 months"), "1y" to L("1 年", "1 year")), d.stocksRange, { set(d.copy(stocksRange = it)) })
             }
             Notice(L("値は Yahoo Finance の公開されていない API から取っています。数十分の遅れがあり、予告なく取れなくなることがあります。投資の判断には使わないでください。", "Values come from an unofficial Yahoo Finance API. They are delayed by tens of minutes and may stop working without notice. Don't use them for investment decisions."), Wd.Amber)
+        }
+
+        Pane.Health -> {
+            PaneTitle(
+                L("空気・体調", "Air & health"),
+                L(
+                    "暑さ指数（WBGT）・紫外線・PM2.5 の今の値と段階、今日のいちばん高い値を出すカードです。地点は「場所」で決めます。Open-Meteo から 30 分ごとに取得します。",
+                    "Shows the current heat index (WBGT), UV index and PM2.5 with their levels, and today's highest values. The location is set in \"Location\". Fetched from Open-Meteo every 30 minutes.",
+                ),
+            )
+            CardSwitch(disp.showHealth) { copy(showHealth = it) }
+            Notice(
+                L(
+                    "暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。",
+                    "The heat index is an estimate from temperature, humidity, sunlight and wind (not the Ministry of the Environment's figure). Levels follow the Japanese Society of Biometeorology guideline; UV uses the WHO categories; PM2.5 uses Japan's standard (35 µg/m³ daily mean) and alert guide (70 µg/m³). Pollen isn't shown because there's no free source of forecasts for Japan.",
+                ),
+            )
         }
 
         Pane.Calculator -> {
