@@ -55,6 +55,7 @@ class DashboardService : LifecycleService() {
                     shownLang = Lang.current
                     runCatching { startForegroundCompat() }
                 }
+                step("プリセットの時刻での切り替えでエラー") { graph.presets.tickSchedule() }
                 step("天気の定期取得でエラー") { graph.weather.refreshIfDue() }
                 step("防災情報の定期取得でエラー") { graph.disaster.refreshIfDue() }
                 step("フィードの定期取得でエラー") { graph.feed.refreshIfDue() }

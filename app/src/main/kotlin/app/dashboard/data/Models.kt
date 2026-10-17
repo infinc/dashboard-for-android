@@ -1216,7 +1216,15 @@ data class Preset(
 data class PresetsConfig(
     val active: String = "",
     val items: List<Preset> = emptyList(),
+    /** 時刻での切り替え（例: 22:00 に「夜」、6:00 に「昼」）。その時刻を過ぎたときに 1 回だけ切り替える（手で戻したらそのまま）。 */
+    val schedule: List<PresetTime> = emptyList(),
 )
+
+/** [at]（"HH:mm"、端末の時刻）になったら、プリセット [id] に切り替える。 */
+@Serializable
+data class PresetTime(val at: String, val id: String)
+
+const val MAX_PRESET_TIMES = 6
 
 /**
  * アプリの設定画面を開くときの PIN（既定はオフ）。ハッシュは LAN の PIN と同じ PBKDF2。

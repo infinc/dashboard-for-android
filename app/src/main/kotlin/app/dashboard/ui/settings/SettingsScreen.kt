@@ -1478,6 +1478,7 @@ private fun PresetsPane(graph: AppGraph, config: Config, dirty: Boolean) {
         }
         Hint(L("${presets.items.size} / $max 個", "${presets.items.size} / $max"))
     }
+    PresetSchedule(graph, presets) { ok, block -> run(ok, block) }
     StatusText(status, statusColor)
 
     renaming?.let { p ->
@@ -1513,6 +1514,50 @@ private fun PresetsPane(graph: AppGraph, config: Config, dirty: Boolean) {
                 }) { Text(L("削除", "Delete"), color = Wd.Red) }
             },
             dismissButton = { TextButton(onClick = { removing = null }) { Text(L("キャンセル", "Cancel")) } },
+        )
+    }
+}
+
+/** プリセットの「時刻で切り替える」。行を編集して「保存」で [app.dashboard.PresetController.setSchedule]。 */
+@Composable
+private fun PresetSchedule(graph: AppGraph, presets: app.dashboard.data.PresetsConfig, run: (String, () -> Unit) -> Unit) {
+    val saved = presets.schedule
+    var rows by remember(saved) { mutableStateOf(saved) }
+    val maxTimes = app.dashboard.data.MAX_PRESET_TIMES
+    val choices = presets.items.map { it.id to it.name }
+    val bad = rows.any { app.dashboard.PresetController.parseTime(it.at) == null }
+    Field(
+        L("時刻で切り替える", "Switch by time"),
+        L(
+            "決めた時刻になったら、そのプリセットに切り替えます（例: 22:00 に「夜」、6:00 に「昼」）。切り替えるのはその時刻に 1 回だけなので、あとで手で戻せばそのままです。タブレットが止まっていた間の時刻も、24 時間前までは起動したときに拾います。",
+            "Switches to a preset at the time you set (e.g. \"Night\" at 22:00, \"Day\" at 6:00). It switches once at that time, so if you switch back by hand it stays. Times missed while the tablet was off are picked up at startup (up to 24 hours back).",
+        ),
+    ) {
+        if (presets.items.size < 2) {
+            Hint(L("プリセットを 2 つ以上作ると使えます。", "Create at least two presets to use this."))
+            return@Field
+        }
+        rows.forEachIndexed { i, t ->
+            Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Input(t.at, { v -> rows = rows.toMutableList().also { it[i] = t.copy(at = v.filter { c -> c.isDigit() || c == ':' }.take(5)) } }, Modifier.width(110.dp), placeholder = "22:00")
+                Spacer(Modifier.width(10.dp))
+                Select(choices, t.id, { id -> rows = rows.toMutableList().also { it[i] = t.copy(id = id) } }, Modifier.weight(1f))
+                Spacer(Modifier.width(10.dp))
+                ActionButton(L("外す", "Remove"), { rows = rows.toMutableList().also { it.removeAt(i) } }, color = Wd.Red)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ActionButton(L("時刻を足す", "Add a time"), {
+                rows = rows + app.dashboard.data.PresetTime(if (rows.isEmpty()) "22:00" else "06:00", presets.items.firstOrNull { it.id != presets.active }?.id ?: presets.items.first().id)
+            }, enabled = rows.size < maxTimes)
+            ActionButton(L("保存", "Save"), {
+                val next = rows
+                run(L("時刻での切り替えを保存しました", "Saved the schedule")) { graph.presets.setSchedule(next) }
+            }, primary = true, enabled = rows != saved && !bad)
+        }
+        Hint(
+            if (bad) L("時刻は 0:00〜23:59 の形で入れてください（例: 6:30）。", "Enter times as 0:00–23:59 (e.g. 6:30).")
+            else L("${rows.size} / $maxTimes 件", "${rows.size} / $maxTimes"),
         )
     }
 }
