@@ -77,6 +77,9 @@ class CalendarRepository(private val client: HttpClient, private val configStore
         }
     }
 
+    /** 取りに行く設定になっているか（オンでも、Apple ID・パスワードか公開 URL が無ければ取りに行かない）。 */
+    fun active(): Boolean = configStore.get().calendar.let { it.enabled && configured(it) }
+
     private fun configured(c: CalendarConfig) =
         if (c.mode == "ics") !c.icsUrl.isNullOrBlank() else c.appleId.isNotBlank() && !c.password.isNullOrBlank()
 
