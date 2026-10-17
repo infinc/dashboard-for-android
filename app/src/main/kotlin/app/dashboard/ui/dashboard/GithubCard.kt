@@ -117,6 +117,8 @@ private fun GithubBody(s: GithubState, c: GithubPublic) {
 @Composable
 private fun ContributionGraph(days: List<GithubDay>) {
     val weeks = remember(days) { weeksOf(days) }
+    // 日付を読めない行ばかりだと空になる（GitHub の HTML が変わったとき）。coerceIn(1, 0) で落ちないように
+    if (weeks.isEmpty()) return
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val gap = 2.dp
         val cell = ((maxWidth + gap) / 53 - gap).coerceIn(6.dp, 11.dp)

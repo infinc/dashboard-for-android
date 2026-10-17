@@ -382,7 +382,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             val current = CRYPTO_RANGES.indexOf(graph.config.get().crypto.range).coerceAtLeast(0)
             val next = CRYPTO_RANGES[(current + step).coerceIn(0, CRYPTO_RANGES.lastIndex)]
             if (next == CRYPTO_RANGES[current]) return@launch
-            graph.config.update { it.copy(crypto = it.crypto.copy(range = next)) }
+            runCatching { graph.config.update { it.copy(crypto = it.crypto.copy(range = next)) } }.onFailure { return@launch }
             runCatching { graph.crypto.refreshIfDue(true) }
             poll()
         }

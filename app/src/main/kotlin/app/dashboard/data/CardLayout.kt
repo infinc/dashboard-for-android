@@ -201,7 +201,9 @@ object CardLayout {
      */
     fun grid(d: DisplayConfig, area: Area): Grid {
         val rows = rows(d, area)
-        val placed = positions(rows, Int.MAX_VALUE) ?: positions(flat(rows), Int.MAX_VALUE)!!
+        // 最後の手段: 行を 24 列ずつに折り返す（どんな設定が来ても落とさない。ホームアプリなので落ちると起動し直しても落ち続ける）
+        val placed = positions(rows, Int.MAX_VALUE) ?: positions(flat(rows), Int.MAX_VALUE)
+            ?: positions(flat(rows).flatMap(::wrapRow), Int.MAX_VALUE) ?: emptyList()
         val used = (0 until (placed.maxOfOrNull { it.row + it.height } ?: 0)).filter { r -> placed.any { r in it.row until it.row + it.height } }
         val index = used.withIndex().associate { (i, r) -> r to i }
         return Grid(placed.map { it.copy(row = index.getValue(it.row)) }, used.size)
@@ -297,13 +299,32 @@ object CardLayout {
      */
     fun arranged(d: DisplayConfig, maxRows: Int = LAYOUT_ROWS): List<List<Tile>> {
         val show = shown(d).toSet()
-        var rows = trimEnd(slots(d).map { row -> fitRow(row.filter { it.card in show }) })
+        var rows = trimEnd(slots(d).flatMap { row -> wrapRow(row.filter { it.card in show }) })
         val limit = minOf(maxRows, LAYOUT_ROWS)
         val placed = rows.flatten().map { it.card }.toSet()
         shown(d).filter { it !in placed }.forEach { card ->
             rows = place(rows, card, limit) ?: (rows + listOf(listOf(Tile(card, card.span))))
         }
         return if (fits(rows, maxOf(limit, rows.size))) rows else flat(rows)
+    }
+
+    /**
+     * 行を [fitRow] で縮め、最小の幅にしても 24 列に入らなければ、入らないカードを次の行へ折り返す。
+     * アプリの編集ではこうならないが、Web の設定（/api/settings）からは送れてしまうため。空の行は空の行のまま返す。
+     */
+    fun wrapRow(row: List<Tile>): List<List<Tile>> {
+        if (row.sumOf { it.card.min } <= COLUMNS) return listOf(fitRow(row))
+        val out = mutableListOf<MutableList<Tile>>(mutableListOf())
+        var used = 0
+        row.forEach { t ->
+            if (out.last().isNotEmpty() && used + t.card.min > COLUMNS) {
+                out += mutableListOf<Tile>()
+                used = 0
+            }
+            out.last() += t
+            used += t.card.min
+        }
+        return out.map { fitRow(it) }
     }
 
     /** 行の合計が [cap] 列を超えていれば、最小の幅より広いカードを広い順に 1 列ずつ縮める（最小の合計が超えるならそのまま）。 */
@@ -500,7 +521,7 @@ object CardLayout {
         val limit = if (after.cardLayout.isEmpty()) minOf(LAYOUT_ROWS, maxRows(area)) else rowLimit(after, area)
         val show = shown(after).toSet()
         var rows = (if (after.cardLayout.isEmpty()) autoRows(before, false, maxRows(area)) else slots(after))
-            .map { row -> fitRow(row.filter { it.card in show }) }
+            .flatMap { row -> wrapRow(row.filter { it.card in show }) }
             .let(::trimEnd)
         if (!fits(rows, maxOf(limit, rows.size))) rows = flat(rows)
         val failed = mutableListOf<Card>()

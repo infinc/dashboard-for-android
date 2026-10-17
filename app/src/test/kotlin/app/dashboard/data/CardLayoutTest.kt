@@ -108,4 +108,25 @@ class CardLayoutTest {
     fun `every card has a minimum no wider than its default width`() {
         Card.entries.forEach { assertTrue("${it.name}: min ${it.min} > span ${it.span}", it.min <= it.span) }
     }
+
+    @Test
+    fun `a saved row wider than 24 columns at minimum widths is wrapped instead of crashing`() {
+        // 最小の幅の合計 28 列（Web の /api/settings からは送れてしまう）
+        val d = DisplayConfig(
+            showDeviceStats = true, showWeather = true, showDisaster = true, showHourly = true,
+            cardLayout = listOf(listOf(
+                CardSlot(Card.STATS.name, 7, 1), CardSlot(Card.WEATHER.name, 7, 1),
+                CardSlot(Card.DISASTER.name, 7, 1), CardSlot(Card.HOURLY.name, 7, 1),
+            )),
+        )
+        val grid = CardLayout.grid(d, tablet)
+        assertTrue(grid.cards.all { it.col + it.span <= CardLayout.COLUMNS })
+        assertTrue(grid.cards.map { it.card }.containsAll(listOf(Card.STATS, Card.WEATHER, Card.DISASTER, Card.HOURLY)))
+    }
+
+    @Test
+    fun `wrapRow keeps an empty row and a row that already fits`() {
+        assertEquals(listOf(emptyList<Tile>()), CardLayout.wrapRow(emptyList()))
+        assertEquals(1, CardLayout.wrapRow(listOf(Tile(Card.CLOCK, 12), Tile(Card.WEATHER, 12))).size)
+    }
 }
