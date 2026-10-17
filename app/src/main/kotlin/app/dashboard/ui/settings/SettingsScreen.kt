@@ -105,6 +105,8 @@ import app.dashboard.ui.dashboard.glow
 /** 「全て保存」でまとめて保存する値。トークンは書き込み専用なので、入力されたときだけ送る。 */
 private data class Draft(
     val display: DisplayConfig,
+    /** 暗くするまでの秒数。打ちかけ（空・範囲外）も持てるよう文字で持ち、保存のときに数にして丸める。 */
+    val idleDimSec: String,
     val units: UnitsConfig,
     val location: LocationConfig,
     val notifications: NotificationConfig,
@@ -160,7 +162,7 @@ private data class Draft(
         settings = ConfigPatch(
             location = location,
             units = units,
-            display = display,
+            display = display.copy(idleDimAfterSeconds = idleDimSec.toIntOrNull() ?: display.idleDimAfterSeconds),
             disaster = disaster,
             feed = FeedConfig(feedEnabled, feedUrls.lines().map { it.trim() }.filter { it.isNotEmpty() }, feedMax.toIntOrNull() ?: 6),
             notifications = notifications,
@@ -212,6 +214,7 @@ private data class Draft(
     companion object {
         fun of(c: Config) = Draft(
             display = c.display,
+            idleDimSec = c.display.idleDimAfterSeconds.toString(),
             units = c.units,
             location = c.location,
             notifications = c.notifications,
@@ -368,12 +371,14 @@ fun SettingsPanel(graph: AppGraph, onClose: () -> Unit, onOpenBrowser: (String) 
 
     fun save(then: () -> Unit = {}) {
         saveStatus = L("保存中…", "Saving…")
+        val sent = draft
         scope.launch {
-            withContext(Dispatchers.IO) { runCatching { graph.settings.saveAll(draft.toRequest()) } }
+            withContext(Dispatchers.IO) { runCatching { graph.settings.saveAll(sent.toRequest()) } }
                 .onSuccess { saved ->
                     base = Draft.of(saved)
-                    draft = base
-                    saveStatus = L("保存しました", "Saved")
+                    // 保存している間に変えた項目は残す（下書きが送ったときのままなら、保存した内容にそろえる）
+                    if (draft == sent) draft = base
+                    saveStatus = if (draft == base) L("保存しました", "Saved") else ""
                     then()
                 }
                 .onFailure {
@@ -630,7 +635,7 @@ private fun PaneContent(
         }
 
         Pane.Palette -> {
-            PaneTitle("配色", L("ダッシュボード全体の色を決めます。グラフの線や強調の色がこの色になります。", "Sets the color of the whole dashboard. Graph lines and highlights use this color."))
+            PaneTitle(L("配色", "Colors"), L("ダッシュボード全体の色を決めます。グラフの線や強調の色がこの色になります。", "Sets the color of the whole dashboard. Graph lines and highlights use this color."))
             Field(L("アクセント色", "Accent color")) {
                 ColorSwatches(Accents.ALL.map { it.hex to it.label }, disp.accent) { display { copy(accent = it) } }
             }
@@ -643,13 +648,15 @@ private fun PaneContent(
         Pane.Theme -> ThemePane(graph, config, d, set)
 
         Pane.Screen -> {
-            PaneTitle("画面の明るさ", L("壁掛けでは端末の自動輝度が明滅するため、明るさはアプリ側で固定します。", "Wall-mounted tablets flicker with auto-brightness, so the app fixes the brightness itself."))
+            PaneTitle(L("画面の明るさ", "Brightness"), L("壁掛けでは端末の自動輝度が明滅するため、明るさはアプリ側で固定します。", "Wall-mounted tablets flicker with auto-brightness, so the app fixes the brightness itself."))
             PercentSlider(L("通常時の明るさ", "Normal brightness"), (disp.normalBrightness * 100).roundToInt(), 10, 100, 5, { display { copy(normalBrightness = it / 100.0) } }, L("操作があるときの画面の明るさです。", "Screen brightness while in use."))
             Field(hint = L("画面に触れると即座に元の明るさへ戻ります。バックライト自体を下げるので、消費電力と焼き付きの両方に効きます。", "Touching the screen restores the brightness immediately. It lowers the backlight itself, which saves power and reduces burn-in.")) {
                 SwitchRow(L("無操作が続いたら画面を暗くする", "Dim the screen when idle"), disp.idleDimEnabled, { display { copy(idleDimEnabled = it) } })
             }
-            Field(L("暗くするまでの時間（秒）", "Time before dimming (seconds)"), L("30〜3600 秒", "30–3600 seconds")) {
-                Input(disp.idleDimAfterSeconds.toString(), { v -> v.filter(Char::isDigit).toIntOrNull()?.let { display { copy(idleDimAfterSeconds = it) } } }, number = true)
+            Field(L("暗くするまでの時間（秒）", "Time before dimming (seconds)"), L("30〜3600 秒", "30–3600 seconds").let { hint ->
+                if (d.idleDimSec.toIntOrNull()?.let { it in 30..3600 } == true) hint else L("$hint（範囲外は保存のときに丸めます）", "$hint (out-of-range values are clamped on save)")
+            }) {
+                Input(d.idleDimSec, { v -> set(d.copy(idleDimSec = v.filter(Char::isDigit).take(5))) }, number = true)
             }
             PercentSlider(L("暗くしたときの明るさ", "Dimmed brightness"), (disp.idleDimBrightness * 100).roundToInt(), 5, 100, 5, { display { copy(idleDimBrightness = it / 100.0) } })
             Field(hint = L("同じ位置に同じ絵を長時間映し続けると形が薄く残ることがあるため、5 分ごとに画面全体を最大 2 ピクセルだけ動かします。", "Showing the same image in the same place for a long time can leave a faint ghost, so the whole screen shifts by up to 2 pixels every 5 minutes.")) {
@@ -663,7 +670,7 @@ private fun PaneContent(
         Pane.Place -> PlacePane(graph, config, d, set)
 
         Pane.Notify -> {
-            PaneTitle("通知", L("ダッシュボードが鳴らす音の設定です。音を切っても、画面のバナー表示は出ます。", "Sounds played by the dashboard. Banners still appear even when sounds are off."))
+            PaneTitle(L("通知", "Notifications"), L("ダッシュボードが鳴らす音の設定です。音を切っても、画面のバナー表示は出ます。", "Sounds played by the dashboard. Banners still appear even when sounds are off."))
             val n = d.notifications
             fun notify(block: NotificationConfig.() -> NotificationConfig) = set(d.copy(notifications = n.block()))
             val tones = Tones.ALL.map { it.id to it.label }
@@ -673,7 +680,7 @@ private fun PaneContent(
             ToneField(L("充電ケーブルの抜き差し", "Charging cable plugged / unplugged"), L("挿したときはそのまま、抜いたときは音の高さを逆にして鳴らします。", "Plays as is when plugged in, and with the pitch reversed when unplugged."), n.chargingSound, { notify { copy(chargingSound = it) } }, tones, n.chargingTone, { notify { copy(chargingTone = it) } }) {
                 graph.notices.play(n.chargingTone, Tones.DEFAULT_CHARGING, volume = n.volume)
             }
-            ToneField("タイマー", L("タイマーの鳴動は切れません（自分で時間を決めて鳴らすもののため）。", "The timer alarm can't be turned off (you set it yourself)."), null, {}, tones, n.timerTone, { notify { copy(timerTone = it) } }) {
+            ToneField(L("タイマー", "Timer"), L("タイマーの鳴動は切れません（自分で時間を決めて鳴らすもののため）。", "The timer alarm can't be turned off (you set it yourself)."), null, {}, tones, n.timerTone, { notify { copy(timerTone = it) } }) {
                 graph.notices.play(n.timerTone, Tones.DEFAULT_TIMER, volume = n.volume)
             }
             Text(L("ほかの通知（切ると音もバナーも出ません）", "Other notifications (turning one off hides both sound and banner)"), color = Wd.Text, fontSize = 15.tu, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
@@ -711,7 +718,7 @@ private fun PaneContent(
         }
 
         Pane.Clock -> {
-            PaneTitle("時刻", L("大きな時計と日付を出すカードです。", "A card with a large clock and the date."))
+            PaneTitle(L("時刻", "Clock"), L("大きな時計と日付を出すカードです。", "A card with a large clock and the date."))
             CardSwitch(disp.showClock) { copy(showClock = it) }
             Field(L("時刻表示", "Time format")) {
                 Select(listOf(true to L("24 時間", "24-hour"), false to L("12 時間（AM/PM）", "12-hour (AM/PM)")), d.units.clock24h, { set(d.copy(units = d.units.copy(clock24h = it))) })
@@ -727,7 +734,7 @@ private fun PaneContent(
         }
 
         Pane.Weather -> {
-            PaneTitle("天気", L("いまの天気と、体感・降水・風などの値を出すカードです。地点は「場所」で決めます。", "Current weather with feels-like, precipitation, wind and more. The location is set in \"Location\"."))
+            PaneTitle(L("天気", "Weather"), L("いまの天気と、体感・降水・風などの値を出すカードです。地点は「場所」で決めます。", "Current weather with feels-like, precipitation, wind and more. The location is set in \"Location\"."))
             CardSwitch(disp.showWeather) { copy(showWeather = it) }
             Field(L("気温の単位", "Temperature unit")) {
                 Select(listOf("c" to L("摂氏（℃）", "Celsius (°C)"), "f" to L("華氏（℉）", "Fahrenheit (°F)")), d.units.temperature, { set(d.copy(units = d.units.copy(temperature = it))) })
@@ -782,7 +789,7 @@ private fun PaneContent(
         }
 
         Pane.Memo -> {
-            PaneTitle("LINE メモ", L("LINE Bot に送ったメッセージを壁に並べるカードです。中継（Cloudflare Worker）の作り方は worker/README.md を見てください。", "Shows messages sent to a LINE bot. See worker/README.md for how to build the relay (Cloudflare Worker)."))
+            PaneTitle(L("LINE メモ", "LINE memo"), L("LINE Bot に送ったメッセージを壁に並べるカードです。中継（Cloudflare Worker）の作り方は worker/README.md を見てください。", "Shows messages sent to a LINE bot. See worker/README.md for how to build the relay (Cloudflare Worker)."))
             CardSwitch(disp.showMemo) { copy(showMemo = it) }
             Field { SwitchRow(L("メモを取得する", "Fetch memos"), d.memoEnabled, { set(d.copy(memoEnabled = it)) }) }
             Field(L("中継先の URL", "Relay URL"), L("Worker の URL を貼れば、末尾は自動で /memo に直します。", "Paste the Worker URL; the path is fixed to /memo automatically.")) {
@@ -805,7 +812,7 @@ private fun PaneContent(
         }
 
         Pane.Hourly -> {
-            PaneTitle("時間別予報", L("これから 12 時間の気温と降水確率のグラフです。", "Temperature and chance of rain for the next 12 hours."))
+            PaneTitle(L("時間別予報", "Hourly"), L("これから 12 時間の気温と降水確率のグラフです。", "Temperature and chance of rain for the next 12 hours."))
             CardSwitch(disp.showHourly) { copy(showHourly = it) }
             Field(L("描くもの", "What to draw")) {
                 Select(listOf("both" to L("気温と降水確率", "Temperature and chance of rain"), "temp" to L("気温だけ", "Temperature only"), "precip" to L("降水確率だけ", "Chance of rain only")), disp.hourlyMode, { display { copy(hourlyMode = it) } })
@@ -821,7 +828,7 @@ private fun PaneContent(
         }
 
         Pane.Stats -> {
-            PaneTitle("端末状態", L("CPU・電池・温度・ストレージ・メモリを出すカードです。", "Shows CPU, battery, temperature, storage and memory."))
+            PaneTitle(L("端末状態", "Device"), L("CPU・電池・温度・ストレージ・メモリを出すカードです。", "Shows CPU, battery, temperature, storage and memory."))
             CardSwitch(disp.showDeviceStats) { copy(showDeviceStats = it) }
         }
 
@@ -838,22 +845,22 @@ private fun PaneContent(
         }
 
         Pane.Daily -> {
-            PaneTitle("週間予報", L("7 日間の天気・気温の範囲・降水を出すカードです。", "7-day weather, temperature range and precipitation."))
+            PaneTitle(L("週間予報", "Weekly"), L("7 日間の天気・気温の範囲・降水を出すカードです。", "7-day weather, temperature range and precipitation."))
             CardSwitch(disp.showDaily) { copy(showDaily = it) }
         }
 
         Pane.Timer -> {
-            PaneTitle("タイマー", L("時・分をドラムで選んで開始する簡易タイマーです。鳴る音は「通知」で選べます。", "A simple timer: pick hours and minutes on the drums and start. The alarm sound is chosen in \"Notifications\"."))
+            PaneTitle(L("タイマー", "Timer"), L("時・分をドラムで選んで開始する簡易タイマーです。鳴る音は「通知」で選べます。", "A simple timer: pick hours and minutes on the drums and start. The alarm sound is chosen in \"Notifications\"."))
             CardSwitch(disp.showTimer) { copy(showTimer = it) }
         }
 
         Pane.Word -> {
-            PaneTitle("今日の単語", L("英単語（英検準1級程度）を 1 時間に 1 語ずつ出すカードです。", "Shows one English word (advanced level) per hour."))
+            PaneTitle(L("今日の単語", "Word of the hour"), L("英単語（英検準1級程度）を 1 時間に 1 語ずつ出すカードです。", "Shows one English word (advanced level) per hour."))
             CardSwitch(disp.showWord) { copy(showWord = it) }
         }
 
         Pane.AnalogClock -> {
-            PaneTitle("アナログ時計", L("1/5 秒刻みの細かい目盛りと日付窓のある、アナログの時計です。", "An analog clock with fine 1/5-second ticks and a date window."))
+            PaneTitle(L("アナログ時計", "Analog clock"), L("1/5 秒刻みの細かい目盛りと日付窓のある、アナログの時計です。", "An analog clock with fine 1/5-second ticks and a date window."))
             CardSwitch(disp.showAnalogClock) { copy(showAnalogClock = it) }
             Field(hint = L("切ると秒針が 1 秒ごとに刻みます。描き直しが 1 秒に 1 回になるので、古い端末で動きが重いときに切ってください。", "When off, the second hand ticks once per second. It redraws only once a second, so turn this off if animation is slow on an old device.")) {
                 SwitchRow(L("秒針をなめらかに動かす", "Smooth second hand"), disp.analogSweep, { display { copy(analogSweep = it) } })
@@ -865,7 +872,7 @@ private fun PaneContent(
         Pane.Train -> TrainPane(graph, config, d, set)
 
         Pane.Radar -> {
-            PaneTitle("雨雲レーダー", L("気象庁の雨雲の動き（5 分ごと）を、文字や道路の無い灰色の地図（Esri）に重ねて出すカードです。中心は「場所」で選んだ地点で、ドラッグで別の場所へ動かせます（3 分触らなければ戻ります）。範囲はカードの右上の「＋」「−」で変えられます。", "Shows JMA's rain clouds (every 5 minutes) over a plain gray map (Esri) without labels or roads. It's centered on your \"Location\"; drag to move elsewhere (it returns after 3 minutes untouched). Zoom with + / − at the top right of the card."))
+            PaneTitle(L("雨雲レーダー", "Rain radar"), L("気象庁の雨雲の動き（5 分ごと）を、文字や道路の無い灰色の地図（Esri）に重ねて出すカードです。中心は「場所」で選んだ地点で、ドラッグで別の場所へ動かせます（3 分触らなければ戻ります）。範囲はカードの右上の「＋」「−」で変えられます。", "Shows JMA's rain clouds (every 5 minutes) over a plain gray map (Esri) without labels or roads. It's centered on your \"Location\"; drag to move elsewhere (it returns after 3 minutes untouched). Zoom with + / − at the top right of the card."))
             CardSwitch(disp.showRadar) { copy(showRadar = it) }
             Notice(L("カードを表示している間だけ、5 分ごとに地図と雨雲の画像（合わせて 30 枚ほど、1 枚数 KB）を取得します。日本国内の地点だけ雨雲が出ます。", "Map and rain images (about 30 tiles of a few KB each) are fetched every 5 minutes only while the card is shown. Rain is shown only for locations in Japan."))
         }
@@ -877,7 +884,7 @@ private fun PaneContent(
         }
 
         Pane.Countdown -> {
-            PaneTitle("カウントダウン", L("決めた日までの残りの日数を、近い順に並べるカードです。1 日を切ると時・分・秒で数えます。", "Counts down the days to the dates you choose, nearest first. Under one day it counts hours, minutes and seconds."))
+            PaneTitle(L("カウントダウン", "Countdown"), L("決めた日までの残りの日数を、近い順に並べるカードです。1 日を切ると時・分・秒で数えます。", "Counts down the days to the dates you choose, nearest first. Under one day it counts hours, minutes and seconds."))
             CardSwitch(disp.showCountdown) { copy(showCountdown = it) }
             Field(L("数える行事", "Built-in events"), L("「次の祝日」「次の休日」は内閣府の祝日の一覧（週に 1 回取得）を使います。", "\"Next holiday\" and \"Next day off\" use the Cabinet Office's list of Japanese holidays (fetched weekly).")) {
                 CountdownLabels.forEach { (key, label) ->
@@ -892,7 +899,7 @@ private fun PaneContent(
         }
 
         Pane.Today -> {
-            PaneTitle("今日は何の日", L("今日の記念日・年中行事を出すカードです。日本語版 Wikipedia の日付の記事（例:「9月26日」）から、1 日 1 回取得します。", "Shows today's observances. Fetched once a day from Wikipedia (in English, the \"On this day\" feed of the English Wikipedia)."))
+            PaneTitle(L("今日は何の日", "On this day"), L("今日の記念日・年中行事を出すカードです。日本語版 Wikipedia の日付の記事（例:「9月26日」）から、1 日 1 回取得します。", "Shows today's observances. Fetched once a day from Wikipedia (in English, the \"On this day\" feed of the English Wikipedia)."))
             CardSwitch(disp.showToday) { copy(showToday = it) }
             Field(hint = L("1 時間ごとに別のできごとに入れ替わります。", "Changes to a different event every hour.")) {
                 SwitchRow(L("過去の今日のできごとを 1 件添える", "Add one historical event for today"), disp.todayShowEvent, { display { copy(todayShowEvent = it) } })
@@ -901,7 +908,7 @@ private fun PaneContent(
         }
 
         Pane.Stocks -> {
-            PaneTitle("株価", L("主要な株価指数や為替の値と、簡単なチャートを出すカードです。10 分ごとに取得します。", "Shows major stock indices and exchange rates with small charts. Fetched every 10 minutes."))
+            PaneTitle(L("株価", "Stocks"), L("主要な株価指数や為替の値と、簡単なチャートを出すカードです。10 分ごとに取得します。", "Shows major stock indices and exchange rates with small charts. Fetched every 10 minutes."))
             CardSwitch(disp.showStocks) { copy(showStocks = it) }
             Field(L("銘柄（1 行に 1 つ、最大 6 つ）", "Symbols (one per line, up to 6)"), L("「記号 表示名」の形で書きます。記号は Yahoo Finance の表記です（例: ^N225 日経平均 / ^DJI NY ダウ / ^GSPC S&P 500 / 7203.T トヨタ / USDJPY=X ドル円）。", "Write \"symbol name\". Symbols use Yahoo Finance notation (e.g. ^N225 Nikkei 225 / ^DJI Dow Jones / ^GSPC S&P 500 / 7203.T Toyota / USDJPY=X USD/JPY).")) {
                 Input(d.stocksText, { set(d.copy(stocksText = it)) }, placeholder = L("^N225 日経平均", "^N225 Nikkei 225"), singleLine = false, minLines = 4)
@@ -913,7 +920,7 @@ private fun PaneContent(
         }
 
         Pane.Calculator -> {
-            PaneTitle("計算機", L("四則演算の計算機です。掛け算・割り算を先に計算します（12 + 3 × 2 = 18）。", "A four-function calculator. Multiplication and division come first (12 + 3 × 2 = 18)."))
+            PaneTitle(L("計算機", "Calculator"), L("四則演算の計算機です。掛け算・割り算を先に計算します（12 + 3 × 2 = 18）。", "A four-function calculator. Multiplication and division come first (12 + 3 × 2 = 18)."))
             CardSwitch(disp.showCalculator) { copy(showCalculator = it) }
             Notice(L("カードが横長のときは左に表示・右に鍵盤、「カードの配置」で縦に 2 行ぶんへ伸ばすと上に表示・下に大きな鍵盤になります。", "When the card is wide, the display is on the left and the keypad on the right; stretch it to 2 rows in \"Card layout\" to get the display on top and a large keypad below."))
         }
@@ -921,7 +928,7 @@ private fun PaneContent(
         Pane.Photos -> PhotosPane(graph, config, d, set)
 
         Pane.Crypto -> {
-            PaneTitle("暗号通貨", L("選んだ 1 つの暗号通貨の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。", "Shows the price of one cryptocurrency with a chart. There's a single chart; choose the coin and whether to draw a line or candlesticks here."))
+            PaneTitle(L("暗号通貨", "Crypto"), L("選んだ 1 つの暗号通貨の値と、値動きのチャートを出すカードです。チャートは 1 つだけで、どの通貨を出すか、折れ線とろうそく足のどちらで描くかをここで決めます。", "Shows the price of one cryptocurrency with a chart. There's a single chart; choose the coin and whether to draw a line or candlesticks here."))
             CardSwitch(disp.showCrypto) { copy(showCrypto = it) }
             Field(L("表示する通貨", "Coin")) {
                 Select(CRYPTO_COINS + (Draft.CRYPTO_CUSTOM to L("その他（ID を入力）", "Other (enter an ID)")), d.cryptoCoin, { set(d.copy(cryptoCoin = it)) })
@@ -958,7 +965,7 @@ private fun PaneContent(
         }
 
         Pane.Hamster -> {
-            PaneTitle("ハムスター", L("画面下で回し車を走るハムスターです。意匠は Uiverse.io の Nawsome 作「Loader」（MIT License）によります。", "A hamster running on a wheel at the bottom of the screen. Design based on \"Loader\" by Nawsome on Uiverse.io (MIT License)."))
+            PaneTitle(L("ハムスター", "Hamster"), L("画面下で回し車を走るハムスターです。意匠は Uiverse.io の Nawsome 作「Loader」（MIT License）によります。", "A hamster running on a wheel at the bottom of the screen. Design based on \"Loader\" by Nawsome on Uiverse.io (MIT License)."))
             Field { SwitchRow(L("ハムスターを出す", "Show the hamster"), disp.showHamster, { display { copy(showHamster = it) } }) }
         }
 
@@ -969,7 +976,7 @@ private fun PaneContent(
         Pane.Info -> InfoPane(graph, onVersionArt)
 
         Pane.Todo -> {
-            PaneTitle("Todo", L("やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます。", "A card listing things to do. Type in the box at the bottom of the card to add one; tap the circle on the left to remove it."))
+            PaneTitle(L("Todo", "To-do"), L("やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます。", "A card listing things to do. Type in the box at the bottom of the card to add one; tap the circle on the left to remove it."))
             CardSwitch(disp.showTodo) { copy(showTodo = it) }
             Notice(L("Todo の中身は設定ではなくこの端末のデータなので、プリセットを切り替えても変わりません（最大 50 件）。", "To-dos are data on this device, not settings, so switching presets doesn't change them (up to 50)."))
         }
@@ -1026,7 +1033,7 @@ private fun ThemePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
         }
     }
 
-    PaneTitle("テーマ", L("ダッシュボード・設定・ブラウズの色の基調と、ダッシュボードの背景を決めます。", "Sets the color scheme of the dashboard, settings and browser, and the dashboard background."))
+    PaneTitle(L("テーマ", "Theme"), L("ダッシュボード・設定・ブラウズの色の基調と、ダッシュボードの背景を決めます。", "Sets the color scheme of the dashboard, settings and browser, and the dashboard background."))
     Field(L("色の基調", "Color scheme"), L("ダークは暗い部屋で眩しくならない配色、ホワイトは明るい部屋で読みやすい配色です。", "Dark avoids glare in a dark room; White is easier to read in a bright room.")) {
         Select(listOf("dark" to L("ダーク", "Dark"), "light" to L("ホワイト", "White")), disp.theme, { set(d.copy(display = disp.copy(theme = it))) })
     }
@@ -1250,7 +1257,7 @@ private fun PlacePane(graph: AppGraph, config: Config, d: Draft, set: (Draft) ->
     var status by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    PaneTitle("場所", L("天気・時間別予報・週間予報・日の出入り、そして防災の警報・注意報が、ここで決めた地点のものになります。", "Weather, hourly and weekly forecasts, sunrise/sunset and disaster warnings all use the location chosen here."))
+    PaneTitle(L("場所", "Location"), L("天気・時間別予報・週間予報・日の出入り、そして防災の警報・注意報が、ここで決めた地点のものになります。", "Weather, hourly and weekly forecasts, sunrise/sunset and disaster warnings all use the location chosen here."))
     Field(L("都市名で検索", "Search by city name"), L("Open-Meteo の地名検索はローマ字か英語で入力してください（「札幌」では一致しません）。結果は日本語で返ります。", "Type in English or romaji (e.g. Sapporo). Results are returned in the display language.")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Input(query, { query = it }, Modifier.weight(1f), placeholder = L("例: Sapporo / Tokyo", "e.g. Sapporo / Tokyo"))
@@ -1366,7 +1373,7 @@ private fun LyricsField(graph: AppGraph, d: Draft, set: (Draft) -> Unit) {
 @Composable
 private fun DevicePane(graph: AppGraph) {
     var enabled by remember { mutableStateOf(graph.launcher.isEnabled()) }
-    PaneTitle("ホームアプリ", L("再起動したあと、ダッシュボードを自動で前面に戻すための設定です。", "Settings to bring the dashboard back to the front automatically after a restart."))
+    PaneTitle(L("ホームアプリ", "Home app"), L("再起動したあと、ダッシュボードを自動で前面に戻すための設定です。", "Settings to bring the dashboard back to the front automatically after a restart."))
     Notice(
         L("Android 10 以降はバックグラウンドからの画面起動が制限されるため、再起動後にダッシュボードが自動で前面に出るとは限りません。", "Since Android 10, apps can't start screens from the background, so the dashboard may not come to the front after a restart. ") +
             L("この端末のホームアプリを Dashboard にすると確実に前面へ戻ります。有効化したあと、端末側で「ホームアプリ」の選択ダイアログが出たら Dashboard を選んでください。", "Setting Dashboard as this device's home app reliably brings it back. After enabling, choose Dashboard when the device asks for a home app."),

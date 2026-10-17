@@ -247,6 +247,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var photoOrderKey: Any? = null
     private var photoPos = -1
     private var photoShownAt = 0L
+    private val pollLock = Any()
+    @Volatile private var albumFailed: Pair<String, Long>? = null
     /** 画像の URL が切れていたとき、次に読みに行ってよい時刻。 */
     private var photoRetryAt = 0L
     private val photoWake = Channel<Unit>(Channel.CONFLATED)
@@ -418,7 +420,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------ 取得
 
-    private fun poll() {
+    /**
+     * 定期のほか、更新ボタン・画面の復帰・Spotify の操作からも IO スレッドで呼ばれる。重なると「前の値と比べて鳴らす」判定
+     * （充電・メモ・警報・Wi-Fi）が二重に通り、通知が 2 回出るので 1 本ずつにする。
+     */
+    private fun poll() = synchronized(pollLock) {
         val s = runCatching { graph.snapshot() }.getOrNull() ?: return
         _state.value = s
         _rssi.update { (it + s.wifi.rssiDbm).takeLast(HISTORY) }
@@ -838,9 +844,12 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadAlbum(url: String?) {
         if (url == null || _album.value?.first == url || albumLoading == url) return
+        // 取れなかったジャケットは 1 分は取り直さない（2 秒ごとの poll のたびに叩かないため）
+        albumFailed?.let { (u, at) -> if (u == url && System.currentTimeMillis() - at < ALBUM_RETRY_MS) return }
         albumLoading = url
         viewModelScope.launch(Dispatchers.IO) {
-            fetchBitmap(url)?.let { _album.value = url to it }
+            val image = fetchBitmap(url)
+            if (image != null) _album.value = url to image else albumFailed = url to System.currentTimeMillis()
             albumLoading = null
         }
     }
@@ -1007,6 +1016,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
         private const val PHOTO_MAX_SIDE = 1600
         private const val PHOTO_RETRY_MS = 30_000L
+        private const val ALBUM_RETRY_MS = 60_000L
         private const val POLL_MS = 2_000L
         private const val KMONI_MS = 3_000L
         private const val RADAR_CHECK_MS = 60_000L

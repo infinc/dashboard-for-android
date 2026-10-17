@@ -1,5 +1,6 @@
 package app.dashboard.data
 
+import androidx.annotation.RequiresApi
 import app.dashboard.i18n.L
 import android.Manifest
 import android.content.Context
@@ -37,22 +38,37 @@ class WifiMonitor(private val context: Context) {
     @Volatile private var callbackWifiInfo: WifiInfo? = null
     @Volatile private var currentNetwork: Network? = null
 
-    private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
-            currentNetwork = network
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                callbackWifiInfo = caps.transportInfo as? WifiInfo
-            }
-        }
-
-        override fun onLost(network: Network) {
-            if (network == currentNetwork) {
-                currentNetwork = null
-                callbackWifiInfo = null
-            }
+    private fun onCapabilities(network: Network, caps: NetworkCapabilities) {
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
+        currentNetwork = network
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            callbackWifiInfo = caps.transportInfo as? WifiInfo
         }
     }
+
+    private fun onLostNetwork(network: Network) {
+        if (network == currentNetwork) {
+            currentNetwork = null
+            callbackWifiInfo = null
+        }
+    }
+
+    private open inner class Callback : ConnectivityManager.NetworkCallback {
+        constructor() : super()
+        @RequiresApi(Build.VERSION_CODES.S)
+        constructor(flags: Int) : super(flags)
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onCapabilities(network, caps)
+        override fun onLost(network: Network) = onLostNetwork(network)
+    }
+
+    /**
+     * API 31 以降は FLAG_INCLUDE_LOCATION_INFO を付けて登録しないと、transportInfo の WifiInfo の SSID が伏せられる
+     * （権限を許可していても「取得できません」のままになる）。
+     */
+    private val callback: ConnectivityManager.NetworkCallback =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Callback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO)
+        else Callback()
 
     @Volatile private var started = false
 
