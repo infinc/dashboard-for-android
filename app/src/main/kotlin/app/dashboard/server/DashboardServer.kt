@@ -9,6 +9,9 @@ import app.dashboard.data.ApiError
 import app.dashboard.data.CardLayout
 import app.dashboard.data.CardSlot
 import app.dashboard.data.DisplayConfig
+import app.dashboard.data.ExternalNotice
+import app.dashboard.data.NotifyApiPatch
+import app.dashboard.data.NotifyRequest
 import app.dashboard.data.SaveAllRequest
 import app.dashboard.data.Tones
 import app.dashboard.data.WallpaperStore
@@ -54,6 +57,7 @@ class DashboardServer(private val graph: AppGraph) {
 
     private var engine: EmbeddedServer<*, *>? = null
     private val auth get() = graph.auth
+    private val notifyGate = NotifyGate()
 
     @Volatile
     var boundHost: String = LOOPBACK
@@ -183,6 +187,49 @@ class DashboardServer(private val graph: AppGraph) {
             post("/api/settings") {
                 if (!guardWrite(call)) return@post
                 call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
+            }
+
+            /** 外から通知を出す API の設定（トークンを含む。設定の画面だけが読む）。 */
+            get("/api/notify/config") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.settings.notifyApiInfo())
+            }
+
+            post("/api/notify/config") {
+                if (!guardWrite(call)) return@post
+                call.respond(graph.settings.updateNotifyApi(call.receive<NotifyApiPatch>()))
+            }
+
+            /**
+             * 外から通知を出す。Cookie ではなく `Authorization: Bearer <トークン>` で確かめる（CSRF の検査はしない。
+             * ブラウザは別のサイトからこのヘッダーを付けて送れない）。本文は JSON（[NotifyRequest]）か、ただの文字。
+             */
+            post("/api/notify") {
+                val c = graph.config.get().notifyApi
+                when (val r = notifyGate.check(remoteAddress(call), call.request.headers["Authorization"], c.enabled, c.token)) {
+                    NotifyGate.Result.Ok -> Unit
+                    NotifyGate.Result.Disabled -> { call.respond(HttpStatusCode.NotFound, ApiError("disabled")); return@post }
+                    NotifyGate.Result.BadToken -> { call.respond(HttpStatusCode.Unauthorized, ApiError("bad_token")); return@post }
+                    is NotifyGate.Result.Locked -> {
+                        call.response.headers.append("Retry-After", r.retryAfterSeconds.toString())
+                        call.respond(HttpStatusCode.TooManyRequests, ApiError("locked")); return@post
+                    }
+                    NotifyGate.Result.TooMany -> { call.respond(HttpStatusCode.TooManyRequests, ApiError("too_many")); return@post }
+                }
+                val raw = call.receiveText().take(4_096)
+                val body = if (call.request.headers["Content-Type"].orEmpty().startsWith("application/json")) {
+                    runCatching { apiJson.decodeFromString<NotifyRequest>(raw) }.getOrNull()
+                        ?: run { call.respond(HttpStatusCode.BadRequest, ApiError("bad_request")); return@post }
+                } else {
+                    NotifyRequest(text = raw)
+                }
+                val text = body.text.trim().take(NotifyGate.MAX_TEXT)
+                if (text.isEmpty()) { call.respond(HttpStatusCode.BadRequest, ApiError("empty_text")); return@post }
+                val tone = if (!body.sound) null else body.tone?.takeIf(Tones::isKnown) ?: graph.config.get().notifications.memoTone
+                graph.externalNotices.tryEmit(
+                    ExternalNotice(body.title?.trim()?.take(NotifyGate.MAX_TITLE)?.ifEmpty { null } ?: L("お知らせ", "Notice"), text, tone),
+                )
+                call.respond(LoginResponse(ok = true))
             }
 
             /** 取得先ごとの状況と、読めずに退避した config.json の一覧。 */

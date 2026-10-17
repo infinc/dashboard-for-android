@@ -281,6 +281,15 @@ window.EN_HTML = {
  "読み直す": "Reload",
  "読めなかった設定": "Settings that couldn't be read",
  "起動のときに設定（config.json）が読めず、既定の設定で起動しました。読めなかったファイルは消さずに残してあります。 直したい場合は、下から戻すか、書き出しておいたバックアップを読み込んでください。": "The settings (config.json) couldn't be read at startup, so the app started with the defaults. The unreadable file was kept. To fix it, restore it below or import a backup you exported.",
+ "<i class=\"dot dot-off\"></i><span>外からの通知</span>": "<i class=\"dot dot-off\"></i><span>External notices</span>",
+ "外からの通知": "External notices",
+ "Home Assistant・iPhone のショートカット・PC の cron などから、ダッシュボードにバナーと音で知らせを出します（「洗濯が終わりました」など）。": "Show a banner and play a sound on the dashboard from Home Assistant, iPhone Shortcuts, a cron job on your PC and so on (\"The laundry is done\", for example).",
+ "トークン": "Token",
+ "作り直す": "Regenerate",
+ "送るときに Authorization: Bearer の後ろに付けます。人に知られたら作り直してください。": "Send it after Authorization: Bearer. Regenerate it if anyone else learns it.",
+ "送り方": "How to send",
+ "本文は JSON（title・text・sound（false で音なし）・tone（音の ID））か、ただの文字（そのまま本文になる）。1 秒に 1 回まで。トークンを 10 回まちがえた端末は 10 分受け付けません。": "The body is JSON (title, text, sound (false for silent), tone (a sound ID)) or plain text (used as the message). Up to once a second. A device that sends a wrong token 10 times is refused for 10 minutes.",
+ "他の端末から送るには「ネットワーク」で LAN 公開を有効にしてください。": "To send from other devices, enable LAN access under \"Network\".",
 };
 window.EN_TEXT = {
  "全画面の背景": "Full-screen background",

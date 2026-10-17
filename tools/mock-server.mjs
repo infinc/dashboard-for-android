@@ -43,6 +43,7 @@ function readChoices() {
 // Kotlin の PublicConfig と同じ形。Models.kt に項目を足したらここにも足すこと
 // （欠けていても設定画面は動いてしまうので、違いに気づきにくい）。
 /** 背景画像（GET /api/wallpaper のプレビュー用）。 */
+let notifyApi = { enabled: false, token: null };
 let wallpaperBytes = null;
 let wallpaperType = "image/jpeg";
 let config = {
@@ -382,6 +383,14 @@ const server = createServer(async (req, res) => {
       wallpaperBytes = null;
       config.wallpaper = { imageSetAt: 0 };
       return json(res, 200, config);
+    }
+    if (path === "/api/notify/config") {
+      if (post) {
+        const body = await readBody(req);
+        if (body.enabled !== undefined) notifyApi.enabled = !!body.enabled;
+        if (body.regenerate || (notifyApi.enabled && !notifyApi.token)) notifyApi.token = Math.random().toString(16).slice(2).padEnd(48, "0");
+      }
+      return json(res, 200, { ...notifyApi, lanUrl: null, lanEnabled: !!config.lan?.enabled });
     }
     if (path === "/api/status") {
       const now = Date.now();

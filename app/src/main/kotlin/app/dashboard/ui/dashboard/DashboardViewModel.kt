@@ -274,6 +274,13 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var lastCharging: Boolean? = null
 
     init {
+        // 外から届いた通知（POST /api/notify）。LINE メモと同じようにバナーと音で知らせる
+        viewModelScope.launch(Dispatchers.IO) {
+            graph.externalNotices.collect { n ->
+                showToast(n.title, n.text, severe = false)
+                n.tone?.let { graph.notices.play(it, Tones.DEFAULT_MEMO) }
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             config.map { it.wallpaper.imageSetAt }.distinctUntilChanged().collect { at ->
                 _wallpaper.value = if (at > 0) graph.wallpaper.load()?.asImageBitmap() else null

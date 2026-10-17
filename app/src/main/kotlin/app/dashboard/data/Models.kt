@@ -1193,7 +1193,44 @@ data class Config(
     val presets: PresetsConfig = PresetsConfig(),
     /** アプリの設定画面を開くときの PIN。 */
     val settingsLock: SettingsLockConfig = SettingsLockConfig(),
+    /** 外から通知を出す API（POST /api/notify）。 */
+    val notifyApi: NotifyApiConfig = NotifyApiConfig(),
 )
+
+/**
+ * 外から通知を出す API。Home Assistant・iPhone のショートカット・cron などから `POST /api/notify` で
+ * ダッシュボードにバナーと音を出す。[token] は `Authorization: Bearer …` で送ってもらう（設定の画面で作る）。
+ */
+@Serializable
+data class NotifyApiConfig(
+    val enabled: Boolean = false,
+    val token: String? = null,
+)
+
+/** 設定の画面に出す、通知 API の中身（Web は /api/notify/config で読む）。 */
+@Serializable
+data class NotifyApiInfo(
+    val enabled: Boolean,
+    val token: String?,
+    /** 他の端末から送るときの URL（LAN 公開が無効、または Wi-Fi の IP が取れないときは null）。 */
+    val lanUrl: String?,
+    val lanEnabled: Boolean,
+)
+
+@Serializable
+data class NotifyApiPatch(val enabled: Boolean? = null, val regenerate: Boolean = false)
+
+/** POST /api/notify の本文。[tone] は通知の音の ID（Tones）。無ければ「LINE メモ」の音。 */
+@Serializable
+data class NotifyRequest(
+    val title: String? = null,
+    val text: String = "",
+    val sound: Boolean = true,
+    val tone: String? = null,
+)
+
+/** 外から届いた通知（サーバー → ダッシュボードの画面）。 */
+data class ExternalNotice(val title: String, val text: String, val tone: String?)
 
 // ---------------------------------------------------------------- プリセット
 

@@ -145,6 +145,7 @@ class PresetController(private val graph: AppGraph) {
         memo = if (base.memo.endpoint == current.memo.endpoint) base.memo.copy(token = current.memo.token) else base.memo,
         train = base.train.copy(token = current.train.token, challengeToken = current.train.challengeToken),
         ships = current.ships,
+        notifyApi = current.notifyApi,
         github = if (base.github.user == current.github.user) base.github.copy(token = current.github.token) else base.github,
     )
 

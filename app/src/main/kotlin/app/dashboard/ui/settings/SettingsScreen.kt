@@ -323,6 +323,7 @@ private enum class Pane(
     Device("ホームアプリ", "Home app", "端末", "Device"),
     Network("ネットワーク", "Network", "端末", "Device"),
     Lock("設定の PIN", "Settings PIN", "端末", "Device"),
+    NotifyApi("外からの通知", "External notices", "端末", "Device"),
     Info("情報", "About", "情報", "About"),
     ;
 
@@ -974,6 +975,7 @@ private fun PaneContent(
         Pane.Network -> NetworkPane(graph, config)
         Pane.Presets -> PresetsPane(graph, config, dirty)
         Pane.Lock -> LockPane(graph, config)
+        Pane.NotifyApi -> NotifyApiPane(graph, config)
         Pane.Info -> InfoPane(graph, onVersionArt)
 
         Pane.Todo -> {
@@ -1560,6 +1562,60 @@ private fun PresetSchedule(graph: AppGraph, presets: app.dashboard.data.PresetsC
             else L("${rows.size} / $maxTimes 件", "${rows.size} / $maxTimes"),
         )
     }
+}
+
+/**
+ * 外から通知を出す API（POST /api/notify）。オン・オフとトークンはこの面で決め、「全て保存」は通さずにすぐ保存する。
+ * [config] は再描画のきっかけにだけ使う（中身は [SettingsController.notifyApiInfo] で読む）。
+ */
+@Composable
+private fun NotifyApiPane(graph: AppGraph, config: Config) {
+    var info by remember(config.notifyApi, config.lan.enabled) { mutableStateOf(graph.settings.notifyApiInfo()) }
+    var status by remember { mutableStateOf("") }
+    var statusColor by remember { mutableStateOf(Wd.Text2) }
+    val scope = rememberCoroutineScope()
+
+    fun change(patch: app.dashboard.data.NotifyApiPatch, ok: String) {
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { graph.settings.updateNotifyApi(patch) } }
+                .onSuccess { info = it; status = ok; statusColor = Wd.Green }
+                .onFailure { status = L("エラー: ${it.message}", "Error: ${it.message}"); statusColor = Wd.Red }
+        }
+    }
+
+    PaneTitle(
+        L("外からの通知", "External notices"),
+        L(
+            "Home Assistant・iPhone のショートカット・PC の cron などから、ダッシュボードにバナーと音で知らせを出します（「洗濯が終わりました」など）。",
+            "Show a banner and play a sound on the dashboard from Home Assistant, iPhone Shortcuts, a cron job on your PC and so on (\"The laundry is done\", for example).",
+        ),
+    )
+    Field { SwitchRow(L("外からの通知を受け付ける", "Accept external notices"), info.enabled, { on -> change(app.dashboard.data.NotifyApiPatch(enabled = on), if (on) L("オンにしました", "Turned on") else L("オフにしました", "Turned off")) }) }
+    if (info.enabled) {
+        Field(L("トークン", "Token"), L("送るときに Authorization: Bearer の後ろに付けます。人に知られたら作り直してください。", "Send it after Authorization: Bearer. Regenerate it if anyone else learns it.")) {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(info.token.orEmpty(), fontSize = 14.tu, style = app.dashboard.ui.common.Tabular)
+            }
+            Spacer(Modifier.height(10.dp))
+            ActionButton(L("トークンを作り直す", "Regenerate the token"), { change(app.dashboard.data.NotifyApiPatch(regenerate = true), L("作り直しました。送る側の設定も直してください", "Regenerated. Update the sender too")) })
+        }
+        val url = info.lanUrl ?: "http://<${L("タブレットの IP", "tablet IP")}>:${app.dashboard.server.DashboardServer.PORT}/api/notify"
+        Field(L("送り方", "How to send"), if (info.lanEnabled) null else L("他の端末から送るには「ネットワーク」で LAN 公開を有効にしてください。", "To send from other devices, enable LAN access under \"Network\".")) {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(
+                    "curl -X POST $url \\\n  -H 'Authorization: Bearer ${info.token.orEmpty()}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"title\":\"${L("洗濯", "Laundry")}\",\"text\":\"${L("終わりました", "Done")}\"}'",
+                    fontSize = 12.tu, color = Wd.Text2, style = app.dashboard.ui.common.Tabular,
+                )
+            }
+            Hint(
+                L(
+                    "本文は JSON（title・text・sound（false で音なし）・tone（音の ID））か、ただの文字（そのまま本文になる）。1 秒に 1 回まで。トークンを 10 回まちがえた端末は 10 分受け付けません。",
+                    "The body is JSON (title, text, sound (false for silent), tone (a sound ID)) or plain text (used as the message). Up to once a second. A device that sends a wrong token 10 times is refused for 10 minutes.",
+                ),
+            )
+        }
+    }
+    StatusText(status, statusColor)
 }
 
 /** この設定画面を開くときの PIN（既定はオフ）。 */

@@ -76,6 +76,9 @@ class AppGraph private constructor(context: Context) {
     val auth = Auth(config)
     val launcher = LauncherMode(this.context)
     val notices = NoticePlayer(this.context, config)
+
+    /** 外から届いた通知（POST /api/notify）。ダッシュボードの画面が受け取ってバナーと音を出す。画面が無いときは捨てる。 */
+    val externalNotices = kotlinx.coroutines.flow.MutableSharedFlow<app.dashboard.data.ExternalNotice>(extraBufferCapacity = 8)
     val settings = SettingsController(this)
     val presets = PresetController(this)
     val server = DashboardServer(this)

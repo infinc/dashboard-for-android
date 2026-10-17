@@ -85,6 +85,7 @@
     $("panes").scrollTop = 0;
     if (location.hash !== "#" + name) location.hash = name;
     if (name === "status") loadStatus();
+    if (name === "notifyapi") loadNotify();
   }
 
   (function bindNav() {
@@ -1257,6 +1258,43 @@
     api("/api/refresh", { method: "POST", body: "{}" })
       .then(function () { setStatus("refreshStatus", L("取得しました", "Fetched"), "ok"); loadDisasterArea(); })
       .catch(function (e) { setStatus("refreshStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  });
+
+  // ---------------------------------------------------------------- 外からの通知
+
+  var notifyInfo = null;
+
+  function renderNotify() {
+    var n = notifyInfo;
+    if (!n) return;
+    $("notifyToggle").textContent = n.enabled ? L("受け付けをやめる", "Stop accepting") : L("外からの通知を受け付ける", "Accept external notices");
+    setStatus("notifyStatus", n.enabled ? L("受け付けています", "Accepting") : L("受け付けていません", "Not accepting"), n.enabled ? "ok" : "");
+    $("notifyBox").hidden = !n.enabled;
+    $("notifyToken").textContent = n.token || "";
+    var url = n.lanUrl || "http://" + L("<タブレットの IP>", "<tablet IP>") + ":8080/api/notify";
+    $("notifyExample").textContent =
+      "curl -X POST " + url + " \\\n" +
+      "  -H 'Authorization: Bearer " + (n.token || "") + "' \\\n" +
+      "  -H 'Content-Type: application/json' \\\n" +
+      "  -d '{\"title\":\"" + L("洗濯", "Laundry") + "\",\"text\":\"" + L("終わりました", "Done") + "\"}'";
+    $("notifyLanNote").hidden = n.lanEnabled;
+  }
+
+  function loadNotify() {
+    return api("/api/notify/config").then(function (n) { notifyInfo = n; renderNotify(); })
+      .catch(function (e) { setStatus("notifyStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  function changeNotify(patch) {
+    api("/api/notify/config", { method: "POST", body: JSON.stringify(patch) })
+      .then(function (n) { notifyInfo = n; renderNotify(); })
+      .catch(function (e) { setStatus("notifyStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  $("notifyToggle").addEventListener("click", function () { changeNotify({ enabled: !(notifyInfo && notifyInfo.enabled) }); });
+  $("notifyRegenerate").addEventListener("click", function () {
+    if (!confirm(L("トークンを作り直します。送る側の設定も直す必要があります。続けますか？", "Regenerate the token? You'll need to update the sender too."))) return;
+    changeNotify({ regenerate: true });
   });
 
   // ---------------------------------------------------------------- バックアップ

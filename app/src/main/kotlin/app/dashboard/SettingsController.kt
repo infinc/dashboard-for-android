@@ -4,6 +4,9 @@ import app.dashboard.data.CardLayout
 import app.dashboard.data.Config
 import app.dashboard.data.MemoConfig
 import app.dashboard.data.MemoPatch
+import app.dashboard.data.NotifyApiConfig
+import app.dashboard.data.NotifyApiInfo
+import app.dashboard.data.NotifyApiPatch
 import app.dashboard.data.SaveAllRequest
 import app.dashboard.data.SPOTIFY_BACKGROUNDS
 import app.dashboard.data.SpotifyConfig
@@ -117,6 +120,32 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
         if (c.display.showGithub) runCatching { graph.github.refreshNow() }
     }
+
+    // ------------------------------------------------------------ 外から通知を出す API
+
+    fun notifyApiInfo(): NotifyApiInfo {
+        val c = graph.config.get()
+        val ip = graph.wifi.snapshot().ipAddress
+        return NotifyApiInfo(
+            enabled = c.notifyApi.enabled,
+            token = c.notifyApi.token,
+            lanUrl = ip?.takeIf { c.lan.enabled }?.let { "http://$it:${DashboardServer.PORT}/api/notify" },
+            lanEnabled = c.lan.enabled,
+        )
+    }
+
+    /** オン・オフと、トークンの作り直し。オンにするときトークンが無ければ作る。 */
+    fun updateNotifyApi(patch: NotifyApiPatch): NotifyApiInfo {
+        graph.config.update { c ->
+            val enabled = patch.enabled ?: c.notifyApi.enabled
+            val token = if (patch.regenerate || (enabled && c.notifyApi.token == null)) newNotifyToken() else c.notifyApi.token
+            c.copy(notifyApi = NotifyApiConfig(enabled, token))
+        }
+        return notifyApiInfo()
+    }
+
+    private fun newNotifyToken(): String =
+        ByteArray(24).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
 
     /** 書き出した設定で置き換える（[app.dashboard.data.ConfigStore.restore]）。取得先が変わるので取り直す。 */
     fun restore(text: String): Config {

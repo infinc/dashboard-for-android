@@ -139,6 +139,9 @@
       <button class="nav-item" type="button" data-pane="network">
         <i class="dot dot-off"></i><span>ネットワーク</span>
       </button>
+      <button class="nav-item" type="button" data-pane="notifyapi">
+        <i class="dot dot-off"></i><span>外からの通知</span>
+      </button>
       <button class="nav-item" type="button" data-pane="backup">
         <i class="dot dot-off"></i><span>バックアップ</span>
       </button>
@@ -1238,6 +1241,28 @@
       </div>
 
       <div class="row"><button id="lanToggle" class="ghost" type="button">—</button><span class="status" id="lanStatus"></span></div>
+    </section>
+
+    <!-- ============================================================ 外からの通知 -->
+    <section class="pane" data-pane="notifyapi">
+      <h1>外からの通知</h1>
+      <p class="lead">Home Assistant・iPhone のショートカット・PC の cron などから、ダッシュボードにバナーと音で知らせを出します（「洗濯が終わりました」など）。</p>
+
+      <div class="row"><button id="notifyToggle" class="ghost" type="button">—</button><span class="status" id="notifyStatus"></span></div>
+
+      <div id="notifyBox" hidden>
+        <div class="field" style="margin-top:16px">
+          <label>トークン</label>
+          <div class="row"><code id="notifyToken"></code><button id="notifyRegenerate" class="ghost" type="button">作り直す</button></div>
+          <div class="hint">送るときに Authorization: Bearer の後ろに付けます。人に知られたら作り直してください。</div>
+        </div>
+        <div class="field">
+          <label>送り方</label>
+          <pre id="notifyExample" style="white-space:pre-wrap;font-size:12px"></pre>
+          <div class="hint">本文は JSON（title・text・sound（false で音なし）・tone（音の ID））か、ただの文字（そのまま本文になる）。1 秒に 1 回まで。トークンを 10 回まちがえた端末は 10 分受け付けません。</div>
+          <div class="notice" id="notifyLanNote" hidden>他の端末から送るには「ネットワーク」で LAN 公開を有効にしてください。</div>
+        </div>
+      </div>
     </section>
 
     <!-- ============================================================ バックアップ -->
