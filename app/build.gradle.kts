@@ -144,11 +144,11 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.serialization.json)
-    implementation(libs.ktor.client.android)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
-    // CalDAV（iCloud カレンダー）の PROPFIND / REPORT 用。Ktor の Android エンジン（HttpURLConnection）は
-    // 標準外のメソッドを送れないため、ここだけ OkHttp を使う
-    implementation(libs.okhttp)
+    // Ktor のエンジン（ktor-client-okhttp）と、CalDAV・写真・船舶の直接の取得で共有する。
+    // Ktor が引き込む新しい版は compileSdk 37 を求めるため、版を固定する
+    implementation(libs.okhttp) { version { strictly(libs.versions.okhttp.get()) } }
 
     implementation(libs.kotlinx.serialization.json)
 
