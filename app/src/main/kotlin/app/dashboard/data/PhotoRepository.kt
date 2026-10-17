@@ -14,7 +14,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
@@ -52,7 +51,8 @@ class PhotoRepository(private val configStore: ConfigStore) {
     private var lastUrl: String? = null
 
     private val http by lazy {
-        OkHttpClient.Builder()
+        // プールとスレッドは共有し、タイムアウトはこの取得に合わせて決める
+        Http.okHttp.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .followRedirects(false)

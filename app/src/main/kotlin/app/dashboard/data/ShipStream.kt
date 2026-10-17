@@ -21,7 +21,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -54,7 +53,8 @@ class ShipStream(private val configStore: ConfigStore, private val scope: Corout
     }
 
     private val client by lazy {
-        OkHttpClient.Builder()
+        // プールとスレッドは共有し、タイムアウトはこの取得に合わせて決める
+        Http.okHttp.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS)
             .pingInterval(30, TimeUnit.SECONDS)

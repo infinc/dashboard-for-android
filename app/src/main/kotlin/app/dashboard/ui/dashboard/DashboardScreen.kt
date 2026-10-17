@@ -36,6 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,7 @@ import app.dashboard.data.CardLayout
 import app.dashboard.data.toPublic
 import app.dashboard.i18n.L
 import app.dashboard.ui.common.WdIcons
+import app.dashboard.ui.common.setCovered
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
 import kotlinx.coroutines.delay
@@ -170,6 +172,10 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     val shift = burnInShift(d.burnInShiftEnabled)
     // 全画面の間もずらすかは設定で選ぶ（オフなら全画面の層だけ 0 に戻す。下のカードはずらし続ける）
     val anyFull = fullscreen || photoFull || typhoonId != null
+    DisposableEffect(anyFull) {
+        setCovered("fullscreen", anyFull)
+        onDispose { setCovered("fullscreen", false) }
+    }
     val fullShift = if (d.fullscreenShiftEnabled) shift else IntOffset.Zero
     val screen = LocalConfiguration.current
     // 縦向きと、横でも幅の狭い端末（スマホなど）は 2 列にして縦にスクロールさせる

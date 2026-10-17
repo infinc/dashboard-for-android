@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,12 +108,16 @@ class TileMapController(
     @Volatile private var panAt = 0L
     @Volatile private var wide = false
     @Volatile private var running = false
+    private var job: Job? = null
 
     /** 地図を出している間だけ動かす（[stop] で止める）。 */
+    @Synchronized
     fun start() {
         if (running) return
         running = true
-        scope.launch(Dispatchers.IO) {
+        // 前のループが通信待ちのまま残っていても止める（stop → start が素早く続くと 2 本動き続けるため）
+        job?.cancel()
+        job = scope.launch(Dispatchers.IO) {
             while (running) {
                 try {
                     returnHomeIfIdle()
@@ -129,9 +134,16 @@ class TileMapController(
         }
     }
 
-    fun stop() {
+    /** 止める。[release] ならタイルも手放す（カードを外したとき。画面が消えただけなら残して、戻ったときに取り直さない）。 */
+    @Synchronized
+    fun stop(release: Boolean = false) {
         running = false
-        wake.trySend(Unit)
+        job?.cancel()
+        job = null
+        if (release && (_frame.value.base.isNotEmpty() || _frame.value.old.isNotEmpty())) {
+            _frame.update { it.copy(base = emptyMap(), old = emptyMap()) }
+            missing.clear()
+        }
     }
 
     /** 地点とテーマ。変わったら地点から取り直す（ズームはそのまま）。 */

@@ -2,6 +2,7 @@ package app.dashboard.ui.dashboard
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -198,7 +199,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         if (wantFlights) {
             flightMap.setHome(c.location.latitude, c.location.longitude, dark)
             flightMap.start()
-        } else flightMap.stop()
+        } else flightMap.stop(release = !c.display.showFlights)
         flights.setActive(wantFlights)
         val wantShips = active && c.display.showShips
         if (wantShips) {
@@ -207,7 +208,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             val f = shipMap.frame.value
             graph.ships.watch(if (f.ready) shipBox(f, shipWide) else null)
         } else {
-            shipMap.stop()
+            shipMap.stop(release = !c.display.showShips)
             graph.ships.watch(null)
         }
     }
@@ -246,6 +247,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var photoOrderKey: Any? = null
     private var photoPos = -1
     private var photoShownAt = 0L
+    /** 画像の URL が切れていたとき、次に読みに行ってよい時刻。 */
+    private var photoRetryAt = 0L
     private val photoWake = Channel<Unit>(Channel.CONFLATED)
 
     /** 背景画像。設定で選ばれた（imageSetAt が変わった）ときだけ読み直す。 */
@@ -322,6 +325,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 if (active && wantsKmoni()) kmoniTick()
+                else if (!wantsKmoni() && (_kmoniBase.value != null || _kmoni.value.image != null)) {
+                    // 強震モニタを切ったら画像を手放す（出し直すときに取り直す）
+                    _kmoniBase.value = null
+                    _kmoni.value = KmoniFrame()
+                }
                 delay(KMONI_MS)
             }
         }
@@ -334,8 +342,15 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
-                if (active && graph.config.get().display.showRadar) {
+                val showRadar = graph.config.get().display.showRadar
+                if (active && showRadar) {
                     try { radarTick() } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+                } else if (!showRadar && _radar.value.zoom != 0) {
+                    // カードを外したら地図と雨雲のタイル（全画面のあとは十数 MB）を手放す。ズームは radarZoom に残る
+                    _radar.value = RadarFrame()
+                    radarStamp = null
+                    radarAt = 0
+                    radarMissing.clear()
                 }
                 // 1 分待つ。ドラッグ・「＋」「−」があればすぐに足りないタイルを取りに行く
                 withTimeoutOrNull(RADAR_CHECK_MS) {
@@ -883,6 +898,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             if (current == null || photoPos < 0) photoShownAt = 0
         }
         val now = System.currentTimeMillis()
+        if (now < photoRetryAt) return
         if (_photo.value != null && now - photoShownAt < c.photos.intervalSec * 1000L) return
         val nextPos = (photoPos + 1) % photoOrder.size
         // 1 周したら、混ぜる設定のときは順番を混ぜ直す（毎周同じ並びにしない）
@@ -895,6 +911,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         } catch (e: ResponseException) {
             graph.photos.refreshSoon()
+            // 取り直しは 1 分に 1 回なので、それまで毎秒同じ URL を叩かない
+            photoRetryAt = now + PHOTO_RETRY_MS
             return
         } catch (e: Exception) {
             null
@@ -911,7 +929,14 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+        // inSampleSize は 2 の累乗でしか縮まないので、長辺が maxSide の 2 倍近いまま残る。残りをここで縮める
+        val side = maxOf(decoded.width, decoded.height)
+        if (side <= maxSide) return decoded.asImageBitmap()
+        val scale = maxSide.toFloat() / side
+        val scaled = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt().coerceAtLeast(1), (decoded.height * scale).toInt().coerceAtLeast(1), true)
+        if (scaled !== decoded) decoded.recycle()
+        return scaled.asImageBitmap()
     }
 
     // ------------------------------------------------------------ 全画面の材料（台風・歌詞）
@@ -981,6 +1006,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         fun rainZoomOf(zoom: Int) = minOf(zoom and 1.inv(), 10)
 
         private const val PHOTO_MAX_SIDE = 1600
+        private const val PHOTO_RETRY_MS = 30_000L
         private const val POLL_MS = 2_000L
         private const val KMONI_MS = 3_000L
         private const val RADAR_CHECK_MS = 60_000L

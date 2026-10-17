@@ -11,7 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParser
@@ -45,7 +44,8 @@ class CalendarRepository(private val client: HttpClient, private val configStore
     private var calendarsFor: String? = null
 
     private val dav by lazy {
-        OkHttpClient.Builder()
+        // プールとスレッドは共有し、タイムアウトはこの取得に合わせて決める
+        Http.okHttp.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()

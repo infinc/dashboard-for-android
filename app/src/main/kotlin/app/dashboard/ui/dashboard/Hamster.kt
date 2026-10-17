@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import app.dashboard.ui.common.TICK_MS
 import app.dashboard.ui.common.awaitTick
+import app.dashboard.ui.common.awaitUncovered
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
@@ -167,6 +168,7 @@ fun Hamster(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         var prev = 0L
         while (true) {
+            awaitUncovered()
             withFrameMillis {
                 // 動きは毎フレーム進め、描き直しはほかの絵と同じ刻み（約 30 コマ/秒、TICK_MS）にする
                 motion.step(mode, it, if (prev == 0L) 0f else (it - prev).coerceAtMost(100) / 1000f)
@@ -184,6 +186,7 @@ fun Hamster(modifier: Modifier = Modifier) {
             dir = if (target < x) -1 else 1
             var prev = withFrameMillis { it }
             while (abs(target - x) > 0.5f) {
+                awaitUncovered()
                 prev = awaitTick(prev) { now ->
                     val step = WALK_SPEED * ((now - prev).coerceAtMost(100) / 1000f)
                     x = if (abs(target - x) <= step) target else x + dir * step
@@ -201,7 +204,10 @@ fun Hamster(modifier: Modifier = Modifier) {
         suspend fun play(next: Mode) {
             motion.begin(next, withFrameMillis { it })
             mode = next
-            while (!motion.done) withFrameMillis { }
+            while (!motion.done) {
+                awaitUncovered()
+                withFrameMillis { }
+            }
         }
         x = 0f
         while (true) {

@@ -1,5 +1,8 @@
 package app.dashboard.ui.browser
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dashboard.i18n.L
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
@@ -271,6 +274,20 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
 
     LaunchedEffect(startUrl) {
         startUrl?.takeIf { it.startsWith("http") }?.let { url -> webView?.takeIf { it.url != url }?.loadUrl(url) }
+    }
+
+    // 画面が消えた・別のアプリへ移ったら、ページの音や JS を止める（YouTube を開いたまま消灯しても鳴り続けないように）
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> webView?.onPause()
+                Lifecycle.Event.ON_RESUME -> webView?.onResume()
+                else -> {}
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
 
     DisposableEffect(Unit) {

@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import app.dashboard.ui.common.awaitTick
+import app.dashboard.ui.common.awaitUncovered
 import app.dashboard.ui.common.TICK_MS
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.withFrameMillis
@@ -416,6 +417,7 @@ private fun Globe(modifier: Modifier) {
     LaunchedEffect(Unit) {
         var t = withFrameMillis { it }
         while (true) {
+            awaitUncovered()
             t = awaitTick(t, TICK_MS * 3) { spin = (it % GLOBE_TURN_MS) / GLOBE_TURN_MS.toFloat() * GlobeData.STRIP_WIDTH }
         }
     }

@@ -30,6 +30,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dashboard.ui.browser.BrowserScreen
+import app.dashboard.ui.common.setCovered
 import app.dashboard.ui.dashboard.DashboardScreen
 import app.dashboard.ui.dashboard.DashboardViewModel
 import app.dashboard.ui.settings.SettingsPanel
@@ -85,6 +86,8 @@ class MainActivity : ComponentActivity() {
             // 減光中でも通知が読めるよう、バナーが出ている間だけ明るくする
             LaunchedEffect(toast != null) { if (toast != null) wakeForNotice() else restoreAfterNotice() }
             LaunchedEffect(browserUrl) { vm.setActive(browserUrl == null && resumed) }
+            // 設定・ブラウズの下のカードの絵（ハムスターなど）は描き直さない
+            LaunchedEffect(settingsOpen, browserUrl) { setCovered("overlay", settingsOpen || browserUrl != null) }
             val awake by vm.holdAwake.collectAsStateWithLifecycle()
             LaunchedEffect(awake) {
                 holdAwake = awake
@@ -170,9 +173,10 @@ class MainActivity : ComponentActivity() {
     private fun applyBrightness(dimmed: Boolean) {
         this.dimmed = dimmed
         val display = graph.config.get().display
-        window.attributes = window.attributes.apply {
-            screenBrightness = (if (dimmed) display.idleDimBrightness else display.normalBrightness).toFloat()
-        }
+        val brightness = (if (dimmed) display.idleDimBrightness else display.normalBrightness).toFloat()
+        // 触るたび（ドラッグ中は 1 秒に数十回）呼ばれる。同じ値なら window.attributes を設定し直さない（再レイアウトが走るため）
+        if (window.attributes.screenBrightness == brightness) return
+        window.attributes = window.attributes.apply { screenBrightness = brightness }
     }
 
     private fun hideSystemBars() {
