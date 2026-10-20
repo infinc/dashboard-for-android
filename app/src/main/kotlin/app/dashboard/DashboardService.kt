@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import app.dashboard.server.DashboardServer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -41,8 +42,7 @@ class DashboardService : LifecycleService() {
             // 曲は数分で変わるので、他より短い間隔で見に行く
             launch {
                 while (isActive) {
-                    runCatching { graph.spotify.refreshIfDue() }
-                        .onFailure { Log.w(TAG, "Spotify の定期取得でエラー", it) }
+                    step("Spotify の定期取得でエラー") { graph.spotify.refreshIfDue() }
                     delay(SPOTIFY_TICK_MS)
                 }
             }
@@ -55,35 +55,37 @@ class DashboardService : LifecycleService() {
                     shownLang = Lang.current
                     runCatching { startForegroundCompat() }
                 }
-                runCatching { graph.weather.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "天気の定期取得でエラー", it) }
-                runCatching { graph.disaster.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "防災情報の定期取得でエラー", it) }
-                runCatching { graph.feed.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "フィードの定期取得でエラー", it) }
-                runCatching { graph.memo.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "メモの定期取得でエラー", it) }
-                runCatching { graph.train.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "運行情報の定期取得でエラー", it) }
-                runCatching { graph.calendar.refreshIfDue() }
-                    .onFailure { Log.w(TAG, "予定の定期取得でエラー", it) }
+                step("プリセットの時刻での切り替えでエラー") { graph.presets.tickSchedule() }
+                step("天気の定期取得でエラー") { graph.weather.refreshIfDue() }
+                step("防災情報の定期取得でエラー") { graph.disaster.refreshIfDue() }
+                step("フィードの定期取得でエラー") { graph.feed.refreshIfDue() }
+                step("メモの定期取得でエラー") { graph.memo.refreshIfDue() }
+                step("運行情報の定期取得でエラー") { graph.train.refreshIfDue() }
+                step("予定の定期取得でエラー") { graph.calendar.refreshIfDue() }
                 // アカウントの要らない取得先は、カードを出しているときだけ通信する
                 val d = graph.config.get().display
                 val cd = graph.config.get().countdown.builtins
-                runCatching { graph.today.refreshIfDue(d.showToday) }
-                    .onFailure { Log.w(TAG, "今日は何の日の定期取得でエラー", it) }
-                runCatching { graph.stocks.refreshIfDue(d.showStocks) }
-                    .onFailure { Log.w(TAG, "株価の定期取得でエラー", it) }
-                runCatching { graph.crypto.refreshIfDue(d.showCrypto) }
-                    .onFailure { Log.w(TAG, "暗号通貨の定期取得でエラー", it) }
-                runCatching { graph.photos.refreshIfDue(d.showPhotos) }
-                    .onFailure { Log.w(TAG, "写真の定期取得でエラー", it) }
-                runCatching { graph.github.refreshIfDue(d.showGithub) }
-                    .onFailure { Log.w(TAG, "GitHub の定期取得でエラー", it) }
-                runCatching { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }
-                    .onFailure { Log.w(TAG, "祝日の定期取得でエラー", it) }
+                step("今日は何の日の定期取得でエラー") { graph.today.refreshIfDue(d.showToday) }
+                step("株価の定期取得でエラー") { graph.stocks.refreshIfDue(d.showStocks) }
+                step("暗号通貨の定期取得でエラー") { graph.crypto.refreshIfDue(d.showCrypto) }
+                step("写真の定期取得でエラー") { graph.photos.refreshIfDue(d.showPhotos) }
+                step("GitHub の定期取得でエラー") { graph.github.refreshIfDue(d.showGithub) }
+                step("空気・体調の定期取得でエラー") { graph.healthRepo.refreshIfDue(d.showHealth) }
+                step("自作カードの定期取得でエラー") { graph.widgets.refreshIfDue(d) }
+                step("祝日の定期取得でエラー") { graph.holidays.refreshIfDue(d.showCountdown && ("holiday" in cd || "dayoff" in cd)) }
                 delay(TICK_MS)
             }
+        }
+    }
+
+    /** 1 つの取得の失敗で他を止めない。ただしサービスの終了（キャンセル）は失敗として数えず、そのまま止める。 */
+    private inline fun step(message: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, message, e)
         }
     }
 
@@ -94,6 +96,8 @@ class DashboardService : LifecycleService() {
 
     override fun onDestroy() {
         runCatching { AppGraph.get(applicationContext).server.stop() }
+        // 自作カードの値と履歴は数秒おきにまとめて書くので、止まる前に書き切る
+        runCatching { AppGraph.get(applicationContext).widgets.save() }
         super.onDestroy()
     }
 

@@ -1,6 +1,9 @@
 package app.dashboard.ui.common
 
 import androidx.compose.runtime.withFrameMillis
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 
 /**
  * いつも動いている絵（ハムスター・Wi-Fi の地球儀・アナログ時計の秒針・Spotify の全画面のグラデーション）の描き直しの刻み（ms）。
@@ -26,4 +29,18 @@ suspend fun awaitTick(last: Long, every: Long = TICK_MS, onFrame: (Long) -> Unit
         }
         if (hit >= 0) return hit
     }
+}
+
+/**
+ * ダッシュボードのカードが、全画面・ブラウズ・設定に覆われて見えていないか。覆っているもの（名前）の集まりで持つ。
+ * 見えていない絵（ハムスター・地球儀・秒針）は描き直しを止める（一晩出しっぱなしの全画面の下で 30 コマ/秒で回し続けないため）。
+ * 全画面そのものの絵（Spotify のグラデーション）はこれを見ない。
+ */
+private val covers = MutableStateFlow(emptySet<String>())
+
+fun setCovered(by: String, on: Boolean) = covers.update { if (on) it + by else it - by }
+
+/** カードが覆われている間は待つ。 */
+suspend fun awaitUncovered() {
+    if (covers.value.isNotEmpty()) covers.first { it.isEmpty() }
 }

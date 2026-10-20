@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
@@ -45,6 +46,8 @@ class StocksRepository(private val client: HttpClient, private val configStore: 
         val quotes = config.symbols.map { s ->
             try {
                 fetch(s, config.range)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "株価の取得に失敗: ${s.symbol}", e)
                 errors += L("${s.label}: ${e.message ?: "取得失敗"}", "${s.label}: ${e.message ?: "failed"}")

@@ -5,6 +5,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /**
@@ -51,6 +52,8 @@ class MemoRepository(
                 fetchedAt = System.currentTimeMillis(),
                 lastError = null,
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "メモの取得に失敗", e)
             // 直前のメモは残したまま、エラーだけ添える（壁を空白にしない）

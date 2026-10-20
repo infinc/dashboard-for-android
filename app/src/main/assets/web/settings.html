@@ -128,6 +128,12 @@
       <button class="nav-item" type="button" data-pane="todo">
         <i class="dot" data-w="showTodo"></i><span>Todo</span>
       </button>
+      <button class="nav-item" type="button" data-pane="health">
+        <i class="dot" data-w="showHealth"></i><span>空気・体調</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="widgets">
+        <i class="dot" id="widgetsDot"></i><span>自作カード</span>
+      </button>
       <button class="nav-item" type="button" data-pane="hamster">
         <i class="dot" data-w="showHamster"></i><span>ハムスター</span>
       </button>
@@ -138,6 +144,15 @@
       </button>
       <button class="nav-item" type="button" data-pane="network">
         <i class="dot dot-off"></i><span>ネットワーク</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="notifyapi">
+        <i class="dot dot-off"></i><span>外からの通知</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="backup">
+        <i class="dot dot-off"></i><span>バックアップ</span>
+      </button>
+      <button class="nav-item" type="button" data-pane="status">
+        <i class="dot dot-off"></i><span>取得状況</span>
       </button>
     </div>
 
@@ -633,15 +648,6 @@
         <label class="toggle"><input type="checkbox" id="spotifyEnabled"> 再生中の曲を取得する</label>
       </div>
 
-      <div class="field">
-        <label for="spotifyBackground">全画面の背景</label>
-        <select id="spotifyBackground">
-          <option value="still">単色（動かない、ほんの少しのグラデーション）</option>
-          <option value="flow">ぼやけた光（ゆっくり漂う）</option>
-          <option value="spike">尖った光（ぼやけた縦の光が揺れる）</option>
-        </select>
-        <div class="hint">どれもジャケットから拾った色で描きます。</div>
-      </div>
 
       <div class="field">
         <label class="toggle"><input type="checkbox" id="spotifySaveLyrics"> 直近 300 曲の歌詞を端末に保存する</label>
@@ -679,6 +685,10 @@
         で「Create app」→ <strong>Redirect URI</strong> に
         <code>http://127.0.0.1:8080/api/spotify/callback</code> を追加 → API は「Web API」を選択。
         できた <strong>Client ID</strong> を上に貼ってください（Client Secret は使いません）。
+      </div>
+
+      <div class="notice info">
+        全画面モードの見た目（背景・部品の位置と大きさなど）は、タブレットの設定の「Spotify」→「全画面モードを編集する」で、実際の画面の上で変えます。
       </div>
     </section>
 
@@ -1172,6 +1182,28 @@
       <div class="status" id="githubStatus"></div>
     </section>
 
+    <section class="pane" data-pane="health">
+      <h1>空気・体調</h1>
+      <p class="lead">暑さ指数（WBGT）・紫外線・PM2.5 の今の値と段階、今日のいちばん高い値を出すカードです。地点は「場所」で決めます。Open-Meteo から 30 分ごとに取得します。</p>
+      <div class="field card-switch">
+        <label class="toggle"><input type="checkbox" data-w="showHealth" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div class="notice info">暑さ指数は気温・湿度・日射・風から計算した推定値です（環境省の発表値ではありません）。段階は日本生気象学会の指針、紫外線は WHO の区分、PM2.5 は環境基準（日平均 35 µg/m³）と注意喚起の目安（70 µg/m³）によります。花粉は日本の予報を出す無料の取得先が無いため出していません。</div>
+    </section>
+
+    <section class="pane" data-pane="widgets">
+      <h1>自作カード</h1>
+      <p class="lead">取得先と見せ方を自分で決めるカードです（4 枚まで）。JSON を返す URL（Home Assistant・家のセンサー・好きな API）から取る、ほかの機器から送ってもらう、サーバーが動いているかを見張る、のどれかを選びます。</p>
+      <div class="wg-tabs" id="widgetTabs"></div>
+      <div class="field card-switch">
+        <label class="toggle" data-wg-show="w1"><input type="checkbox" data-w="showWidget1" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w2" hidden><input type="checkbox" data-w="showWidget2" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w3" hidden><input type="checkbox" data-w="showWidget3" data-card> このカードをダッシュボードに表示する</label>
+        <label class="toggle" data-wg-show="w4" hidden><input type="checkbox" data-w="showWidget4" data-card> このカードをダッシュボードに表示する</label>
+      </div>
+      <div id="widgetForm"></div>
+    </section>
+
     <section class="pane" data-pane="todo">
       <h1>Todo</h1>
       <p class="lead">やることを並べるカードです。カードの下の欄に書いて追加し、左の丸を押すと消えます（ダッシュボードで直接操作します）。</p>
@@ -1234,11 +1266,75 @@
       <div class="row"><button id="lanToggle" class="ghost" type="button">—</button><span class="status" id="lanStatus"></span></div>
     </section>
 
+    <!-- ============================================================ 外からの通知 -->
+    <section class="pane" data-pane="notifyapi">
+      <h1>外からの通知</h1>
+      <p class="lead">Home Assistant・iPhone のショートカット・PC の cron などから、ダッシュボードにバナーと音で知らせを出します（「洗濯が終わりました」など）。</p>
+
+      <div class="row"><button id="notifyToggle" class="ghost" type="button">—</button><span class="status" id="notifyStatus"></span></div>
+
+      <div id="notifyBox" hidden>
+        <div class="field" style="margin-top:16px">
+          <label>トークン</label>
+          <div class="row"><code id="notifyToken"></code><button id="notifyRegenerate" class="ghost" type="button">作り直す</button></div>
+          <div class="hint">送るときに Authorization: Bearer の後ろに付けます。人に知られたら作り直してください。</div>
+        </div>
+        <div class="field">
+          <label>送り方</label>
+          <pre id="notifyExample" style="white-space:pre-wrap;font-size:12px"></pre>
+          <div class="hint">本文は JSON（title・text・sound（false で音なし）・tone（音の ID））か、ただの文字（そのまま本文になる）。1 秒に 1 回まで。トークンを 10 回まちがえた端末は 10 分受け付けません。</div>
+          <div class="notice" id="notifyLanNote" hidden>他の端末から送るには「ネットワーク」で LAN 公開を有効にしてください。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ バックアップ -->
+    <section class="pane" data-pane="backup">
+      <h1>バックアップ</h1>
+      <p class="lead">設定をまるごとファイルに書き出し、あとで読み込んで戻します。アプリを入れ直す前や、別のタブレットへ移すときに使います。</p>
+
+      <div class="notice">
+        書き出したファイルには、LINE メモ・Spotify・予定表・GitHub などの<strong>トークンやパスワードがそのまま入ります</strong>。
+        人に渡したり、共有のフォルダに置いたりしないでください。
+      </div>
+
+      <div class="field" style="margin-top:16px">
+        <label>書き出す</label>
+        <div class="row"><button id="backupExport" type="button">設定を書き出す（.json）</button></div>
+      </div>
+
+      <div class="field">
+        <label for="backupFile">読み込む</label>
+        <div class="row"><input id="backupFile" type="file" accept=".json,application/json"><button id="backupImport" class="ghost" type="button">読み込んで置き換える</button></div>
+        <div class="hint">いまの設定は、読み込んだ内容で置き換わります。LAN 公開・設定の PIN・背景画像は、この端末のいまのものが残ります。</div>
+        <div class="status" id="backupStatus"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 取得状況 -->
+    <section class="pane" data-pane="status">
+      <h1>取得状況</h1>
+      <p class="lead">取得先ごとに、最後に取りに行った時刻とエラーを出します。カードが更新されないときに、どこで止まっているかを確かめられます。</p>
+
+      <div class="row"><button id="statusReload" class="ghost" type="button">読み直す</button><span class="status" id="statusStatus"></span></div>
+      <div id="statusList" style="margin-top:12px"></div>
+
+      <div id="quarantineBox" style="margin-top:24px" hidden>
+        <h2 class="sub">読めなかった設定</h2>
+        <div class="notice">
+          起動のときに設定（config.json）が読めず、既定の設定で起動しました。読めなかったファイルは消さずに残してあります。
+          直したい場合は、下から戻すか、書き出しておいたバックアップを読み込んでください。
+        </div>
+        <div id="quarantineList"></div>
+      </div>
+    </section>
+
     <footer>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0) ・ 防災情報: 気象庁 ・ 強震モニタ: 防災科学技術研究所</footer>
   </main>
 </div>
 <script src="/static/js/i18n-en.js"></script>
 <script src="/static/js/i18n.js"></script>
+<script src="/static/js/widgets.js"></script>
 <script src="/static/js/settings.js"></script>
 </body>
 </html>

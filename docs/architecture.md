@@ -88,15 +88,20 @@
 | `ui/dashboard/InfoCards.kt` / `SkyCards.kt` / `AnalogClock.kt` | 運行情報・今日は何の日・予定表・株価・カウントダウン / 雨雲レーダー・日の出と月 / アナログ時計 |
 | `ui/dashboard/CalculatorCard.kt` / `PhotoCard.kt` | 計算機（上に横長の表示、下に鍵盤。`Calc` は BigDecimal で掛け算・割り算を先に計算）/ 写真 |
 | `ui/dashboard/NowPlaying.kt` / `BigClock.kt` / `TyphoonScreen.kt` | 全画面: Spotify（ジャケットを押すと歌詞）/ 時刻 / 台風の進路図（気象庁の `forecast.json` と `specifications.json`、`DisasterRepository.typhoonTrack()`） |
+| `ui/settings/SpotifyEditor.kt` | Spotify の全画面の編集画面（設定の「全画面モードを編集する」）。見本の `NowPlayingScreen` を編集モードで描き、部品のドラッグで位置・右上の＋で大きさ・左下の歯車で右にその部品の設定を開く。見た目は `spotify.layout`（`SpotifyLayout`。位置は「はみ出さない範囲の割合」なので、画面の大きさが違っても外に出ない）。終えるときに保存するか尋ねる。歌詞の出典の文字だけは変えられない |
 | `ui/dashboard/WeatherIcon.kt` / `Hamster.kt` / `GlobeData.kt` | 天気アイコン、回し車のハムスター、Wi-Fi カードの地球儀の海岸線 |
 | `ui/settings/SettingsScreen.kt` / `SettingsWidgets.kt` | アプリの設定画面と部品 |
 | `ui/browser/BrowserScreen.kt` | ブラウズとお気に入り（3-9） |
+| `data/Widgets.kt` | 自作カードの設定と値の形（`WidgetDef`・`WidgetData`）、値の場所 `JsonPick`、応答・送られた本文の読み取り `WidgetRead`、しきい値 `WidgetLevel`、書式、設定の整え `WidgetSanitize`、ひな形（3-18） |
+| `data/WidgetRepository.kt` / `data/LanHttp.kt` | 自作カードの取得（URL・死活監視）・送られた値の取り込み・履歴（`widgets-data.json`）・しきい値の通知 / LAN の機器だけに使う平文 HTTP/1.1 の GET（3-18） |
+| `ui/dashboard/WidgetCard.kt` / `WidgetScreen.kt` / `ui/settings/WidgetsPane.kt` | 自作カード（数値・メーター・一覧・文字・監視）/ 24 時間の履歴の全画面 / 設定の面（「試しに取得」と JSON の木） |
 
 ### Web（`app/src/main/assets/web/`）— PC・LAN から開く設定画面だけ
 
 | ファイル | 役割 |
 |---|---|
 | `settings.html` / `js/settings.js` / `css/settings.css` | 設定画面（左メニュー + 面、左下に「全て保存」） |
+| `js/widgets.js` | 「自作カード」の面（入力欄は JS で組み立て、文は `L()`。`settings.js` の `collect()` / `render()` から呼ぶ） |
 | `login.html` | LAN から PIN でログインする画面 |
 | `css/tokens.css` | 色などの変数 |
 
@@ -398,6 +403,19 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 
 2026-10-08 から、全画面の層は別の `Box` にして、`display.fullscreenShiftEnabled`（設定 → 画面の「全画面表示でもシフトする」）がオフのときはずらさない（カードの層はずらし続ける）。時刻の全画面の位置ずらし（`BigClock.kt` の `DRIFT`）も同じ設定に従う。通知のバナーは、全画面が開いていれば全画面の層と同じだけずらす。
 
+### 3-18. 自作カード
+
+- カードは `WIDGET1`〜`WIDGET4` の 4 枚に固定（配置・プリセット・時刻での切り替えは他のカードと同じ仕組みに乗せるため。数を可変にすると `CardLayout` の `enum` と配置の保存の形が変わる）。設定は `Config.widgets`
+- **取った値の意味が変わる設定**（取得のしかた・見せ方・URL・値の場所・倍率など、`WidgetDef.dataKey`）を変えたら、前の値と履歴を捨てる。見出し・しきい値・通知の変更では捨てない
+- **平文の http:// は LAN だけ**: `network_security_config.xml` はアプリ全体の平文を禁じている（localhost と強震モニタだけ例外）。Home Assistant などの LAN の機器のために全体の平文を許すと、ほかの取得先がまちがって平文になっても気づけなくなる。そこで `LanHttp`（Socket で HTTP/1.1）を別に持ち、名前を引いたアドレスが**すべて**プライベートなときだけ、引いたアドレスへそのままつなぐ（引き直しで外へ向ける DNS rebinding を避ける）。`https://` はこれまでどおり共有の Ktor（OkHttp）
+- 死活監視の `tcp://` はつながるかだけを見る（Socket の connect。平文の HTTP の規則とは関係ない）
+- ヘッダーの値（トークン）は書き込み専用（`PublicConfig` には `headerSet` だけ）。URL のホストを変えたら消す（保存済みのトークンを新しい送り先へ送らない。LINE メモの送り先と同じ考え）。「試しに取得」も、同じホストのときだけ保存済みの値を使う
+- 外から送る口（`POST /api/widgets/{id}`）は `NotifyGate` の別の実体で守る（トークン違い 10 回で 10 分締め出し）。間隔は 50 ms（4 枚へ続けて送れるように）。トークンは「外からの通知」と別
+- 取得はカードごとのコルーチンで、遅い 1 枚が見回り（15 秒）や他のカードを止めない。失敗したら 2 分（間隔がそれより短ければ間隔）で試し直す
+- しきい値の通知は `AppGraph.externalNotices`（外からの通知と同じ受け口）に流し、画面がバナーと音を出す。起動して最初の値では知らせない（再起動のたびに鳴らないように）
+- 履歴は 5 分の区切りに 1 点（同じ区切りの中は新しい値で置き換え）、24 時間ぶん。`filesDir/widgets-data.json` に 10 秒まとめて書く（サービスの終了時にも書く）
+- プリセット: `keep()` が外から送る口（オン・オフとトークン）をいまのものに保ち、ヘッダーの値は同じ送り先・同じ名前のときだけいまの値を引き継ぐ
+
 ---
 
 ## 4. 設定画面の構造
@@ -410,7 +428,7 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 カード … 時刻 天気 防災 LINE メモ 時間別予報 Spotify
          Wi-Fi 端末状態 ニュース 週間予報 タイマー 今日の単語
          アナログ時計 予定表 運行情報 雨雲レーダー 日の出・月 カウントダウン 今日は何の日 株価 暗号通貨
-         飛行機 船舶 GitHub ハムスター
+         飛行機 船舶 GitHub Todo 空気・体調 自作カード ハムスター
 端末   … ホームアプリ（電池の最適化を含む）/ ネットワーク（LAN 公開）
 ```
 
@@ -419,7 +437,9 @@ Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めないので�
 
 | Web の API | 扱うもの |
 |---|---|
-| `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify・運行情報・予定表・写真・船舶（API キー）・GitHub） |
+| `POST /api/settings` | 「全て保存」（`SaveAllRequest`: 公開設定・LINE メモ・Spotify・運行情報・予定表・写真・船舶（API キー）・GitHub・自作カード） |
+| `GET/POST /api/widgets/config` / `POST /api/widgets/test` | 自作カードの外から送る口（オン・オフ・トークン）/ 下書きのまま 1 回だけ取りに行く「試しに取得」 |
+| `POST /api/widgets/{w1〜w4}` | 自作カードへ値を送る（`Authorization: Bearer`。CSRF は見ない） |
 | `POST /api/layout/check` | カードの表示を切り替える前の「画面に収まるか」の確認と、合わせ直した配置・「カードの配置」に描く並び（3-2） |
 | `POST /api/wallpaper` / `POST /api/wallpaper/clear` | 背景画像の設定（本文は画像ファイル、25 MB まで）・解除 |
 | `GET /api/train/railways` / `POST /api/train/railways/reload` | 運行情報の路線の一覧（設定画面で選ぶ）/ 読み直し |

@@ -9,6 +9,7 @@ import io.ktor.client.statement.readRawBytes
 import java.io.File
 import java.nio.charset.Charset
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 
 /**
  * 国民の祝日。内閣府が公開している CSV（翌年の分まで載っている）を週に 1 回だけ取り、filesDir/holidays.csv に置く。
@@ -46,6 +47,8 @@ class HolidayRepository(context: Context, private val client: HttpClient) {
             if (parsed.isEmpty()) error(L("祝日の CSV を読めませんでした", "Couldn't read the holiday CSV"))
             all = parsed
             runCatching { cacheFile.writeText(text) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "祝日の取得に失敗", e)
         }

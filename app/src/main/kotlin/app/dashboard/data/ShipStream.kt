@@ -21,7 +21,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -54,7 +53,8 @@ class ShipStream(private val configStore: ConfigStore, private val scope: Corout
     }
 
     private val client by lazy {
-        OkHttpClient.Builder()
+        // プールとスレッドは共有し、タイムアウトはこの取得に合わせて決める
+        Http.okHttp.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
@@ -102,8 +102,12 @@ class ShipStream(private val configStore: ConfigStore, private val scope: Corout
                     _status.value = Status.NoKey
                 }
                 socket == null || key != keyInUse -> if (System.currentTimeMillis() >= retryAt) {
-                    close()
-                    connect(key)
+                    // watch(null) と同じロックで。切られた直後につなぎ直して、カードを閉じた後も接続が残るのを防ぐ
+                    synchronized(this) {
+                        if (wanted == null) return
+                        close()
+                        connect(key)
+                    }
                     retryAt = System.currentTimeMillis() + RETRY_MS
                 }
             }
@@ -154,6 +158,12 @@ class ShipStream(private val configStore: ConfigStore, private val scope: Corout
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w(TAG, "AIS の接続が切れた", t)
+                lost(webSocket)
+            }
+
+            // 相手から閉じられたら、こちらも閉じ返す（返さないと onClosed が来ず、socket が残ってつなぎ直さない）
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null)
                 lost(webSocket)
             }
 

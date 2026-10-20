@@ -4,8 +4,17 @@ import app.dashboard.data.CardLayout
 import app.dashboard.data.Config
 import app.dashboard.data.MemoConfig
 import app.dashboard.data.MemoPatch
+import app.dashboard.data.NotifyApiConfig
+import app.dashboard.data.NotifyApiInfo
+import app.dashboard.data.NotifyApiPatch
+import app.dashboard.data.WidgetPushInfo
+import app.dashboard.data.WidgetPushPatch
+import app.dashboard.data.WidgetSanitize
+import app.dashboard.data.WidgetsConfig
+import app.dashboard.data.WidgetsPatch
 import app.dashboard.data.SaveAllRequest
 import app.dashboard.data.SPOTIFY_BACKGROUNDS
+import app.dashboard.data.monoColorOrNull
 import app.dashboard.data.SpotifyConfig
 import app.dashboard.data.SpotifyPatch
 import app.dashboard.data.WallpaperConfig
@@ -54,6 +63,7 @@ class SettingsController(private val graph: AppGraph) {
             request.photos?.let { next = next.copy(photos = applyPhotos(next.photos, it)) }
             request.ships?.let { next = next.copy(ships = next.ships.copy(apiKey = secret(next.ships.apiKey, it.apiKey))) }
             request.github?.let { next = next.copy(github = applyGithub(next.github, it)) }
+            request.widgets?.let { next = next.copy(widgets = applyWidgets(next.widgets, it)) }
             next
         }
         if (sourcesChanged(before, updated)) refreshAllLater()
@@ -89,6 +99,8 @@ class SettingsController(private val graph: AppGraph) {
             throw SettingsException("pin_required", L("LAN 公開を有効にする前に PIN を設定してください", "Set a PIN before enabling LAN access"))
         }
         val updated = graph.config.update { c -> c.copy(lan = c.lan.copy(enabled = enabled)) }
+        // 切ったら LAN の端末を締め出す（24 時間以内に入れ直したとき、前のクッキーで入れてしまわないように）
+        if (!enabled) graph.auth.clearSessions()
         graph.server.restartLater()
         return updated
     }
@@ -114,6 +126,78 @@ class SettingsController(private val graph: AppGraph) {
         if (c.display.showCountdown) runCatching { graph.holidays.refreshNow() }
         if (c.display.showPhotos && c.photos.enabled) runCatching { graph.photos.refreshNow() }
         if (c.display.showGithub) runCatching { graph.github.refreshNow() }
+        if (c.display.showHealth) runCatching { graph.healthRepo.refreshNow() }
+        runCatching { graph.widgets.refreshNow() }
+    }
+
+    // ------------------------------------------------------------ 自作カード
+
+    /** 自作カードの設定を当てる（[WidgetSanitize.patch]）。 */
+    internal fun applyWidgets(current: WidgetsConfig, patch: WidgetsPatch): WidgetsConfig = WidgetSanitize.patch(current, patch)
+
+    fun widgetPushInfo(): WidgetPushInfo {
+        val c = graph.config.get()
+        val ip = graph.wifi.snapshot().ipAddress
+        return WidgetPushInfo(
+            enabled = c.widgets.pushEnabled,
+            token = c.widgets.pushToken,
+            lanUrl = ip?.takeIf { c.lan.enabled }?.let { "http://$it:${DashboardServer.PORT}/api/widgets/" },
+            lanEnabled = c.lan.enabled,
+        )
+    }
+
+    /** 外から送る API のオン・オフと、トークンの作り直し。オンにするときトークンが無ければ作る。 */
+    fun updateWidgetPush(patch: WidgetPushPatch): WidgetPushInfo {
+        graph.config.update { c ->
+            val enabled = patch.enabled ?: c.widgets.pushEnabled
+            val token = if (patch.regenerate || (enabled && c.widgets.pushToken == null)) newNotifyToken() else c.widgets.pushToken
+            c.copy(widgets = c.widgets.copy(pushEnabled = enabled, pushToken = token))
+        }
+        return widgetPushInfo()
+    }
+
+    // ------------------------------------------------------------ 外から通知を出す API
+
+    fun notifyApiInfo(): NotifyApiInfo {
+        val c = graph.config.get()
+        val ip = graph.wifi.snapshot().ipAddress
+        return NotifyApiInfo(
+            enabled = c.notifyApi.enabled,
+            token = c.notifyApi.token,
+            lanUrl = ip?.takeIf { c.lan.enabled }?.let { "http://$it:${DashboardServer.PORT}/api/notify" },
+            lanEnabled = c.lan.enabled,
+        )
+    }
+
+    /** オン・オフと、トークンの作り直し。オンにするときトークンが無ければ作る。 */
+    fun updateNotifyApi(patch: NotifyApiPatch): NotifyApiInfo {
+        graph.config.update { c ->
+            val enabled = patch.enabled ?: c.notifyApi.enabled
+            val token = if (patch.regenerate || (enabled && c.notifyApi.token == null)) newNotifyToken() else c.notifyApi.token
+            c.copy(notifyApi = NotifyApiConfig(enabled, token))
+        }
+        return notifyApiInfo()
+    }
+
+    private fun newNotifyToken(): String =
+        ByteArray(24).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+
+    /** 書き出した設定で置き換える（[app.dashboard.data.ConfigStore.restore]）。取得先が変わるので取り直す。 */
+    fun restore(text: String): Config {
+        val restored = try {
+            graph.config.restore(text)
+        } catch (e: IllegalArgumentException) {
+            throw SettingsException("bad_backup", L("設定のファイルとして読めません（Dashboard で書き出した .json を選んでください）", "Couldn't read this as a settings file (choose a .json exported from Dashboard)"))
+        }
+        refreshAllLater()
+        return restored
+    }
+
+    /** 読めずに退避した config.json から戻す。 */
+    fun restoreQuarantined(name: String): Config {
+        val text = graph.config.quarantinedText(name)
+            ?: throw SettingsException("not_found", L("退避した設定が見つかりません", "The saved-aside settings file wasn't found"))
+        return restore(text)
     }
 
     fun refreshAllLater() {
@@ -128,17 +212,25 @@ class SettingsController(private val graph: AppGraph) {
             a.github.user != b.github.user || a.github.token != b.github.token || a.github.days != b.github.days ||
             a.display.language != b.display.language
 
-    private fun applyMemo(current: MemoConfig, patch: MemoPatch) = current.copy(
-        enabled = patch.enabled ?: current.enabled,
-        endpoint = patch.endpoint?.let(::normalizeMemoEndpoint) ?: current.endpoint,
-        // 空文字はトークンを消す意図、null は変更しない
-        token = when {
-            patch.token == null -> current.token
-            patch.token.isBlank() -> null
-            else -> patch.token.trim()
-        },
-        pollIntervalMs = (patch.pollIntervalMs ?: current.pollIntervalMs).coerceIn(10_000, 600_000),
-    )
+    private fun applyMemo(current: MemoConfig, patch: MemoPatch): MemoConfig {
+        val endpoint = patch.endpoint?.let(::normalizeMemoEndpoint) ?: current.endpoint
+        // 送り先のホストだけ変えると、保存済みのトークンがそのまま新しいホストへ送られる。トークンも入れ直してもらう
+        val moved = hostOf(endpoint) != hostOf(current.endpoint)
+        return current.copy(
+            enabled = patch.enabled ?: current.enabled,
+            endpoint = endpoint,
+            // 空文字はトークンを消す意図、null は変更しない
+            token = when {
+                patch.token == null -> current.token.takeUnless { moved }
+                patch.token.isBlank() -> null
+                else -> patch.token.trim()
+            },
+            pollIntervalMs = (patch.pollIntervalMs ?: current.pollIntervalMs).coerceIn(10_000, 600_000),
+        )
+    }
+
+    private fun hostOf(url: String?): String? =
+        url?.takeIf { it.isNotBlank() }?.let { runCatching { java.net.URI(it.trim()).host?.lowercase() }.getOrNull() }
 
     private fun applyTrain(current: TrainConfig, patch: TrainPatch) = current.copy(
         enabled = patch.enabled ?: current.enabled,
@@ -189,6 +281,8 @@ class SettingsController(private val graph: AppGraph) {
         clientId = patch.clientId?.trim() ?: current.clientId,
         saveLyrics = patch.saveLyrics ?: current.saveLyrics,
         background = patch.background?.takeIf { it in SPOTIFY_BACKGROUNDS } ?: current.background,
+        monoColor = monoColorOrNull(patch.monoColor) ?: current.monoColor,
+        layout = patch.layout?.sanitized() ?: current.layout,
     )
 
     /**

@@ -101,7 +101,7 @@ class Auth(private val store: ConfigStore) {
     fun settingsLocked(): Boolean = store.get().settingsLock.let { it.enabled && it.pinHash != null && it.pinSalt != null }
 
     /** 設定画面の PIN を確かめる。5 回まちがえると 5 分は受け付けない。 */
-    fun unlockSettings(pin: String): UnlockResult {
+    fun unlockSettings(pin: String): UnlockResult = synchronized(lockAttempts) {
         val now = System.currentTimeMillis()
         if (lockAttempts.lockedUntil > now) return UnlockResult.Locked((lockAttempts.lockedUntil - now + 999) / 1000)
         val lock = store.get().settingsLock
@@ -124,37 +124,42 @@ class Auth(private val store: ConfigStore) {
     fun login(remoteAddress: String?, pin: String): LoginResult {
         val ip = normalizeIp(remoteAddress)
         val record = attempts.getOrPut(ip) { Attempts() }
-        val now = System.currentTimeMillis()
-
-        if (record.lockedUntil > now) {
-            return LoginResult.Locked((record.lockedUntil - now + 999) / 1000)
-        }
-
-        val lan = store.get().lan
-        val storedHash = lan.pinHash
-        val storedSalt = lan.pinSalt
-        if (storedHash == null || storedSalt == null) return LoginResult.NoPinConfigured
-
-        val candidate = derive(pin, decode(storedSalt), lan.pinIterations, lan.pinAlgorithm)
-        val matches = MessageDigest.isEqual(candidate, decode(storedHash))
-
-        if (!matches) {
-            record.count += 1
-            if (record.count >= MAX_ATTEMPTS) {
-                record.lockedUntil = now + LOCKOUT_MS
-                record.count = 0
-                return LoginResult.Locked(LOCKOUT_MS / 1000)
+        // 確かめる→照合する→数える、を IP ごとに 1 本ずつにする。並べて送られると、全部がロックの判定をすり抜けて照合されるため
+        synchronized(record) {
+            val now = System.currentTimeMillis()
+            if (record.lockedUntil > now) {
+                return LoginResult.Locked((record.lockedUntil - now + 999) / 1000)
             }
-            return LoginResult.Failed(MAX_ATTEMPTS - record.count)
-        }
 
-        record.count = 0
-        record.lockedUntil = 0
-        val token = newToken()
-        val expiresAt = now + SESSION_TTL_MS
-        sessions[token] = expiresAt
-        return LoginResult.Success(token, expiresAt)
+            val lan = store.get().lan
+            val storedHash = lan.pinHash
+            val storedSalt = lan.pinSalt
+            if (storedHash == null || storedSalt == null) return LoginResult.NoPinConfigured
+
+            val candidate = derive(pin, decode(storedSalt), lan.pinIterations, lan.pinAlgorithm)
+            val matches = MessageDigest.isEqual(candidate, decode(storedHash))
+
+            if (!matches) {
+                record.count += 1
+                if (record.count >= MAX_ATTEMPTS) {
+                    record.lockedUntil = now + LOCKOUT_MS
+                    record.count = 0
+                    return LoginResult.Locked(LOCKOUT_MS / 1000)
+                }
+                return LoginResult.Failed(MAX_ATTEMPTS - record.count)
+            }
+
+            record.count = 0
+            record.lockedUntil = 0
+            val token = newToken()
+            val expiresAt = now + SESSION_TTL_MS
+            sessions[token] = expiresAt
+            return LoginResult.Success(token, expiresAt)
+        }
     }
+
+    /** ログイン中の LAN の端末をすべて締め出す（LAN 公開を切ったとき）。 */
+    fun clearSessions() = sessions.clear()
 
     // -------------------------------------------------------------- session
 

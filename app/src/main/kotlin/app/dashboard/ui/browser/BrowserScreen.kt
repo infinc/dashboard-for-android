@@ -1,11 +1,15 @@
 package app.dashboard.ui.browser
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.dashboard.i18n.L
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -65,11 +69,29 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.dashboard.data.ConfigStore
 import app.dashboard.data.Favorite
+import app.dashboard.server.DashboardServer
+import app.dashboard.server.HostPolicy
 import app.dashboard.ui.common.WdIcons
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
 
 private const val HOME_URL = "https://www.google.com"
+
+/** 設定サーバーのうち、ブラウズで開いてよい道（Spotify の連携は設定画面からこのブラウズで行う）。 */
+private val OPEN_PATHS = setOf("/api/spotify/start", "/api/spotify/callback")
+
+/**
+ * 設定に PIN を掛けているのに、ブラウズで内蔵の設定サーバー（http://127.0.0.1:8080/settings）を開かれると、
+ * loopback は認証が要らないので PIN を素通りされる。その宛先だけ断る（LAN のほかの機器は開ける）。
+ */
+internal fun blockedBySettingsLock(config: ConfigStore, url: String?): Boolean {
+    val lock = config.get().settingsLock
+    if (!lock.enabled || lock.pinHash == null) return false
+    val uri = runCatching { Uri.parse(url ?: return false) }.getOrNull() ?: return false
+    if (uri.port != DashboardServer.PORT) return false
+    if (!HostPolicy.isSelf(uri.host, config.get().lan.extraHosts)) return false
+    return uri.path !in OPEN_PATHS
+}
 
 /**
  * ダッシュボードの上に重ねる簡易ブラウザ。閉じたら WebView ごと破棄する
@@ -100,6 +122,11 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
         if (!fieldFocused) field = TextFieldValue(url)
     }
 
+    fun open(url: String) {
+        if (blockedBySettingsLock(config, url)) toast(L("設定の PIN が掛かっているため、このページは開けません", "This page is blocked by the settings PIN"))
+        else webView?.loadUrl(url)
+    }
+
     fun go(input: String) {
         val q = input.trim()
         if (q.isEmpty()) return
@@ -109,7 +136,7 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
             else -> "https://www.google.com/search?q=" + Uri.encode(q)
         }
         focus.clearFocus()
-        webView?.loadUrl(target)
+        open(target)
     }
 
     val saved = favorites.browser.favorites
@@ -209,7 +236,20 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
                     webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) = onUrlChanged(url)
+                        // ページのリンク・転送で設定サーバーへ行くのを止める
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                            request.isForMainFrame && blockedBySettingsLock(config, request.url.toString())
+
+                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                            // ここまで来たもの（履歴の戻る等）も、表示する前に止める
+                            if (blockedBySettingsLock(config, url)) {
+                                view.stopLoading()
+                                view.loadUrl("about:blank")
+                                toast(L("設定の PIN が掛かっているため、このページは開けません", "This page is blocked by the settings PIN"))
+                                return
+                            }
+                            onUrlChanged(url)
+                        }
 
                         override fun onPageFinished(view: WebView, url: String) {
                             onUrlChanged(url)
@@ -234,6 +274,20 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
 
     LaunchedEffect(startUrl) {
         startUrl?.takeIf { it.startsWith("http") }?.let { url -> webView?.takeIf { it.url != url }?.loadUrl(url) }
+    }
+
+    // 画面が消えた・別のアプリへ移ったら、ページの音や JS を止める（YouTube を開いたまま消灯しても鳴り続けないように）
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> webView?.onPause()
+                Lifecycle.Event.ON_RESUME -> webView?.onResume()
+                else -> {}
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
 
     DisposableEffect(Unit) {
@@ -266,7 +320,7 @@ fun BrowserScreen(config: ConfigStore, startUrl: String?, accent: Color, onClose
                 listOpen = false
                 focus.clearFocus()
                 field = TextFieldValue(url)
-                webView?.loadUrl(url)
+                open(url)
             },
             onDismiss = { listOpen = false },
         )

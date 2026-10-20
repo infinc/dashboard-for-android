@@ -1,10 +1,13 @@
 package app.dashboard
 
+import app.dashboard.data.WidgetRepository
 import app.dashboard.data.BrowserConfig
 import app.dashboard.data.Config
 import app.dashboard.data.LanConfig
 import app.dashboard.data.MAX_PRESETS
+import app.dashboard.data.MAX_PRESET_TIMES
 import app.dashboard.data.Preset
+import app.dashboard.data.PresetTime
 import app.dashboard.data.PresetsConfig
 import app.dashboard.data.SettingsLockConfig
 import app.dashboard.data.WallpaperConfig
@@ -23,7 +26,7 @@ class PresetController(private val graph: AppGraph) {
 
     /** 一覧。まだ 1 つも作っていなければ、いまの設定を 1 つ目（名前は「A」）として返す（保存はしない）。 */
     fun list(c: Config = graph.config.get()): PresetsConfig =
-        if (c.presets.items.isNotEmpty()) c.presets else PresetsConfig(FIRST_ID, listOf(Preset(FIRST_ID, "A")))
+        if (c.presets.items.isNotEmpty()) c.presets else c.presets.copy(active = FIRST_ID, items = listOf(Preset(FIRST_ID, "A")))
 
     /** いまの設定を写して新しいプリセットを作り、そこへ切り替える。 */
     fun create(name: String): Config = synchronized(lock) {
@@ -38,7 +41,7 @@ class PresetController(private val graph: AppGraph) {
         graph.wallpaper.stash(id)
         graph.config.update { c ->
             val items = presets.items.map { if (it.id == presets.active) it.copy(config = strip(c)) else it } + Preset(id, label, strip(c))
-            c.copy(presets = PresetsConfig(id, items))
+            c.copy(presets = presets.copy(active = id, items = items))
         }
     }
 
@@ -57,7 +60,42 @@ class PresetController(private val graph: AppGraph) {
         }
         if (id == presets.active) switchLocked(presets.items.first { it.id != id }.id)
         graph.wallpaper.drop(id)
-        graph.config.update { c -> c.copy(presets = c.presets.copy(items = c.presets.items.filterNot { it.id == id })) }
+        graph.config.update { c ->
+            c.copy(presets = c.presets.copy(items = c.presets.items.filterNot { it.id == id }, schedule = c.presets.schedule.filterNot { it.id == id }))
+        }
+    }
+
+    // ------------------------------------------------------------ 時刻での切り替え
+
+    /** 時刻での切り替えを保存する。時刻は "H:mm" も受け、"HH:mm" にそろえる。読めない時刻・無いプリセットは落とす。 */
+    fun setSchedule(times: List<PresetTime>): Config = synchronized(lock) {
+        val presets = list()
+        val clean = times
+            .mapNotNull { t -> parseTime(t.at)?.let { PresetTime(it.format(HHMM), t.id) } }
+            .filter { t -> presets.items.any { it.id == t.id } }
+            .distinctBy { it.at }
+            .sortedBy { it.at }
+            .take(MAX_PRESET_TIMES)
+        graph.config.update { c -> c.copy(presets = presets.copy(schedule = clean)) }
+    }
+
+    private val prefs by lazy { graph.context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE) }
+
+    /**
+     * 常駐のサービスが 15 秒ごとに呼ぶ。前に見た時刻からいままでの間に切り替えの時刻があれば、その最後のものへ切り替える。
+     * 端末が止まっていた間の分も、24 時間前までは拾う（夜中に再起動しても朝に「昼」へ戻る）。
+     */
+    fun tickSchedule(now: java.time.LocalDateTime = java.time.LocalDateTime.now()) {
+        val schedule = graph.config.get().presets.schedule
+        val nowMs = now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val last = prefs.getLong(KEY_CHECKED, 0L)
+        prefs.edit().putLong(KEY_CHECKED, nowMs).apply()
+        if (schedule.isEmpty() || last == 0L) return
+        val from = java.time.Instant.ofEpochMilli(maxOf(last, nowMs - DAY_MS)).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+        val due = due(schedule, from, now) ?: return
+        if (list().active == due.id) return
+        runCatching { switchTo(due.id) }
+            .onFailure { android.util.Log.w("PresetController", "時刻での切り替えに失敗", it) }
     }
 
     /** [id] のプリセットへ切り替える。取得先が変わったものはすぐ取り直す。 */
@@ -76,7 +114,7 @@ class PresetController(private val graph: AppGraph) {
             // 控えの無いプリセット（作った直後に壊れた等）は、いまの設定のまま名前だけ切り替える
             val base = target.config ?: strip(c)
             keep(base, c).copy(
-                presets = PresetsConfig(id, items),
+                presets = presets.copy(active = id, items = items),
                 wallpaper = WallpaperConfig(imageSetAt = if (hasImage) System.currentTimeMillis() else 0),
             )
         }
@@ -92,12 +130,33 @@ class PresetController(private val graph: AppGraph) {
         presets = PresetsConfig(),
     )
 
-    /** 切り替え先の控え [base] に、切り替えても変わらないものを [current] から戻す。 */
+    /**
+     * 切り替え先の控え [base] に、切り替えても変わらないものを [current] から戻す。
+     * トークン・パスワード・API キーは、いまの値を引き継ぐ（控えの値は古い。Spotify の更新用トークンは使うたびに差し替わるので、
+     * 控えに戻すと認可が切れる。片方で連携を解除したのに、もう片方に残るのも防ぐ）。
+     * 同じアカウント・同じ送り先のときだけ引き継ぎ、別のアカウントを使うプリセットはその控えのままにする。
+     */
     private fun keep(base: Config, current: Config): Config = base.copy(
         configVersion = current.configVersion,
         browser = current.browser,
         lan = current.lan,
         settingsLock = current.settingsLock,
+        spotify = if (base.spotify.clientId == current.spotify.clientId) base.spotify.copy(refreshToken = current.spotify.refreshToken) else base.spotify,
+        calendar = if (base.calendar.appleId == current.calendar.appleId) base.calendar.copy(password = current.calendar.password) else base.calendar,
+        memo = if (base.memo.endpoint == current.memo.endpoint) base.memo.copy(token = current.memo.token) else base.memo,
+        train = base.train.copy(token = current.train.token, challengeToken = current.train.challengeToken),
+        ships = current.ships,
+        notifyApi = current.notifyApi,
+        github = if (base.github.user == current.github.user) base.github.copy(token = current.github.token) else base.github,
+        // 外から送る口はプリセットで変えない。ヘッダーの値（トークン）は同じ送り先・同じ名前のときだけいまの値
+        widgets = base.widgets.copy(
+            pushEnabled = current.widgets.pushEnabled,
+            pushToken = current.widgets.pushToken,
+            items = base.widgets.items.map { b ->
+                val cur = current.widgets.def(b.id)
+                if (b.headerName == cur.headerName && WidgetRepository.hostOf(b.url) == WidgetRepository.hostOf(cur.url)) b.copy(headerValue = cur.headerValue) else b
+            },
+        ),
     )
 
     private fun newId(p: PresetsConfig): String =
@@ -111,5 +170,31 @@ class PresetController(private val graph: AppGraph) {
     companion object {
         const val FIRST_ID = "p1"
         const val MAX_NAME = 20
+        private const val PREFS = "dashboard_presets"
+        private const val KEY_CHECKED = "scheduleCheckedAt"
+        private const val DAY_MS = 24 * 60 * 60 * 1000L
+        private val HHMM = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+        fun parseTime(text: String): java.time.LocalTime? {
+            val m = Regex("""^\s*(\d{1,2}):(\d{2})\s*$""").find(text) ?: return null
+            val h = m.groupValues[1].toInt()
+            val min = m.groupValues[2].toInt()
+            return if (h in 0..23 && min in 0..59) java.time.LocalTime.of(h, min) else null
+        }
+
+        /** [from] より後、[to] まで（含む）に来た切り替えの時刻のうち、いちばん遅いもの。無ければ null。 */
+        fun due(schedule: List<PresetTime>, from: java.time.LocalDateTime, to: java.time.LocalDateTime): PresetTime? {
+            if (!to.isAfter(from)) return null
+            var best: Pair<java.time.LocalDateTime, PresetTime>? = null
+            var day = from.toLocalDate()
+            while (!day.isAfter(to.toLocalDate())) {
+                schedule.forEach { t ->
+                    val at = parseTime(t.at)?.let { day.atTime(it) } ?: return@forEach
+                    if (at.isAfter(from) && !at.isAfter(to) && (best == null || at.isAfter(best!!.first))) best = at to t
+                }
+                day = day.plusDays(1)
+            }
+            return best?.second
+        }
     }
 }

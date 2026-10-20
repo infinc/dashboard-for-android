@@ -36,6 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,7 @@ import app.dashboard.data.CardLayout
 import app.dashboard.data.toPublic
 import app.dashboard.i18n.L
 import app.dashboard.ui.common.WdIcons
+import app.dashboard.ui.common.setCovered
 import app.dashboard.ui.theme.Wd
 import app.dashboard.ui.theme.tu
 import kotlinx.coroutines.delay
@@ -113,6 +115,8 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     var cryptoFull by remember { mutableStateOf(false) }
     var flightFull by remember { mutableStateOf(false) }
     var shipFull by remember { mutableStateOf(false) }
+    /** 履歴のグラフを画面いっぱいに出している自作カード（w1〜w4）。 */
+    var widgetFull by remember { mutableStateOf<String?>(null) }
     /** 写真のスクリーンセーバー（写真カードの長押し）。「暗くしない」は無いので fullscreen には数えない。 */
     var photoFull by remember { mutableStateOf(false) }
     /** 進路図を画面いっぱいに出している台風の識別子。 */
@@ -121,7 +125,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     var typhoonShown by remember { mutableStateOf<app.dashboard.data.TyphoonInfo?>(null) }
     val keepAwake by vm.keepAwake.collectAsStateWithLifecycle()
     // 全画面の間だけ「画面を暗くしない」を効かせる（MainActivity が holdAwake を見る。閉じたら無操作の減光に戻る）
-    val fullscreen = nowPlaying || bigClock || radarFull || cryptoFull || flightFull || shipFull
+    val fullscreen = nowPlaying || bigClock || radarFull || cryptoFull || flightFull || shipFull || widgetFull != null
     LaunchedEffect(fullscreen) { vm.setFullscreenOpen(fullscreen) }
 
     // 地点の名前は設定の言語で（英語の名前を持たない古い設定では、気象庁の市町村の英語名）
@@ -164,13 +168,27 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             )
             Slot.GITHUB -> GithubCard(s?.github, remember(config.github) { config.toPublic().github }, now, modifier)
             Slot.TODO -> TodoCard(todos, vm::addTodo, vm::doneTodo, modifier)
+            Slot.HEALTH -> HealthCard(s?.health, now, modifier)
+            Slot.WIDGET1, Slot.WIDGET2, Slot.WIDGET3, Slot.WIDGET4 -> {
+                val id = "w" + slot.name.removePrefix("WIDGET")
+                WidgetCard(config.widgets.def(id), s?.widgets?.of(id), config.widgets.pushEnabled, now, { widgetFull = id }, modifier)
+            }
         }
     }
 
-    val shift = burnInShift(d.burnInShiftEnabled)
+    // Spotify の全画面の「焼き付き防止」で一時的に選んだ値（null は設定のまま）。全画面を閉じたら設定に戻す
+    var nowPlayingShift by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(nowPlaying) { if (!nowPlaying) nowPlayingShift = null }
+    val fullShiftOn = (if (nowPlaying) nowPlayingShift else null) ?: (d.burnInShiftEnabled && d.fullscreenShiftEnabled)
+    val shift = burnInShift(d.burnInShiftEnabled || fullShiftOn)
+    val cardShift = if (d.burnInShiftEnabled) shift else IntOffset.Zero
     // 全画面の間もずらすかは設定で選ぶ（オフなら全画面の層だけ 0 に戻す。下のカードはずらし続ける）
     val anyFull = fullscreen || photoFull || typhoonId != null
-    val fullShift = if (d.fullscreenShiftEnabled) shift else IntOffset.Zero
+    DisposableEffect(anyFull) {
+        setCovered("fullscreen", anyFull)
+        onDispose { setCovered("fullscreen", false) }
+    }
+    val fullShift = if (fullShiftOn) shift else IntOffset.Zero
     val screen = LocalConfiguration.current
     // 縦向きと、横でも幅の狭い端末（スマホなど）は 2 列にして縦にスクロールさせる
     val compact = CardLayout.isCompact(screen.screenWidthDp, screen.screenHeightDp)
@@ -179,7 +197,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
     Box(Modifier.fillMaxSize().background(Wd.Bg).drawBehind { if (wallpaper == null) glow() }) {
         wallpaper?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         // 焼き付き防止のずらし。カードとフッターには常に、全画面（Spotify・時刻・雨雲レーダー・写真など）には設定で許したときだけ
-        Box(Modifier.fillMaxSize().offset { shift }) {
+        Box(Modifier.fillMaxSize().offset { cardShift }) {
             Column(Modifier.fillMaxSize()) {
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(GAP)) {
                     val area = CardLayout.Area(maxHeight.value.toInt(), screen.screenWidthDp, screen.screenHeightDp)
@@ -223,7 +241,11 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
         Box(Modifier.fillMaxSize().offset { fullShift }) {
             AnimatedVisibility(nowPlaying, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
-                NowPlayingScreen(s?.spotify, album, now, keepAwake, vm::setKeepAwake, vm::spotifyControl, config.spotify.background, vm::lyrics, onBack = { nowPlaying = false })
+                NowPlayingScreen(
+                    s?.spotify, album, now, keepAwake, vm::setKeepAwake, fullShiftOn, { nowPlayingShift = it },
+                    vm::spotifyControl, config.spotify.background, config.spotify.monoColor, config.spotify.layout, vm::lyrics,
+                    onBack = { nowPlaying = false },
+                )
             }
             AnimatedVisibility(bigClock, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
                 BigClockScreen(now, config.units, d, keepAwake, vm::setKeepAwake, onBack = { bigClock = false })
@@ -233,6 +255,12 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
                     radar, config.location.displayName(s?.disaster?.areaNameEn), keepAwake, vm::setKeepAwake,
                     vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
                 )
+            }
+            AnimatedVisibility(widgetFull != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
+                // 閉じる間（フェードの途中）も最後に開いたカードを描き続ける
+                var shownId by remember { mutableStateOf("w1") }
+                widgetFull?.let { shownId = it }
+                WidgetScreen(config.widgets.def(shownId), s?.widgets?.of(shownId), now, keepAwake, vm::setKeepAwake, onBack = { widgetFull = null })
             }
             AnimatedVisibility(cryptoFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
                 CryptoScreen(s?.crypto, config.crypto, now, keepAwake, vm::setKeepAwake, vm::cryptoDetail, onBack = { cryptoFull = false })
@@ -289,7 +317,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
         }
 
         // 通知のバナーは全画面の上にも出す
-        Box(Modifier.fillMaxSize().offset { if (anyFull) fullShift else shift }) {
+        Box(Modifier.fillMaxSize().offset { if (anyFull) fullShift else cardShift }) {
             AnimatedVisibility(
                 visible = toast != null,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),

@@ -46,6 +46,9 @@ class TrainRepository(context: Context, private val client: HttpClient, private 
         .map { RailwayChoice(it.id, if (Lang.en) it.titleEn ?: it.title else it.title, it.operator?.let(::operatorName) ?: operatorFallback(it.operator)) }
         .sortedWith(compareBy({ it.operator }, { it.title }))
 
+    /** 取りに行く設定になっているか（オンでも、トークンや路線が無ければ取りに行かない）。 */
+    fun active(): Boolean = configStore.get().train.let { it.enabled && sources(it).isNotEmpty() }
+
     suspend fun refreshIfDue() {
         val c = configStore.get().train
         if (!c.enabled || sources(c).isEmpty()) return

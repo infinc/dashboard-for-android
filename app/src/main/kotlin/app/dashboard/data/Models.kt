@@ -362,6 +362,11 @@ data class LanConfig(
      * 端末を跨いで設定を持ち運ばないが、OS 更新後も既存 PIN を検証できるよう保存する。
      */
     val pinAlgorithm: String = "PBKDF2WithHmacSHA256",
+    /**
+     * Web の設定画面を開くときの、IP 以外の名前（dashboard.local など）。サーバーは Host ヘッダーがこの端末の
+     * IP・loopback・ここに書いた名前のどれかでなければ断る（DNS rebinding 対策、server/HostPolicy.kt）。画面からは編集しない。
+     */
+    val extraHosts: List<String> = emptyList(),
 )
 
 @Serializable
@@ -484,6 +489,12 @@ data class DisplayConfig(
     val showShips: Boolean = false,
     val showGithub: Boolean = false,
     val showTodo: Boolean = false,
+    val showHealth: Boolean = false,
+    /** 自作カード（[WidgetsConfig] の w1〜w4）。 */
+    val showWidget1: Boolean = false,
+    val showWidget2: Boolean = false,
+    val showWidget3: Boolean = false,
+    val showWidget4: Boolean = false,
 
     /** カードの角の丸み（dp）。[CARD_RADIUS_MIN]〜[CARD_RADIUS_MAX]。 */
     val cardRadius: Int = CARD_RADIUS_DEFAULT,
@@ -613,12 +624,147 @@ data class SpotifyConfig(
     val refreshToken: String? = null,
     /** 見つけた歌詞を端末に保存する（直近 300 曲まで。次からは通信せずに出せる）。 */
     val saveLyrics: Boolean = true,
-    /** 全画面の背景。[SPOTIFY_BACKGROUNDS] のどれか（still = 動かない単色・flow = 漂う光の玉・spike = 尖った光）。 */
+    /** 全画面の背景。[SPOTIFY_BACKGROUNDS] のどれか（still = 動かない単色・flow = 漂う光の玉・spike = 尖った光・mono = 選んだ 1 色の漂う光）。 */
     val background: String = "flow",
+    /** 背景が "mono" のときの色（#RRGGBB）。この色の明るい・暗いだけで光を描く。 */
+    val monoColor: String = DEFAULT_MONO_COLOR,
+    /** 全画面の部品の配置・大きさ・表示。 */
+    val layout: SpotifyLayout = SpotifyLayout(),
 )
 
 /** Spotify の全画面の背景の選択肢（保存する値）。 */
-val SPOTIFY_BACKGROUNDS = listOf("still", "flow", "spike")
+val SPOTIFY_BACKGROUNDS = listOf("still", "flow", "spike", "mono")
+
+const val DEFAULT_MONO_COLOR = "#3E6FB8"
+
+/**
+ * Spotify の全画面の見た目。位置（〜X・〜Y）は 0..100 で、0 が左端（上端）、100 が右端（下端）、50 が真ん中。
+ * 部品は画面の外に出ない（残りの余白のどこに置くかの割合）。大きさの単位は項目ごとに書く。
+ * 歌詞の右下の出典（「歌詞: LRCLIB」など）だけは、ここでは変えられない（歌詞の欄に付いて動く）。
+ */
+@Serializable
+data class SpotifyLayout(
+    /** 触られないまま、自動で消す部品を消すまでの秒数（2..60）。 */
+    val hideSeconds: Int = 5,
+
+    // ジャケット
+    val coverShow: Boolean = true,
+    /** 一辺の長さ。画面の高さに対する %（15..100。画面の幅を超えない）。 */
+    val coverSize: Int = 58,
+    /** 角の丸み（dp、0..60）。 */
+    val coverRadius: Int = 14,
+    val coverX: Int = 50,
+    val coverY: Int = 50,
+    /** 歌詞を出しているときの位置。 */
+    val coverLyricsX: Int = 11,
+    val coverLyricsY: Int = 50,
+    val coverAutoHide: Boolean = false,
+
+    // 歌詞
+    /** "tap" = ジャケット（無ければ画面）を押すと出す・"open" = 開いたときから出しておく・"off" = 出さない。 */
+    val lyricsMode: String = "tap",
+    val lyricsX: Int = 90,
+    val lyricsY: Int = 50,
+    /** 欄の幅（画面の幅の %、20..100）と高さ（画面の高さの %、15..100）。 */
+    val lyricsWidth: Int = 43,
+    val lyricsHeight: Int = 52,
+    /** 文字の大きさ（12..60）。 */
+    val lyricsFontSize: Int = 23,
+    /** 歌っている行とほかの行の太さ（100..900）。 */
+    val lyricsWeight: Int = 700,
+    val lyricsOtherWeight: Int = 600,
+    /** 1 行の中の行の高さ（文字の大きさに対する %、100..250）と、行と行の間（dp、0..40）。 */
+    val lyricsLineHeight: Int = 135,
+    val lyricsGap: Int = 14,
+    /** ほかの行の濃さ（%、10..100）。 */
+    val lyricsDim: Int = 45,
+    /** "left" | "center" | "right" */
+    val lyricsAlign: String = "left",
+    val lyricsAutoHide: Boolean = false,
+
+    // 曲名・アーティスト名（1 つのまとまりとして置く）
+    val titleShow: Boolean = true,
+    val artistShow: Boolean = true,
+    val titleSize: Int = 30,
+    val titleWeight: Int = 700,
+    val artistSize: Int = 18,
+    val artistWeight: Int = 400,
+    val titleX: Int = 50,
+    val titleY: Int = 94,
+    /** まとまりの幅（画面の幅の %、20..100）と、アーティスト名の欄の幅（まとまりの幅の %、20..100。下の操作ボタンに重ねないため）。 */
+    val titleWidth: Int = 88,
+    val artistWidth: Int = 31,
+    val titleAlign: String = "left",
+    /** アーティスト名を曲名の上に出す。 */
+    val artistFirst: Boolean = false,
+    val titleAutoHide: Boolean = false,
+
+    // 操作ボタン（前の曲・再生／一時停止・次の曲）
+    val controlsShow: Boolean = true,
+    /** 大きさ（%、50..250）。 */
+    val controlsSize: Int = 100,
+    val controlsX: Int = 50,
+    val controlsY: Int = 100,
+    val controlsAutoHide: Boolean = true,
+
+    // 再生時間
+    val progressShow: Boolean = true,
+    /** 文字の大きさ（10..48）。 */
+    val progressSize: Int = 17,
+    val progressX: Int = 95,
+    val progressY: Int = 100,
+    val progressAutoHide: Boolean = true,
+
+    // 右上の切り替え（焼き付き防止・暗くしない）
+    val togglesShow: Boolean = true,
+    /** 大きさ（%、50..250）と角の丸み（dp、0..30）。 */
+    val togglesSize: Int = 100,
+    val togglesRadius: Int = 16,
+    val togglesX: Int = 100,
+    val togglesY: Int = 0,
+    val togglesAutoHide: Boolean = true,
+
+    // 左上の戻るボタン（消せない。端末の戻る操作でも閉じられる）
+    /** 大きさ（%、50..250）。 */
+    val backSize: Int = 100,
+    val backX: Int = 0,
+    val backY: Int = 0,
+    val backAutoHide: Boolean = false,
+) {
+    /** 範囲外の値を丸める（Web や古い設定から来た値をそのまま使わない）。 */
+    fun sanitized(): SpotifyLayout {
+        fun p(v: Int) = v.coerceIn(0, 100)
+        fun w(v: Int) = (v.coerceIn(100, 900) / 100) * 100
+        fun a(v: String) = v.takeIf { it in SPOTIFY_ALIGNS } ?: "left"
+        return copy(
+            hideSeconds = hideSeconds.coerceIn(2, 60),
+            coverSize = coverSize.coerceIn(15, 100), coverRadius = coverRadius.coerceIn(0, 60),
+            coverX = p(coverX), coverY = p(coverY), coverLyricsX = p(coverLyricsX), coverLyricsY = p(coverLyricsY),
+            lyricsMode = lyricsMode.takeIf { it in SPOTIFY_LYRICS_MODES } ?: "tap",
+            lyricsX = p(lyricsX), lyricsY = p(lyricsY),
+            lyricsWidth = lyricsWidth.coerceIn(20, 100), lyricsHeight = lyricsHeight.coerceIn(15, 100),
+            lyricsFontSize = lyricsFontSize.coerceIn(12, 60),
+            lyricsWeight = w(lyricsWeight), lyricsOtherWeight = w(lyricsOtherWeight),
+            lyricsLineHeight = lyricsLineHeight.coerceIn(100, 250), lyricsGap = lyricsGap.coerceIn(0, 40),
+            lyricsDim = lyricsDim.coerceIn(10, 100), lyricsAlign = a(lyricsAlign),
+            titleSize = titleSize.coerceIn(12, 80), titleWeight = w(titleWeight),
+            artistSize = artistSize.coerceIn(10, 60), artistWeight = w(artistWeight),
+            titleX = p(titleX), titleY = p(titleY),
+            titleWidth = titleWidth.coerceIn(20, 100), artistWidth = artistWidth.coerceIn(20, 100), titleAlign = a(titleAlign),
+            controlsSize = controlsSize.coerceIn(50, 250), controlsX = p(controlsX), controlsY = p(controlsY),
+            progressSize = progressSize.coerceIn(10, 48), progressX = p(progressX), progressY = p(progressY),
+            togglesSize = togglesSize.coerceIn(50, 250), togglesRadius = togglesRadius.coerceIn(0, 30),
+            togglesX = p(togglesX), togglesY = p(togglesY),
+            backSize = backSize.coerceIn(50, 250), backX = p(backX), backY = p(backY),
+        )
+    }
+}
+
+val SPOTIFY_ALIGNS = listOf("left", "center", "right")
+val SPOTIFY_LYRICS_MODES = listOf("tap", "open", "off")
+
+/** "#RRGGBB" だけを通す（大文字にそろえる）。 */
+fun monoColorOrNull(hex: String?): String? = hex?.trim()?.takeIf { Regex("#[0-9a-fA-F]{6}").matches(it) }?.uppercase()
 
 /**
  * ブラウズ画面のお気に入り 1 件。
@@ -871,6 +1017,24 @@ data class StockQuote(
 @Serializable
 data class StocksState(
     val quotes: List<StockQuote> = emptyList(),
+    val fetchedAt: Long = 0,
+    val lastError: String? = null,
+)
+
+// ---------------------------------------------------------------- 空気・体調
+
+/** 1 時間ぶん。[wbgt] は気温・湿度・日射・風からの推定（℃）。 */
+@Serializable
+data class HealthHour(val time: String, val wbgt: Double? = null, val uv: Double? = null, val pm25: Double? = null)
+
+/**
+ * 空気・体調のカード。暑さ指数（WBGT、推定）・紫外線・PM2.5。
+ * [hours] は今日の 0 時から明日の終わりまで（カードは今の時刻から先を描く）。
+ */
+@Serializable
+data class HealthState(
+    val hours: List<HealthHour> = emptyList(),
+    val timezone: String? = null,
     val fetchedAt: Long = 0,
     val lastError: String? = null,
 )
@@ -1188,7 +1352,46 @@ data class Config(
     val presets: PresetsConfig = PresetsConfig(),
     /** アプリの設定画面を開くときの PIN。 */
     val settingsLock: SettingsLockConfig = SettingsLockConfig(),
+    /** 外から通知を出す API（POST /api/notify）。 */
+    val notifyApi: NotifyApiConfig = NotifyApiConfig(),
+    /** 自作カード（取得先と見せ方を設定で決めるカード）。 */
+    val widgets: WidgetsConfig = WidgetsConfig(),
 )
+
+/**
+ * 外から通知を出す API。Home Assistant・iPhone のショートカット・cron などから `POST /api/notify` で
+ * ダッシュボードにバナーと音を出す。[token] は `Authorization: Bearer …` で送ってもらう（設定の画面で作る）。
+ */
+@Serializable
+data class NotifyApiConfig(
+    val enabled: Boolean = false,
+    val token: String? = null,
+)
+
+/** 設定の画面に出す、通知 API の中身（Web は /api/notify/config で読む）。 */
+@Serializable
+data class NotifyApiInfo(
+    val enabled: Boolean,
+    val token: String?,
+    /** 他の端末から送るときの URL（LAN 公開が無効、または Wi-Fi の IP が取れないときは null）。 */
+    val lanUrl: String?,
+    val lanEnabled: Boolean,
+)
+
+@Serializable
+data class NotifyApiPatch(val enabled: Boolean? = null, val regenerate: Boolean = false)
+
+/** POST /api/notify の本文。[tone] は通知の音の ID（Tones）。無ければ「LINE メモ」の音。 */
+@Serializable
+data class NotifyRequest(
+    val title: String? = null,
+    val text: String = "",
+    val sound: Boolean = true,
+    val tone: String? = null,
+)
+
+/** 外から届いた通知（サーバー → ダッシュボードの画面）。 */
+data class ExternalNotice(val title: String, val text: String, val tone: String?)
 
 // ---------------------------------------------------------------- プリセット
 
@@ -1211,7 +1414,15 @@ data class Preset(
 data class PresetsConfig(
     val active: String = "",
     val items: List<Preset> = emptyList(),
+    /** 時刻での切り替え（例: 22:00 に「夜」、6:00 に「昼」）。その時刻を過ぎたときに 1 回だけ切り替える（手で戻したらそのまま）。 */
+    val schedule: List<PresetTime> = emptyList(),
 )
+
+/** [at]（"HH:mm"、端末の時刻）になったら、プリセット [id] に切り替える。 */
+@Serializable
+data class PresetTime(val at: String, val id: String)
+
+const val MAX_PRESET_TIMES = 6
 
 /**
  * アプリの設定画面を開くときの PIN（既定はオフ）。ハッシュは LAN の PIN と同じ PBKDF2。
@@ -1247,6 +1458,8 @@ data class SpotifyPublic(
     val connected: Boolean = false,
     val saveLyrics: Boolean = true,
     val background: String = "flow",
+    val monoColor: String = DEFAULT_MONO_COLOR,
+    val layout: SpotifyLayout = SpotifyLayout(),
 )
 
 @Serializable
@@ -1271,6 +1484,7 @@ data class PublicConfig(
     val crypto: CryptoConfig = CryptoConfig(),
     val ships: ShipPublic = ShipPublic(),
     val github: GithubPublic = GithubPublic(),
+    val widgets: WidgetsPublic = WidgetsPublic(),
     /** Web の設定画面が選択肢を組み立てるための一覧。アプリの設定画面と同じものを使う。 */
     val choices: SettingChoices = SettingChoices.ALL,
 )
@@ -1290,6 +1504,8 @@ data class SettingChoices(
     val cards: List<CardChoice> = emptyList(),
     val layoutRows: Int = CardLayout.LAYOUT_ROWS,
     val columns: Int = CardLayout.COLUMNS,
+    /** 自作カードのひな形（Web の設定画面の「ひな形」）。 */
+    val widgetTemplates: List<WidgetTemplateChoice> = emptyList(),
 ) {
     companion object {
         /** いまの言語の名前で作る（言語を切り替えたら Web の設定画面の選択肢も変わる）。 */
@@ -1298,6 +1514,7 @@ data class SettingChoices(
             tones = Tones.ALL.map { Choice(it.id, it.label) },
             cardColors = CardColors.ALL.map { Choice(it.hex, it.label) },
             cards = CardLayout.Card.entries.map { CardChoice(it.name, it.label, it.span, it.min, it.flag) },
+            widgetTemplates = WIDGET_TEMPLATES.map { WidgetTemplateChoice(it.id, it.label, it.apply(WidgetDef("w1"))) },
         )
     }
 }
@@ -1323,6 +1540,8 @@ fun Config.toPublic() = PublicConfig(
         connected = !spotify.refreshToken.isNullOrBlank(),
         saveLyrics = spotify.saveLyrics,
         background = spotify.background,
+        monoColor = spotify.monoColor,
+        layout = spotify.layout,
     ),
     notifications = notifications,
     wallpaper = wallpaper,
@@ -1361,6 +1580,7 @@ fun Config.toPublic() = PublicConfig(
         showRepos = github.showRepos,
         showProfile = github.showProfile,
     ),
+    widgets = widgets.toPublic(),
 )
 
 /**
@@ -1377,6 +1597,7 @@ data class SaveAllRequest(
     val photos: PhotoPatch? = null,
     val ships: ShipPatch? = null,
     val github: GithubPatch? = null,
+    val widgets: WidgetsPatch? = null,
 )
 
 /** 設定画面から送られてくる更新差分。未指定(null)の項目は変更しない。 */
@@ -1401,6 +1622,8 @@ data class SpotifyPatch(
     val clientId: String? = null,
     val saveLyrics: Boolean? = null,
     val background: String? = null,
+    val monoColor: String? = null,
+    val layout: SpotifyLayout? = null,
 )
 
 /** メモ設定の更新。token は書き込み専用で、読み出し経路は用意しない。 */
@@ -1434,6 +1657,8 @@ data class DeviceState(
     val photos: PhotoState = PhotoState(),
     val crypto: CryptoState = CryptoState(),
     val github: GithubState = GithubState(),
+    val health: HealthState = HealthState(),
+    val widgets: WidgetsState = WidgetsState(),
     val config: PublicConfig,
 )
 
@@ -1452,3 +1677,14 @@ data class GeocodeResult(
 
 @Serializable
 data class ApiError(val error: String, val detail: String? = null)
+
+/** 取得先 1 つの状況（設定の「取得状況」）。[fetchedAt] は最後に取りに行った時刻（失敗も含む）。 */
+@Serializable
+data class SourceHealth(val name: String, val enabled: Boolean, val fetchedAt: Long, val lastError: String?)
+
+@Serializable
+data class StatusResponse(
+    val sources: List<SourceHealth>,
+    /** 読めずに退避した config.json（新しい順）。 */
+    val quarantined: List<String>,
+)

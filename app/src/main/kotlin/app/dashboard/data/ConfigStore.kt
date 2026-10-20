@@ -16,8 +16,9 @@ import java.io.File
  */
 class ConfigStore(context: Context) {
 
-    private val file = File(context.filesDir, "config.json")
-    private val tmpFile = File(context.filesDir, "config.json.tmp")
+    private val dir = context.filesDir
+    private val file = File(dir, "config.json")
+    private val tmpFile = File(dir, "config.json.tmp")
     private val lock = Any()
 
     @Volatile
@@ -34,7 +35,9 @@ class ConfigStore(context: Context) {
         val loaded = runCatching {
             if (file.exists()) json.decodeFromString<Config>(file.readText()) else Config()
         }.getOrElse {
-            Log.w(TAG, "config.json の読み込みに失敗。既定値で起動する", it)
+            // 既定値のまま次の保存で上書きすると PIN・トークン・プリセットが消えるので、壊れたファイルを先に退避する
+            Log.w(TAG, "config.json の読み込みに失敗。退避して既定値で起動する", it)
+            quarantine()
             Config()
         }
         cached = loaded
@@ -42,7 +45,8 @@ class ConfigStore(context: Context) {
         loaded
     }
 
-    private val state by lazy { MutableStateFlow(get()) }
+    // lazy にしない。lazy のロックと [lock] を逆順で取り合い、起動直後の update() と画面の初回の flow の参照が重なると止まるため
+    private val state = MutableStateFlow(get())
 
     /** アプリの画面が設定の変化を受け取るための流れ。値は [get] と常に同じ。 */
     val flow: StateFlow<Config> get() = state
@@ -50,6 +54,7 @@ class ConfigStore(context: Context) {
     /**
      * 設定を書き換える。[mutate] の戻り値がそのまま新しい設定になる。
      * configVersion は呼び出し側では触らず、ここで必ず +1 する。
+     * 保存に失敗したら [java.io.IOException] を投げ、手元の設定（[get]・[flow]）も変えない（再起動で戻る「保存したつもり」を作らない）。
      */
     fun update(mutate: (Config) -> Config): Config = synchronized(lock) {
         val current = get()
@@ -60,6 +65,46 @@ class ConfigStore(context: Context) {
         state.value = next
         next
     }
+
+    /** 書き出し用の設定（トークン・PIN のハッシュを含む、config.json と同じ形）。 */
+    fun export(): String = synchronized(lock) { json.encodeToString(get()) }
+
+    /**
+     * 書き出した設定（または退避した config.json）で置き換える。形の合わない値は保存のときと同じく整える。
+     * LAN 公開・設定の PIN・背景画像は、いまの端末のものを残す（読み込みで締め出されたり、無い画像を指したりしないように）。
+     * 読めない内容なら [IllegalArgumentException]。
+     */
+    fun restore(text: String): Config {
+        val incoming = try {
+            json.decodeFromString<Config>(text)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("config.json として読めません", e)
+        }
+        return update { current ->
+            incoming.copy(
+                configVersion = current.configVersion,
+                display = sanitizeDisplay(incoming.display),
+                refresh = sanitizeRefresh(incoming.refresh),
+                feed = sanitizeFeed(incoming.feed),
+                notifications = sanitizeNotifications(incoming.notifications),
+                stocks = sanitizeStocks(incoming.stocks),
+                countdown = sanitizeCountdown(incoming.countdown),
+                crypto = sanitizeCrypto(incoming.crypto),
+                browser = sanitizeBrowser(incoming.browser),
+                widgets = WidgetSanitize.config(incoming.widgets),
+                lan = current.lan,
+                settingsLock = current.settingsLock,
+                wallpaper = current.wallpaper,
+            )
+        }
+    }
+
+    /** 読めずに退避した config.json の名前（新しい順）。 */
+    fun quarantined(): List<String> = badFiles(dir).map { it.name }
+
+    /** 退避した config.json の中身。名前は [quarantined] の中のものに限る（ほかのファイルは読まない）。 */
+    fun quarantinedText(name: String): String? =
+        badFiles(dir).firstOrNull { it.name == name }?.readText()
 
     /** 公開設定の差分を当てた設定を返す（保存はしない）。PIN 等の機微な値はこの経路では変わらない。 */
     fun patched(c: Config, patch: ConfigPatch): Config = c.copy(
@@ -149,15 +194,18 @@ class ConfigStore(context: Context) {
             .ifEmpty { DEFAULT_WEATHER_FIELDS },
         // 知らないカード・重複・範囲外の幅を落とし、非表示のカードは抜く（空いた分・空いた行はそのまま空ける。末尾の空の行は toSlots が落とす）
         cardLayout = CardLayout.toSlots(
-            CardLayout.slots(d).map { row -> row.filter { it.card.isShown(d) } }.take(MAX_LAYOUT_ROWS),
+            CardLayout.slots(d).flatMap { row -> CardLayout.wrapRow(row.filter { it.card.isShown(d) }) }.take(MAX_LAYOUT_ROWS),
         ),
     )
 
     /**
      * ブラウズのお気に入りを書き換える。整形（重複・件数・名前の長さ）が必ず効くよう、入口はこれ 1 つ。
      */
-    fun updateFavorites(mutate: (List<Favorite>) -> List<Favorite>): Config = update { c ->
-        c.copy(browser = sanitizeBrowser(c.browser.copy(favorites = mutate(c.browser.favorites))))
+    fun updateFavorites(mutate: (List<Favorite>) -> List<Favorite>): Config = try {
+        update { c -> c.copy(browser = sanitizeBrowser(c.browser.copy(favorites = mutate(c.browser.favorites)))) }
+    } catch (e: java.io.IOException) {
+        // 画面のボタンから直接呼ばれるので、保存の失敗で落とさない（お気に入りは変わらないまま）
+        get()
     }
 
     private fun sanitizeBrowser(b: BrowserConfig) = b.copy(
@@ -175,14 +223,34 @@ class ConfigStore(context: Context) {
     )
 
     private fun writeAtomically(config: Config) {
-        runCatching {
+        try {
             tmpFile.writeText(json.encodeToString(config))
             // 書き込み途中に電源が落ちても config.json が壊れないよう、一時ファイル経由で差し替える
             if (!tmpFile.renameTo(file)) {
                 file.writeText(tmpFile.readText())
                 tmpFile.delete()
             }
-        }.onFailure { Log.e(TAG, "config.json の保存に失敗", it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "config.json の保存に失敗", e)
+            throw e as? java.io.IOException ?: java.io.IOException("config.json の保存に失敗", e)
+        }
+    }
+
+    /**
+     * 読めなかった config.json を config.json.bad-日時 に移す。前の退避を上書きしないよう日時を付け、
+     * 新しい順に [KEEP_BAD] 個だけ残す。
+     */
+    private fun quarantine() {
+        if (!file.exists()) return
+        runCatching {
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+            var dest = File(dir, "config.json.bad-$stamp")
+            var n = 1
+            while (dest.exists()) dest = File(dir, "config.json.bad-$stamp-${n++}")
+            if (!file.renameTo(dest)) file.copyTo(dest)
+            badFiles(dir).drop(KEEP_BAD).forEach { it.delete() }
+            Log.w(TAG, "壊れた config.json を ${dest.name} に退避した")
+        }.onFailure { Log.e(TAG, "壊れた config.json の退避に失敗", it) }
     }
 
     companion object {
@@ -200,6 +268,13 @@ class ConfigStore(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: ConfigStore(context.applicationContext).also { instance = it }
             }
+
+        private const val KEEP_BAD = 3
+
+        /** 退避した config.json（新しい順）。 */
+        internal fun badFiles(dir: File): List<File> =
+            (dir.listFiles { f -> f.name.startsWith("config.json.bad-") } ?: emptyArray())
+                .sortedByDescending { it.name }
 
         const val MAX_FAVORITES = 30
         private const val MAX_FAVORITE_TITLE = 80

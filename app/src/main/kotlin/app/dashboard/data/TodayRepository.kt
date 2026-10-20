@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import app.dashboard.i18n.Lang
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -55,6 +56,8 @@ class TodayRepository(context: Context, private val client: HttpClient) {
             if (days.isEmpty() && events.isEmpty()) error("記念日を読み取れませんでした")
             state = TodayState(today.toString(), days, events, System.currentTimeMillis(), null, Lang.JA)
             runCatching { cacheFile.writeText(Http.json.encodeToString(TodayState.serializer(), state)) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "今日は何の日の取得に失敗", e)
             state = state.copy(lastError = e.message ?: e::class.java.simpleName)
@@ -73,6 +76,8 @@ class TodayRepository(context: Context, private val client: HttpClient) {
             if (days.isEmpty() && events.isEmpty()) error("Couldn't read the observances")
             state = TodayState(today.toString(), days, events, System.currentTimeMillis(), null, Lang.EN)
             runCatching { cacheFile.writeText(Http.json.encodeToString(TodayState.serializer(), state)) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "On this day の取得に失敗", e)
             state = state.copy(lastError = e.message ?: e::class.java.simpleName)

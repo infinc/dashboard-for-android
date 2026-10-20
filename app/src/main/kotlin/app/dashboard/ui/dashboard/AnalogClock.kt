@@ -32,6 +32,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import app.dashboard.ui.common.WdCard
 import app.dashboard.ui.common.awaitTick
+import app.dashboard.ui.common.awaitUncovered
 import app.dashboard.ui.theme.LocalAccent
 import app.dashboard.ui.theme.Wd
 import java.time.Instant
@@ -53,6 +54,7 @@ fun AnalogClockCard(now: Long, sweep: Boolean, numerals: Boolean, modifier: Modi
         LaunchedEffect(Unit) {
             var last = 0L
             while (true) {
+                awaitUncovered()
                 // ほかの絵（ハムスターなど）と同じ刻みで描き直す
                 last = awaitTick(last) { smooth = System.currentTimeMillis() }
             }

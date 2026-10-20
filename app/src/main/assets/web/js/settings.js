@@ -84,6 +84,9 @@
     }
     $("panes").scrollTop = 0;
     if (location.hash !== "#" + name) location.hash = name;
+    if (name === "status") loadStatus();
+    if (name === "notifyapi") loadNotify();
+    if (name === "widgets") window.DashWidgets.onShow();
   }
 
   (function bindNav() {
@@ -234,7 +237,8 @@
       memo: memo,
       ships: ships,
       github: github,
-      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked, background: $("spotifyBackground").value }
+      widgets: window.DashWidgets.collect(),
+      spotify: { enabled: $("spotifyEnabled").checked, clientId: $("spotifyClientId").value.trim(), saveLyrics: $("spotifySaveLyrics").checked }
     };
   }
 
@@ -393,7 +397,6 @@
     $("spotifyEnabled").checked = !!sp.enabled;
     $("spotifyClientId").value = sp.clientId || "";
     $("spotifySaveLyrics").checked = sp.saveLyrics !== false;
-    $("spotifyBackground").value = sp.background || "flow";
     renderSpotify();
 
     $("disasterSound").checked = n.disasterSound !== false;
@@ -405,6 +408,7 @@
 
     renderLan();
     updateRangeLabels();
+    window.DashWidgets.render(config);
     layoutSaved = copyRows(d.cardLayout || []);
     baseline = JSON.stringify(collect());
     updateDirty();
@@ -1257,6 +1261,131 @@
       .then(function () { setStatus("refreshStatus", L("取得しました", "Fetched"), "ok"); loadDisasterArea(); })
       .catch(function (e) { setStatus("refreshStatus", L("エラー: ", "Error: ") + e.message, "err"); });
   });
+
+  // ---------------------------------------------------------------- 外からの通知
+
+  var notifyInfo = null;
+
+  function renderNotify() {
+    var n = notifyInfo;
+    if (!n) return;
+    $("notifyToggle").textContent = n.enabled ? L("受け付けをやめる", "Stop accepting") : L("外からの通知を受け付ける", "Accept external notices");
+    setStatus("notifyStatus", n.enabled ? L("受け付けています", "Accepting") : L("受け付けていません", "Not accepting"), n.enabled ? "ok" : "");
+    $("notifyBox").hidden = !n.enabled;
+    $("notifyToken").textContent = n.token || "";
+    var url = n.lanUrl || "http://" + L("<タブレットの IP>", "<tablet IP>") + ":8080/api/notify";
+    $("notifyExample").textContent =
+      "curl -X POST " + url + " \\\n" +
+      "  -H 'Authorization: Bearer " + (n.token || "") + "' \\\n" +
+      "  -H 'Content-Type: application/json' \\\n" +
+      "  -d '{\"title\":\"" + L("洗濯", "Laundry") + "\",\"text\":\"" + L("終わりました", "Done") + "\"}'";
+    $("notifyLanNote").hidden = n.lanEnabled;
+  }
+
+  function loadNotify() {
+    return api("/api/notify/config").then(function (n) { notifyInfo = n; renderNotify(); })
+      .catch(function (e) { setStatus("notifyStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  function changeNotify(patch) {
+    api("/api/notify/config", { method: "POST", body: JSON.stringify(patch) })
+      .then(function (n) { notifyInfo = n; renderNotify(); })
+      .catch(function (e) { setStatus("notifyStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  $("notifyToggle").addEventListener("click", function () { changeNotify({ enabled: !(notifyInfo && notifyInfo.enabled) }); });
+  $("notifyRegenerate").addEventListener("click", function () {
+    if (!confirm(L("トークンを作り直します。送る側の設定も直す必要があります。続けますか？", "Regenerate the token? You'll need to update the sender too."))) return;
+    changeNotify({ regenerate: true });
+  });
+
+  // ---------------------------------------------------------------- バックアップ
+
+  $("backupExport").addEventListener("click", function () {
+    // Cookie で認証されるので、そのまま開けばファイルとして保存される
+    location.href = "/api/backup";
+  });
+
+  function restoreFrom(path, body) {
+    setStatus("backupStatus", L("読み込み中…", "Restoring…"));
+    return api(path, { method: "POST", body: body })
+      .then(function () {
+        setStatus("backupStatus", L("読み込みました。画面を読み直します…", "Restored. Reloading…"), "ok");
+        setTimeout(function () { location.reload(); }, 800);
+      })
+      .catch(function (e) { setStatus("backupStatus", L("エラー: ", "Error: ") + e.message, "err"); throw e; });
+  }
+
+  $("backupImport").addEventListener("click", function () {
+    var file = $("backupFile").files[0];
+    if (!file) { setStatus("backupStatus", L("ファイルを選んでください", "Choose a file"), "warn"); return; }
+    if (!confirm(L("いまの設定を、このファイルの内容で置き換えます。続けますか？", "Replace the current settings with this file?"))) return;
+    file.text().then(function (text) { return restoreFrom("/api/restore", text); }).catch(function () {});
+  });
+
+  // ---------------------------------------------------------------- 取得状況
+
+  function ago(ms) {
+    if (!ms) return L("まだ取りに行っていません", "Not fetched yet");
+    var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return L(s + " 秒前", s + " s ago");
+    if (s < 3600) return L(Math.round(s / 60) + " 分前", Math.round(s / 60) + " min ago");
+    if (s < 86400) return L(Math.round(s / 3600) + " 時間前", Math.round(s / 3600) + " h ago");
+    return L(Math.round(s / 86400) + " 日前", Math.round(s / 86400) + " d ago");
+  }
+
+  function row(label, value, kind) {
+    var line = document.createElement("div");
+    line.className = "row";
+    line.style.padding = "6px 0";
+    var name = document.createElement("span");
+    name.style.minWidth = "140px";
+    name.textContent = label;
+    var text = document.createElement("span");
+    text.className = "status" + (kind ? " " + kind : "");
+    text.textContent = value;
+    line.appendChild(name);
+    line.appendChild(text);
+    return line;
+  }
+
+  function loadStatus() {
+    setStatus("statusStatus", L("読み込み中…", "Loading…"));
+    return api("/api/status").then(function (st) {
+      var list = $("statusList");
+      list.innerHTML = "";
+      (st.sources || []).forEach(function (src) {
+        if (!src.enabled) list.appendChild(row(src.name, L("使っていません", "Not in use")));
+        else if (src.lastError) list.appendChild(row(src.name, ago(src.fetchedAt) + L(" — エラー: ", " — error: ") + src.lastError, "err"));
+        else list.appendChild(row(src.name, ago(src.fetchedAt), src.fetchedAt ? "ok" : "warn"));
+      });
+      var bad = st.quarantined || [];
+      $("quarantineBox").hidden = bad.length === 0;
+      var q = $("quarantineList");
+      q.innerHTML = "";
+      bad.forEach(function (name) {
+        var line = document.createElement("div");
+        line.className = "row";
+        line.style.padding = "6px 0";
+        var label = document.createElement("code");
+        label.textContent = name;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "ghost";
+        button.textContent = L("この設定に戻す", "Restore this");
+        button.addEventListener("click", function () {
+          if (!confirm(L("いまの設定を、" + name + " の内容で置き換えます。続けますか？", "Replace the current settings with " + name + "?"))) return;
+          restoreFrom("/api/restore/quarantined?name=" + encodeURIComponent(name), "{}").catch(function () {});
+        });
+        line.appendChild(label);
+        line.appendChild(button);
+        q.appendChild(line);
+      });
+      setStatus("statusStatus", "");
+    }).catch(function (e) { setStatus("statusStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  $("statusReload").addEventListener("click", loadStatus);
 
   // ---------------------------------------------------------------- 起動
 

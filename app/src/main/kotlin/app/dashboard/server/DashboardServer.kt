@@ -9,9 +9,17 @@ import app.dashboard.data.ApiError
 import app.dashboard.data.CardLayout
 import app.dashboard.data.CardSlot
 import app.dashboard.data.DisplayConfig
+import app.dashboard.data.ExternalNotice
+import app.dashboard.data.NotifyApiPatch
+import app.dashboard.data.NotifyRequest
 import app.dashboard.data.SaveAllRequest
 import app.dashboard.data.Tones
 import app.dashboard.data.WallpaperStore
+import app.dashboard.data.WIDGET_IDS
+import app.dashboard.data.WidgetPush
+import app.dashboard.data.WidgetPushPatch
+import app.dashboard.data.WidgetSanitize
+import app.dashboard.data.WidgetTestRequest
 import app.dashboard.data.toPublic
 import io.ktor.http.ContentType
 import io.ktor.http.withCharset
@@ -20,15 +28,19 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.contentLength
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondRedirect
@@ -50,6 +62,9 @@ class DashboardServer(private val graph: AppGraph) {
 
     private var engine: EmbeddedServer<*, *>? = null
     private val auth get() = graph.auth
+    private val notifyGate = NotifyGate()
+    /** 自作カードへ送る口の門番（通知の口とは別に数える。センサーが 1 秒に 1 回送ってきても通知を止めないように）。 */
+    private val widgetGate = NotifyGate(minIntervalMs = WIDGET_MIN_INTERVAL_MS)
 
     @Volatile
     var boundHost: String = LOOPBACK
@@ -86,9 +101,22 @@ class DashboardServer(private val graph: AppGraph) {
             exception<SettingsController.SettingsException> { call, cause ->
                 call.respond(HttpStatusCode.BadRequest, ApiError(cause.code, cause.message))
             }
+            // 壊れた JSON・型の合わない本文は送った側の誤り。内部の文言は返さない
+            exception<BadRequestException> { call, _ ->
+                call.respond(HttpStatusCode.BadRequest, ApiError("bad_request"))
+            }
             exception<Throwable> { call, cause ->
                 Log.e(TAG, "リクエスト処理で例外", cause)
-                call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error", cause.message))
+                call.respond(HttpStatusCode.InternalServerError, ApiError("internal_error"))
+            }
+        }
+
+        // DNS rebinding 対策。Host がこの端末（loopback・端末の IP・lan.extraHosts）でなければ何も返さない。
+        // 悪いページの名前を 127.0.0.1 に向け直されると、接続元は loopback のままで Origin と Host も一致してしまうため
+        intercept(ApplicationCallPipeline.Plugins) {
+            if (!HostPolicy.isSelf(call.request.headers["Host"], graph.config.get().lan.extraHosts)) {
+                call.respond(HttpStatusCode.Forbidden, ApiError("bad_host"))
+                finish()
             }
         }
 
@@ -166,6 +194,134 @@ class DashboardServer(private val graph: AppGraph) {
             post("/api/settings") {
                 if (!guardWrite(call)) return@post
                 call.respond(graph.settings.saveAll(call.receive<SaveAllRequest>()).toPublic())
+            }
+
+            /** 外から通知を出す API の設定（トークンを含む。設定の画面だけが読む）。 */
+            get("/api/notify/config") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.settings.notifyApiInfo())
+            }
+
+            post("/api/notify/config") {
+                if (!guardWrite(call)) return@post
+                call.respond(graph.settings.updateNotifyApi(call.receive<NotifyApiPatch>()))
+            }
+
+            /**
+             * 外から通知を出す。Cookie ではなく `Authorization: Bearer <トークン>` で確かめる（CSRF の検査はしない。
+             * ブラウザは別のサイトからこのヘッダーを付けて送れない）。本文は JSON（[NotifyRequest]）か、ただの文字。
+             */
+            post("/api/notify") {
+                val c = graph.config.get().notifyApi
+                when (val r = notifyGate.check(remoteAddress(call), call.request.headers["Authorization"], c.enabled, c.token)) {
+                    NotifyGate.Result.Ok -> Unit
+                    NotifyGate.Result.Disabled -> { call.respond(HttpStatusCode.NotFound, ApiError("disabled")); return@post }
+                    NotifyGate.Result.BadToken -> { call.respond(HttpStatusCode.Unauthorized, ApiError("bad_token")); return@post }
+                    is NotifyGate.Result.Locked -> {
+                        call.response.headers.append("Retry-After", r.retryAfterSeconds.toString())
+                        call.respond(HttpStatusCode.TooManyRequests, ApiError("locked")); return@post
+                    }
+                    NotifyGate.Result.TooMany -> { call.respond(HttpStatusCode.TooManyRequests, ApiError("too_many")); return@post }
+                }
+                val raw = call.receiveText().take(4_096)
+                val body = if (call.request.headers["Content-Type"].orEmpty().startsWith("application/json")) {
+                    runCatching { apiJson.decodeFromString<NotifyRequest>(raw) }.getOrNull()
+                        ?: run { call.respond(HttpStatusCode.BadRequest, ApiError("bad_request")); return@post }
+                } else {
+                    NotifyRequest(text = raw)
+                }
+                val text = body.text.trim().take(NotifyGate.MAX_TEXT)
+                if (text.isEmpty()) { call.respond(HttpStatusCode.BadRequest, ApiError("empty_text")); return@post }
+                val tone = if (!body.sound) null else body.tone?.takeIf(Tones::isKnown) ?: graph.config.get().notifications.memoTone
+                graph.externalNotices.tryEmit(
+                    ExternalNotice(body.title?.trim()?.take(NotifyGate.MAX_TITLE)?.ifEmpty { null } ?: L("お知らせ", "Notice"), text, tone),
+                )
+                call.respond(LoginResponse(ok = true))
+            }
+
+            /** 自作カードの「外から送る」の設定（トークンを含む。設定の画面だけが読む）。 */
+            get("/api/widgets/config") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.settings.widgetPushInfo())
+            }
+
+            post("/api/widgets/config") {
+                if (!guardWrite(call)) return@post
+                call.respond(graph.settings.updateWidgetPush(call.receive<WidgetPushPatch>()))
+            }
+
+            /** 自作カードの「試しに取得」。保存していない下書きの設定で 1 回だけ取りに行き、本文と読んだ結果を返す。 */
+            post("/api/widgets/test") {
+                if (!guardWrite(call)) return@post
+                val body = call.receive<WidgetTestRequest>()
+                if (body.def.id !in WIDGET_IDS) { call.respond(HttpStatusCode.NotFound, ApiError("unknown_widget")); return@post }
+                call.respond(graph.widgets.test(WidgetSanitize.def(body.def).copy(headerValue = body.def.headerValue?.takeIf { it.isNotBlank() })))
+            }
+
+            /**
+             * 自作カードへ値を送る（`/api/widgets/w1` など）。[NotifyGate] と同じく `Authorization: Bearer <トークン>` で確かめる（CSRF は見ない）。
+             * 本文は JSON（`{"value": 23.4}`・`{"text": "…"}`・`{"items": [...]}`、カードに値の場所があればその場所）か、ただの数・文字。
+             */
+            post("/api/widgets/{id}") {
+                val c = graph.config.get().widgets
+                when (val r = widgetGate.check(remoteAddress(call), call.request.headers["Authorization"], c.pushEnabled, c.pushToken)) {
+                    NotifyGate.Result.Ok -> Unit
+                    NotifyGate.Result.Disabled -> { call.respond(HttpStatusCode.NotFound, ApiError("disabled")); return@post }
+                    NotifyGate.Result.BadToken -> { call.respond(HttpStatusCode.Unauthorized, ApiError("bad_token")); return@post }
+                    is NotifyGate.Result.Locked -> {
+                        call.response.headers.append("Retry-After", r.retryAfterSeconds.toString())
+                        call.respond(HttpStatusCode.TooManyRequests, ApiError("locked")); return@post
+                    }
+                    NotifyGate.Result.TooMany -> { call.respond(HttpStatusCode.TooManyRequests, ApiError("too_many")); return@post }
+                }
+                val id = call.parameters["id"].orEmpty()
+                if (id !in WIDGET_IDS) { call.respond(HttpStatusCode.NotFound, ApiError("unknown_widget")); return@post }
+                if (c.def(id).source != "push") {
+                    call.respond(HttpStatusCode.Conflict, ApiError("not_push", L("このカードは「外から送る」になっていません", "This card isn't set to \"Pushed from outside\"")))
+                    return@post
+                }
+                val raw = call.receiveText()
+                if (raw.length > MAX_WIDGET_BODY) { call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large")); return@post }
+                when (val pushed = graph.widgets.push(id, raw)) {
+                    is WidgetPush.Value -> call.respond(LoginResponse(ok = true))
+                    is WidgetPush.Bad -> call.respond(HttpStatusCode.BadRequest, ApiError("bad_value", pushed.reason))
+                }
+            }
+
+            /** 取得先ごとの状況と、読めずに退避した config.json の一覧。 */
+            get("/api/status") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                call.respond(graph.health())
+            }
+
+            /** 設定の書き出し（トークン・PIN のハッシュを含む config.json そのもの）。 */
+            get("/api/backup") {
+                if (!authorized(call)) { unauthorized(call); return@get }
+                val day = java.time.LocalDate.now().toString().replace("-", "")
+                call.response.headers.append("Content-Disposition", "attachment; filename=\"dashboard-config-$day.json\"")
+                call.response.headers.append("Cache-Control", "no-store")
+                call.respondText(graph.config.export(), ContentType.Application.Json)
+            }
+
+            /** 書き出した設定で置き換える。本文は書き出した .json そのもの。 */
+            post("/api/restore") {
+                if (!guardWrite(call)) return@post
+                val declared = call.request.contentLength()
+                if (declared != null && declared > MAX_BACKUP_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large")); return@post
+                }
+                val text = call.receiveText()
+                if (text.length > MAX_BACKUP_BYTES) {
+                    call.respond(HttpStatusCode.PayloadTooLarge, ApiError("too_large")); return@post
+                }
+                call.respond(graph.settings.restore(text).toPublic())
+            }
+
+            /** 読めずに退避した config.json（?name=config.json.bad-…）から戻す。 */
+            post("/api/restore/quarantined") {
+                if (!guardWrite(call)) return@post
+                val name = call.request.queryParameters["name"].orEmpty()
+                call.respond(graph.settings.restoreQuarantined(name).toPublic())
             }
 
             /**
@@ -445,6 +601,12 @@ class DashboardServer(private val graph: AppGraph) {
     companion object {
         const val PORT = 8080
         /** Spotify は平文 HTTP の折り返しを 127.0.0.1 にしか認めない。USB の PC からも同じ URL で成立する。 */
+        /** 設定の書き出しの大きさの上限（ふつうは数十 KB。プリセットを 10 個持っても 1 MB に届かない）。 */
+        private const val MAX_BACKUP_BYTES = 2 * 1024 * 1024
+        /** 自作カードへ送る本文の大きさの上限（Home Assistant の状態 1 つは数 KB）。 */
+        private const val MAX_WIDGET_BODY = 64 * 1024
+        /** 自作カードへ送る口の間隔。4 枚に続けて送れるよう、通知の口（1 秒）より短い。 */
+        private const val WIDGET_MIN_INTERVAL_MS = 50L
         const val SPOTIFY_REDIRECT_URI = "http://127.0.0.1:$PORT/api/spotify/callback"
         private const val TAG = "DashboardServer"
         private const val LOOPBACK = "127.0.0.1"

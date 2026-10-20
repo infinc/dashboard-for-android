@@ -37,12 +37,21 @@ function readChoices() {
     get accents() { return accents(); },
     get tones() { return tones(); },
     get cardColors() { return cardColors(); },
+    // ひな形は Widgets.kt の WIDGET_TEMPLATES から 2 つだけ似せる（モックは Kotlin を読めないので）
+    get widgetTemplates() {
+      const ja = !en();
+      return [
+        { id: "github", label: ja ? "GitHub のスター数" : "GitHub stars", def: { id: "w1", title: ja ? "スター" : "Stars", source: "http", style: "number", url: "https://api.github.com/repos/infinc/dashboard-for-android", path: "stargazers_count", unit: "★", decimals: 0, intervalMin: 30 } },
+        { id: "monitor", label: ja ? "自宅サーバーの監視" : "Home server monitor", def: { id: "w1", title: ja ? "サーバー" : "Servers", source: "monitor", style: "monitor", intervalMin: 1, notify: true, targets: [{ name: "Google", url: "https://www.google.com" }, { name: ja ? "ルーター" : "Router", url: "tcp://192.168.1.1:80" }] } },
+      ];
+    },
   };
 }
 
 // Kotlin の PublicConfig と同じ形。Models.kt に項目を足したらここにも足すこと
 // （欠けていても設定画面は動いてしまうので、違いに気づきにくい）。
 /** 背景画像（GET /api/wallpaper のプレビュー用）。 */
+let notifyApi = { enabled: false, token: null };
 let wallpaperBytes = null;
 let wallpaperType = "image/jpeg";
 let config = {
@@ -62,7 +71,8 @@ let config = {
     hourlyMode: "both", spotifyShowControls: true, spotifyShowProgress: true, wifiShowGlobe: true,
     showTrain: false, showToday: false, showRadar: false, showCalendar: false,
     showStocks: false, showSunMoon: false, showCountdown: false, showAnalogClock: false,
-    showCalculator: false, showPhotos: false, showCrypto: false, showFlights: false, showShips: false, showGithub: false, showTodo: false,
+    showCalculator: false, showPhotos: false, showCrypto: false, showFlights: false, showShips: false, showGithub: false, showTodo: false, showHealth: false,
+    showWidget1: false, showWidget2: false, showWidget3: false, showWidget4: false,
     cardRadius: 18,
     todayShowEvent: true, analogSweep: true, analogNumerals: true,
   },
@@ -70,7 +80,7 @@ let config = {
   disaster: { enabled: true, minIntensity: "3" },
   feed: { enabled: true, urls: ["https://example.com/rss.xml"], maxItems: 6 },
   memo: { enabled: true, endpoint: "https://example.workers.dev/memo", tokenSet: true, pollIntervalMs: 30000 },
-  spotify: { enabled: false, clientId: "", connected: false, saveLyrics: true, background: "flow" },
+  spotify: { enabled: false, clientId: "", connected: false, saveLyrics: true, background: "flow", monoColor: "#3E6FB8", layout: {} },
   notifications: {
     disasterSound: true, chargingSound: true, volume: 0.7,
     disasterTone: "chime", chargingTone: "rise", timerTone: "beep",
@@ -95,8 +105,15 @@ let config = {
   crypto: { coin: "bitcoin", currency: "jpy", range: "1", chart: "line", intervalMin: 10 },
   ships: { apiKeySet: false },
   github: { user: "", tokenSet: false, days: 30, showGraph: true, showCommits: true, showPulls: true, showIssues: false, showRepos: true, showProfile: true },
+  // 自作カード（Widgets.kt の WidgetsPublic と同じ形。ヘッダーの値は返さない）
+  widgets: {
+    items: ["w1", "w2", "w3", "w4"].map((id) => ({ id, title: "", source: "http", style: "number", url: "", headerName: "", path: "", labelKey: "", valueKey: "", unitPath: "", unit: "", decimals: -1, scale: 1, min: 0, max: 100, warnAt: null, alertAt: null, below: false, notify: false, tone: "", intervalMin: 5, targets: [] })),
+    headerSet: [false, false, false, false],
+    pushEnabled: false,
+  },
   choices: readChoices(),
 };
+let widgetPush = { enabled: false, token: null };
 
 let launcherHome = false;
 
@@ -121,7 +138,8 @@ const CARDS = [
   ["CALCULATOR", "showCalculator", 6, 5, "計算機"], ["PHOTOS", "showPhotos", 8, 5, "写真"],
   ["CRYPTO", "showCrypto", 8, 5, "暗号通貨"],
   ["FLIGHTS", "showFlights", 8, 5, "飛行機"], ["SHIPS", "showShips", 8, 5, "船舶"], ["GITHUB", "showGithub", 10, 6, "GitHub"],
-  ["TODO", "showTodo", 6, 5, "Todo"],
+  ["TODO", "showTodo", 6, 5, "Todo"], ["HEALTH", "showHealth", 8, 6, "空気・体調"],
+  ["WIDGET1", "showWidget1", 8, 4, "自作 1"], ["WIDGET2", "showWidget2", 8, 4, "自作 2"], ["WIDGET3", "showWidget3", 8, 4, "自作 3"], ["WIDGET4", "showWidget4", 8, 4, "自作 4"],
 ].map(([id, key, span, min, label]) => ({ id, key, span, min, label }));
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 // 英語の名前（CardLayout.Card と同じ）
@@ -129,7 +147,8 @@ const CARD_EN = {
   CLOCK: "Clock", WEATHER: "Weather", DISASTER: "Alerts", MEMO: "LINE memo", HOURLY: "Hourly", SPOTIFY: "Spotify", WIFI: "Wi-Fi",
   STATS: "Device", NEWS: "News", DAILY: "Weekly", TIMER: "Timer", WORD: "Word of the hour", ANALOG_CLOCK: "Analog clock",
   CALENDAR: "Calendar", TRAIN: "Trains", RADAR: "Rain radar", SUN_MOON: "Sun & Moon", COUNTDOWN: "Countdown", TODAY: "On this day",
-  STOCKS: "Stocks", CALCULATOR: "Calculator", PHOTOS: "Photos", CRYPTO: "Crypto", FLIGHTS: "Flights", SHIPS: "Ships", GITHUB: "GitHub", TODO: "To-do",
+  STOCKS: "Stocks", CALCULATOR: "Calculator", PHOTOS: "Photos", CRYPTO: "Crypto", FLIGHTS: "Flights", SHIPS: "Ships", GITHUB: "GitHub", TODO: "To-do", HEALTH: "Air & health",
+  WIDGET1: "Custom 1", WIDGET2: "Custom 2", WIDGET3: "Custom 3", WIDGET4: "Custom 4",
 };
 Object.defineProperty(config.choices, "cards", {
   enumerable: true,
@@ -139,7 +158,7 @@ config.choices.layoutRows = 4;
 config.choices.columns = 24;
 config.display.cardLayout = [];
 // 後から足したカードは既定で非表示（display に無ければ false とみなす）
-const DEFAULT_OFF = new Set(["showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto", "showFlights", "showShips", "showGithub", "showTodo"]);
+const DEFAULT_OFF = new Set(["showWidget1", "showWidget2", "showWidget3", "showWidget4", "showAnalogClock", "showCalendar", "showTrain", "showRadar", "showSunMoon", "showCountdown", "showToday", "showStocks", "showCalculator", "showPhotos", "showCrypto", "showFlights", "showShips", "showGithub", "showTodo", "showHealth"]);
 const isShown = (d, key) => (DEFAULT_OFF.has(key) ? d[key] === true : d[key] !== false);
 const shown = (d) => CARDS.filter((c) => isShown(d, c.key));
 // 収まらないときの表示を試すなら MOCK_MAX_ROWS=3 node tools/mock-server.mjs
@@ -284,6 +303,7 @@ const state = () => ({
   train: { lines: [], fetchedAt: 0, lastError: null },
   calendar: { events: [], fetchedAt: 0, lastError: null },
   photos: { albumName: null, count: 0, fetchedAt: 0, lastError: null },
+  widgets: { items: [{ id: "w1", key: "", number: 21.5, unit: "℃", items: [], history: [], updatedAt: Date.now() - 60000, fetchedAt: Date.now() - 60000, lastError: null }] },
   config,
 });
 
@@ -306,7 +326,7 @@ const server = createServer(async (req, res) => {
     if (path === "/api/settings" && !post) return json(res, 200, config);
     if (path === "/api/settings" && post) {
       // SettingsController.saveAll と同じく、settings の各項目は「まるごと差し替え」
-      const { settings = {}, memo, spotify, train, calendar, photos, ships, github } = await readBody(req);
+      const { settings = {}, memo, spotify, train, calendar, photos, ships, github, widgets } = await readBody(req);
       if (settings.display) {
         const adjusted = adjust(config.display, settings.display);
         if (adjusted.message) return json(res, 400, { error: "cards_overflow", detail: adjusted.message });
@@ -341,6 +361,19 @@ const server = createServer(async (req, res) => {
       if (github) {
         const { token, ...rest } = github;
         config.github = { ...config.github, ...rest, tokenSet: token === undefined ? config.github.tokenSet : token !== "" };
+      }
+      if (widgets && widgets.items) {
+        // SettingsController.applyWidgets と同じく、ヘッダーの値は null で据え置き・空文字で消す・名前を空にしても消す
+        config.widgets = {
+          ...config.widgets,
+          items: config.widgets.items.map((before, i) => {
+            const next = widgets.items.find((w) => w.id === before.id);
+            if (!next) return before;
+            const { headerValue, ...rest } = next;
+            config.widgets.headerSet[i] = !rest.headerName ? false : headerValue === undefined ? config.widgets.headerSet[i] : headerValue !== "";
+            return { ...before, ...rest };
+          }),
+        };
       }
       if (photos) {
         const { albumUrl, ...rest } = photos;
@@ -381,6 +414,57 @@ const server = createServer(async (req, res) => {
     if (path === "/api/wallpaper/clear" && post) {
       wallpaperBytes = null;
       config.wallpaper = { imageSetAt: 0 };
+      return json(res, 200, config);
+    }
+    if (path === "/api/notify/config") {
+      if (post) {
+        const body = await readBody(req);
+        if (body.enabled !== undefined) notifyApi.enabled = !!body.enabled;
+        if (body.regenerate || (notifyApi.enabled && !notifyApi.token)) notifyApi.token = Math.random().toString(16).slice(2).padEnd(48, "0");
+      }
+      return json(res, 200, { ...notifyApi, lanUrl: null, lanEnabled: !!config.lan?.enabled });
+    }
+    if (path === "/api/widgets/config") {
+      if (post) {
+        const body = await readBody(req);
+        if (body.enabled !== undefined) widgetPush.enabled = !!body.enabled;
+        if (body.regenerate || (widgetPush.enabled && !widgetPush.token)) widgetPush.token = Math.random().toString(16).slice(2).padEnd(48, "0");
+        config.widgets.pushEnabled = widgetPush.enabled;
+      }
+      return json(res, 200, { ...widgetPush, lanUrl: null, lanEnabled: !!config.lan?.enabled });
+    }
+    if (path === "/api/widgets/test" && post) {
+      // 実機は下書きの設定で取りに行く。モックは決まった応答を返す（木の表示と値の場所の確かめ用）
+      const { def } = await readBody(req);
+      if (def.source === "monitor") {
+        return json(res, 200, { ok: true, data: { id: def.id, items: (def.targets || []).map((t, i) => ({ label: t.name || t.url, value: i === 1 ? "時間切れ" : "38 ms", level: i === 1 ? 2 : 0 })) } });
+      }
+      const raw = JSON.stringify({ entity_id: "sensor.living_temperature", state: "21.5", attributes: { unit_of_measurement: "°C", friendly_name: "居間" }, list: [{ name: "台所", value: 22.1 }, { name: "寝室", value: 19.4 }] });
+      const v = (def.path || "").split(".").reduce((o, k) => (o == null ? undefined : o[k]), JSON.parse(raw));
+      if (v === undefined) return json(res, 200, { ok: false, status: 200, raw, error: "値の場所が見つかりません: " + def.path });
+      return json(res, 200, { ok: true, status: 200, raw, data: { id: def.id, number: Number(v), unit: def.unit || null, items: [] } });
+    }
+    if (path === "/api/status") {
+      const now = Date.now();
+      return json(res, 200, {
+        sources: [
+          { name: "天気", enabled: true, fetchedAt: now - 120_000, lastError: null },
+          { name: "防災", enabled: true, fetchedAt: now - 30_000, lastError: null },
+          { name: "予定表", enabled: true, fetchedAt: now - 600_000, lastError: "iCloud が HTTP 404 を返しました" },
+          { name: "株価", enabled: false, fetchedAt: 0, lastError: null },
+        ],
+        quarantined: [],
+      });
+    }
+    if (path === "/api/backup") {
+      res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="dashboard-config-mock.json"' });
+      return res.end(JSON.stringify(config, null, 2));
+    }
+    if ((path === "/api/restore" || path === "/api/restore/quarantined") && post) {
+      // 実機は設定を置き換える。モックは受け取ったことだけ記録する
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      console.log(`[mock] 設定の読み込み: ${Buffer.concat(chunks).length} バイト`);
       return json(res, 200, config);
     }
     if (path === "/api/device") {

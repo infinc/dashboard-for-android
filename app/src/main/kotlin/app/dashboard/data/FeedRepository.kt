@@ -6,6 +6,7 @@ import android.util.Xml
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import kotlin.math.min
@@ -44,6 +45,8 @@ class FeedRepository(
             try {
                 // 1 本失敗しても他のフィードは表示し続ける
                 perFeed += fetchFeed(url)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "フィード取得に失敗: $url", e)
                 errors += L("${shortHost(url)}: ${e.message ?: "取得失敗"}", "${shortHost(url)}: ${e.message ?: "failed"}")

@@ -15,6 +15,7 @@ import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.utils.io.readAvailable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -155,11 +156,16 @@ class AppUpdater(
         try {
             // ダウンロード済みの APK があるなら、確認し直して状態を消さない
             val before = _state.value
-            if (before is UpdateState.Ready) return
+            // APK が残っていれば Ready のまま。消されていたら（キャッシュの掃除など）確認し直す
+            if (before is UpdateState.Ready && before.file.exists()) return
             _state.value = UpdateState.Checking
             _state.value = try {
                 val release = fetchLatest()
                 if (isNewer(release.tag, currentLabel)) UpdateState.Available(release) else UpdateState.UpToDate(release)
+            } catch (e: CancellationException) {
+                // 確認の途中で設定画面を閉じただけ。失敗として 12 時間出し続けない
+                _state.value = before
+                throw e
             } catch (e: Exception) {
                 // 前に見つけた新しい版は覚えておく（フッターのボタンを消さない）
                 val known = (before as? UpdateState.Available)?.release ?: (before as? UpdateState.Failed)?.release
@@ -187,7 +193,13 @@ class AppUpdater(
             _state.value = UpdateState.Downloading(release, 0, release.size)
             val file = try {
                 download(release)
+            } catch (e: CancellationException) {
+                _state.value = UpdateState.Available(release)
+                File(dir, "dashboard.apk.part").delete()
+                throw e
             } catch (e: Exception) {
+                // 書きかけ（約 20 MB）を次の起動まで残さない
+                File(dir, "dashboard.apk.part").delete()
                 _state.value = UpdateState.Failed(L("ダウンロードできませんでした: ${reason(e)}", "Download failed: ${reason(e)}"), release)
                 return
             }

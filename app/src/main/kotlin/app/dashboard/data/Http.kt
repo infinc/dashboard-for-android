@@ -1,11 +1,12 @@
 package app.dashboard.data
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.android.Android
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 
 /**
  * 全リポジトリで 1 つの HttpClient を共有する。
@@ -19,7 +20,19 @@ object Http {
         isLenient = true
     }
 
-    fun newClient(): HttpClient = HttpClient(Android) {
+    /**
+     * 接続プールとスレッドの大もと。Ktor のエンジンと、OkHttp を直に使う取得（予定表の CalDAV・写真・船舶の WebSocket）が
+     * これを newBuilder() して共有する（クライアントごとにプールとスレッドを持たない）。
+     * タイムアウトはここで決めない。使う側がそれぞれ newBuilder() の後で決める（Ktor は HttpTimeout が決める）。
+     */
+    val okHttp: OkHttpClient by lazy { OkHttpClient() }
+
+    /**
+     * エンジンは OkHttp。Android エンジン（HttpURLConnection）は、タイムアウトで取得を打ち切るときに
+     * 端末内蔵の okhttp が「Unbalanced enter/exit」を投げ、それ以降すべての取得が失敗し続ける（ネットに繋がらない状態になる）。
+     */
+    fun newClient(): HttpClient = HttpClient(OkHttp) {
+        engine { preconfigured = okHttp }
         expectSuccess = true
         install(ContentNegotiation) { json(json) }
         install(HttpTimeout) {
