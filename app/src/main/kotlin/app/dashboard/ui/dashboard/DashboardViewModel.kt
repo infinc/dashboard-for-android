@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -680,7 +681,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setRadarFullscreen(open: Boolean) {
         radarWide = open
-        if (open) radarWake.trySend(Unit)
+        if (open) radarWake.trySend(Unit) else stopRainAnim()
     }
 
     /** 「現在地に戻る」。ズームはそのままで、表示の中心を天気の地点へ戻す。 */
@@ -691,6 +692,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     /** ドラッグで地図を動かす。[dx] / [dy] は表示の中心を動かす量（タイル 1 枚 = 256）。足りないタイルは取りに行く。 */
     fun panRadar(dx: Float, dy: Float) {
+        // 動かすとタイルが足りなくなるので、雨雲の再生はそこで止める（止めた画面は最新の雨雲）
+        if (_rainAnim.value != null) stopRainAnim()
         _radar.update {
             if (it.zoom == 0) return@update it
             val world = (1 shl it.zoom) * 256f
@@ -706,6 +709,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
      * 雨雲のズームが変わらない段（奇数 ⇔ 1 つ下の偶数）なら雨雲の画像は取り直さずに使う。
      */
     fun zoomRadar(step: Int) {
+        if (_rainAnim.value != null) stopRainAnim()
         var changed = false
         _radar.update {
             if (it.zoom == 0) return@update it
@@ -736,6 +740,159 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         radarPanAt = System.currentTimeMillis()
         radarWake.trySend(Unit)
     }
+
+
+    // ---------------------------------------------------------------- 雨雲の動き（全画面だけ）
+
+    /**
+     * 雨雲の再生。1 コマ = ある時刻の雨雲のタイル（[RainAnimFrame.tiles]）。
+     * [RadarFrame.rain]（いまの雨雲）とは別に持ち、止めると捨てる（メモリを食わないよう、縮めて読み、中心のまわり 5 x 3 枚だけ）。
+     */
+    data class RainAnimFrame(
+        /** そのコマの時刻（ミリ秒）。 */
+        val timeMs: Long,
+        /** 予報か（false は観測）。 */
+        val forecast: Boolean,
+        val tiles: Map<Pair<Int, Int>, ImageBitmap>,
+    ) {
+        /** 画面に出す名前（「9:10 観測」「10:00 予報 +50 分」）。 */
+        fun label(nowMs: Long): String {
+            val t = java.time.Instant.ofEpochMilli(timeMs).atZone(ZoneId.systemDefault())
+            val hm = "%d:%02d".format(t.hour, t.minute)
+            return if (!forecast) L("$hm 観測", "Observed $hm") else {
+                val min = ((timeMs - nowMs) / 60_000L).toInt().coerceAtLeast(0)
+                L("$hm 予報（約 $min 分後）", "Forecast $hm (in ~$min min)")
+            }
+        }
+    }
+
+    /** 再生の状態。[frames] が揃うまで [loaded] < [total]（その間は [index] を動かさない）。 */
+    data class RainAnim(
+        val frames: List<RainAnimFrame> = emptyList(),
+        val total: Int = 0,
+        val index: Int = 0,
+        val playing: Boolean = false,
+        val failed: Boolean = false,
+        val startedAt: Long = 0L,
+    ) {
+        val loaded: Int get() = frames.size
+        val ready: Boolean get() = total > 0 && frames.size == total
+    }
+
+    private val _rainAnim = MutableStateFlow<RainAnim?>(null)
+    /** 雨雲の再生。null のときは再生していない（いつもの 1 コマの雨雲を出す）。 */
+    val rainAnim = _rainAnim.asStateFlow()
+    private var rainAnimJob: Job? = null
+
+    /**
+     * 約 1 時間前から 1 時間先まで、10 分ごとの雨雲を集めて再生する。観測は targetTimes_N1、予報は targetTimes_N2（5 分ごとのうち 10 分ごと）。
+     * 集め終わるまでは進み具合（[RainAnim.loaded] / [RainAnim.total]）を出す。
+     */
+    fun startRainAnim() {
+        if (_rainAnim.value != null) return
+        val f = _radar.value
+        if (f.zoom == 0) return
+        val keys = rainKeys(f, wide = false)
+        val rz = f.rainZoom
+        _rainAnim.value = RainAnim(startedAt = System.currentTimeMillis())
+        rainAnimJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val observed = rainTimes("targetTimes_N1.json").sortedByDescending { it.second }
+                val forecast = rainTimes("targetTimes_N2.json").sortedBy { it.second }
+                // 観測は新しいほうから 1 つおき（10 分ごと）に 6 コマ（いま・10 分前…50 分前）、予報は 10 分ごとに 6 コマ
+                val picks = observed.filterIndexed { i, _ -> i % 2 == 0 }.take(RAIN_ANIM_OBSERVED).reversed().map { it to false } +
+                    forecast.filterIndexed { i, _ -> i % 2 == 1 }.take(RAIN_ANIM_FORECAST).map { it to true }
+                if (picks.isEmpty()) {
+                    _rainAnim.update { it?.copy(failed = true) }
+                    return@launch
+                }
+                _rainAnim.update { it?.copy(total = picks.size) }
+                val slots = arrayOfNulls<RainAnimFrame>(picks.size)
+                val gate = kotlinx.coroutines.sync.Semaphore(RAIN_ANIM_PARALLEL)
+                kotlinx.coroutines.coroutineScope {
+                    picks.forEachIndexed { i, (pair, isForecast) ->
+                        launch {
+                            gate.withPermit {
+                                val (base, valid) = pair
+                                val tiles = HashMap<Pair<Int, Int>, ImageBitmap>()
+                                for (k in keys) {
+                                    fetchRainThumb(rainUrl(base, valid, rz, k))?.let { tiles[k] = it }
+                                }
+                                val at = java.time.LocalDateTime.parse(valid, STAMP).atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+                                // 1 枚も取れなかったコマは使わない（雨の無いコマと見分けがつかないため）
+                                if (tiles.isNotEmpty()) slots[i] = RainAnimFrame(at, isForecast, tiles)
+                                // 取れたコマを時刻順に並べて見せる（進み具合は取れた数）
+                                val done = slots.filterNotNull()
+                                _rainAnim.update { cur -> cur?.copy(frames = done) }
+                            }
+                        }
+                    }
+                }
+                val frames = slots.filterNotNull()
+                if (frames.size < 2) {
+                    _rainAnim.update { it?.copy(failed = true, total = frames.size) }
+                    return@launch
+                }
+                // 「いま」のコマ（最後の観測）から再生を始める
+                val start = frames.indexOfLast { !it.forecast }.coerceAtLeast(0)
+                _rainAnim.update { cur -> cur?.copy(frames = frames, total = frames.size, index = start, playing = true) }
+                playRainAnim()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _rainAnim.update { it?.copy(failed = true) }
+            }
+        }
+    }
+
+    /** 1 コマ 0.6 秒で進め、最後のコマだけ長めに止めて最初へ戻る。止める（[toggleRainAnim]）まで繰り返す。 */
+    private suspend fun playRainAnim() {
+        while (true) {
+            val cur = _rainAnim.value ?: return
+            if (!cur.playing || !cur.ready) { delay(200); continue }
+            delay(if (cur.index == cur.frames.lastIndex) RAIN_ANIM_END_MS else RAIN_ANIM_STEP_MS)
+            _rainAnim.update { a -> if (a != null && a.playing && a.ready) a.copy(index = (a.index + 1) % a.frames.size) else a }
+        }
+    }
+
+    /** 再生・一時停止。 */
+    fun toggleRainAnim() = _rainAnim.update { a -> if (a != null && a.ready) a.copy(playing = !a.playing) else a }
+
+    /** 見たいコマへ。再生は止める。 */
+    fun seekRainAnim(index: Int) = _rainAnim.update { a ->
+        if (a != null && a.ready) a.copy(index = index.coerceIn(0, a.frames.lastIndex), playing = false) else a
+    }
+
+    /** 再生をやめて、集めたタイルを手放す。 */
+    fun stopRainAnim() {
+        rainAnimJob?.cancel()
+        rainAnimJob = null
+        _rainAnim.value = null
+    }
+
+    /** 気象庁の時刻の一覧の（basetime, validtime）。 */
+    private suspend fun rainTimes(file: String): List<Pair<String, String>> {
+        val text = graph.http.get("https://www.jma.go.jp/bosai/jmatile/data/nowc/$file").bodyAsText()
+        val base = Regex("\"basetime\"\\s*:\\s*\"(\\d{14})\"\\s*,\\s*\"validtime\"\\s*:\\s*\"(\\d{14})\"")
+        return base.findAll(text).map { it.groupValues[1] to it.groupValues[2] }.toList()
+    }
+
+    /** 再生用の雨雲のタイル。縦横を半分に縮めて読み（メモリを 1/4 に）、無ければ null（失敗も覚えない）。 */
+    private suspend fun fetchRainThumb(url: String): ImageBitmap? {
+        if (url in radarMissing) return null
+        return try {
+            val bytes = graph.http.get(url).readRawBytes()
+            val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun rainUrl(base: String, valid: String, zoom: Int, k: Pair<Int, Int>) =
+        "https://www.jma.go.jp/bosai/jmatile/data/nowc/$base/none/$valid/surf/hrpns/$zoom/${Math.floorMod(k.first, 1 shl zoom)}/${k.second}.png"
 
     /**
      * 表示の中心のまわりで足りないタイルを 1 枚ずつ取って足す。1 枚ごとにいまの表示を見直すので、
@@ -799,22 +956,22 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun radarKeys(f: RadarFrame): List<Pair<Int, Int>> {
+    private fun radarKeys(f: RadarFrame, wide: Boolean = radarWide): List<Pair<Int, Int>> {
         val n = 1 shl f.zoom
         val tx = kotlin.math.floor(f.centerX / 256).toInt()
         val ty = (f.centerY / 256).toInt()
         // 真ん中から外へ向かって取る（ドラッグした先が早く埋まる）。東西は折り返すので、x は範囲の外でもよい。
         // 全画面では画面の端まで埋まるよう広く取る
-        val (wx, wy) = if (radarWide) 3 to 2 else 2 to 1
+        val (wx, wy) = if (wide) 3 to 2 else 2 to 1
         return (-wx..wx).flatMap { dx -> (-wy..wy).map { dy -> Pair(tx + dx, ty + dy) } }
             .filter { it.second in 0 until n }
             .sortedBy { abs(it.first - tx) + abs(it.second - ty) }
     }
 
     /** 表示に要る雨雲のタイル（[RadarFrame.rainZoom] の座標）。 */
-    private fun rainKeys(f: RadarFrame): List<Pair<Int, Int>> {
+    private fun rainKeys(f: RadarFrame, wide: Boolean = radarWide): List<Pair<Int, Int>> {
         val shift = f.zoom - f.rainZoom
-        return radarKeys(f).map { Pair(it.first shr shift, it.second shr shift) }.distinct()
+        return radarKeys(f, wide).map { Pair(it.first shr shift, it.second shr shift) }.distinct()
     }
 
     private sealed interface Tile {
@@ -1029,6 +1186,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         private const val RADAR_CHECK_MS = 60_000L
         private const val RADAR_MS = 300_000L
         private const val RADAR_RETURN_MS = 180_000L
+        private const val RAIN_ANIM_OBSERVED = 6
+        private const val RAIN_ANIM_FORECAST = 6
+        private const val RAIN_ANIM_PARALLEL = 3
+        private const val RAIN_ANIM_STEP_MS = 600L
+        private const val RAIN_ANIM_END_MS = 1500L
         private const val RADAR_ZOOM = "radarZoom"
         private const val FLIGHT_ZOOM = "flightZoom"
         private const val SHIP_ZOOM = "shipZoom"

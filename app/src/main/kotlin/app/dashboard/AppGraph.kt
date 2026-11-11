@@ -2,6 +2,7 @@ package app.dashboard
 
 import android.content.Context
 import app.dashboard.data.AppUpdater
+import app.dashboard.data.BackupStore
 import app.dashboard.data.CalendarRepository
 import app.dashboard.data.ConfigStore
 import app.dashboard.data.CryptoRepository
@@ -53,6 +54,8 @@ class AppGraph private constructor(context: Context) {
 
     val config = ConfigStore.getInstance(this.context)
     val http = Http.newClient()
+    /** 設定の控え（1 日 1 回の自動・手動・戻す直前）。 */
+    val backups = BackupStore(java.io.File(this.context.filesDir, "backups"), config.json, { config.get() })
 
     val wifi = WifiMonitor(this.context).also { it.start() }
     val weather = WeatherRepository(this.context, http, config)
@@ -147,6 +150,7 @@ class AppGraph private constructor(context: Context) {
                 SourceHealth(name, on, if (def.source == "push") s?.updatedAt ?: 0L else s?.fetchedAt ?: 0L, s?.lastError)
             },
             quarantined = config.quarantined(),
+            backups = backups.list(),
         )
     }
 

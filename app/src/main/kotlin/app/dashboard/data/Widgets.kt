@@ -576,6 +576,38 @@ val WIDGET_TEMPLATES: List<WidgetTemplate>
                 intervalMin = 1, warnAt = null, alertAt = null,
             )
         },
+        WidgetTemplate("raspi", "Raspberry Pi の温度・湿度（LAN）", "Raspberry Pi temperature (LAN)") {
+            it.copy(
+                title = it.title.ifBlank { L("部屋の温度", "Room temp") },
+                source = "http", style = "number",
+                url = "http://raspberrypi.local:8000/sensor.json",
+                headerName = "", path = "temperature", unitPath = "", unit = "℃",
+                intervalMin = 1, decimals = 1, warnAt = 28.0, alertAt = 32.0, below = false,
+            )
+        },
+        WidgetTemplate("pihole", "Pi-hole（広告をブロックした割合）", "Pi-hole (ads blocked)") {
+            it.copy(
+                title = it.title.ifBlank { L("広告ブロック", "Ads blocked") },
+                source = "http", style = "gauge",
+                url = "http://pi.hole/admin/api.php?summaryRaw",
+                headerName = "", path = "ads_percentage_today", unitPath = "", unit = "%",
+                intervalMin = 5, decimals = 1, min = 0.0, max = 100.0, warnAt = null, alertAt = null,
+            )
+        },
+        WidgetTemplate("co2", "CO₂ 濃度（外から送る）", "CO₂ level (pushed)") {
+            it.copy(
+                title = it.title.ifBlank { "CO₂" },
+                source = "push", style = "gauge", url = "", headerName = "", path = "", unitPath = "", unit = "ppm",
+                decimals = 0, min = 400.0, max = 2000.0, warnAt = 1000.0, alertAt = 1500.0, below = false,
+            )
+        },
+        WidgetTemplate("garbage", "ゴミの日（外から送る文字）", "Trash day (pushed text)") {
+            it.copy(
+                title = it.title.ifBlank { L("ゴミの日", "Trash day") },
+                source = "push", style = "text", url = "", headerName = "", path = "", unitPath = "", unit = "",
+                warnAt = null, alertAt = null,
+            )
+        },
         WidgetTemplate("push", "外から送る（数値）", "Pushed from outside (number)") {
             it.copy(
                 title = it.title.ifBlank { L("電力", "Power") },

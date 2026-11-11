@@ -1720,6 +1720,7 @@ private fun InfoPane(graph: AppGraph, onVersionArt: () -> Unit) {
     }
     UpdateField(graph)
     HealthField(graph)
+    LocalBackupField(graph)
     Field(L("ライセンス", "License")) { Text("MIT License", color = Wd.Text2, fontSize = 14.tu) }
     Notice(
         L(
@@ -1767,6 +1768,69 @@ private fun HealthField(graph: AppGraph) {
                 color = Wd.Amber, fontSize = 13.tu,
             )
         }
+    }
+}
+
+/** 情報の「この端末の中の控え」。1 日 1 回の自動の控えと手動の控えを並べ、戻せる（Web の設定の「バックアップ」と同じ）。 */
+@Composable
+private fun LocalBackupField(graph: AppGraph) {
+    var list by remember { mutableStateOf(graph.backups.list()) }
+    var message by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var confirm by remember { mutableStateOf<app.dashboard.data.BackupInfo?>(null) }
+    val scope = rememberCoroutineScope()
+    fun reload() { list = graph.backups.list() }
+    fun when_(ms: Long): String = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.US).format(java.util.Date(ms))
+    fun kindLabel(k: String) = when (k) {
+        app.dashboard.data.BackupStore.AUTO -> L("自動", "Auto")
+        app.dashboard.data.BackupStore.MANUAL -> L("手動", "Manual")
+        else -> L("戻す直前", "Before restore")
+    }
+    Field(
+        L("この端末の中の控え", "Backups on this device"),
+        L(
+            "1 日 1 回、設定を自動で控えます（7 日ぶん）。間違えたときにここから戻せます。戻す前のいまの設定も控えます。アプリを消すと控えも消えます。",
+            "Settings are backed up once a day (7 days kept). Restore from here if you get something wrong; the current settings are backed up first. Uninstalling deletes the backups too.",
+        ),
+    ) {
+        ActionButton(L("いま控える", "Back up now"), {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { runCatching { graph.settings.backupNow() }.isSuccess }
+                message = (if (ok) L("控えました", "Saved") else L("控えを保存できませんでした", "Couldn't save a backup")) to ok
+                reload()
+            }
+        })
+        Spacer(Modifier.height(8.dp))
+        if (list.isEmpty()) Text(L("まだ控えがありません", "No backups yet"), color = Wd.Text3, fontSize = 13.tu)
+        list.forEach { b ->
+            Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${when_(b.createdAt)}  ${kindLabel(b.kind)}", fontSize = 13.tu, modifier = Modifier.width(220.dp))
+                TextButton(onClick = { confirm = b }) { Text(L("この控えに戻す", "Restore")) }
+            }
+        }
+        message?.let { (t, ok) -> Text(t, color = if (ok) Wd.Green else Wd.Red, fontSize = 13.tu) }
+    }
+    confirm?.let { b ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(L("この控えに戻す", "Restore this backup")) },
+            text = {
+                Text(L(
+                    "いまの設定を ${when_(b.createdAt)} の控えで置き換えます。戻す前のいまの設定も控えます。",
+                    "Replaces the current settings with the backup from ${when_(b.createdAt)}. The current settings are backed up first.",
+                ))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { runCatching { graph.settings.restoreBackup(b.name) }.isSuccess }
+                        message = (if (ok) L("戻しました", "Restored") else L("戻せませんでした", "Couldn't restore")) to ok
+                        reload()
+                    }
+                }) { Text(L("戻す", "Restore")) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(L("キャンセル", "Cancel")) } },
+        )
     }
 }
 

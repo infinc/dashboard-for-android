@@ -54,6 +54,11 @@ function readChoices() {
 let notifyApi = { enabled: false, token: null };
 let wallpaperBytes = null;
 let wallpaperType = "image/jpeg";
+const mockBackups = [
+  { name: "config-20261110-030000-auto.json", createdAt: Date.now() - 86_400_000, size: 6144, kind: "auto" },
+  { name: "config-20261109-030000-auto.json", createdAt: Date.now() - 2 * 86_400_000, size: 6100, kind: "auto" },
+];
+
 let config = {
   configVersion: 1,
   lan: { enabled: false, pinSet: false },
@@ -454,7 +459,17 @@ const server = createServer(async (req, res) => {
           { name: "株価", enabled: false, fetchedAt: 0, lastError: null },
         ],
         quarantined: [],
+        backups: mockBackups,
       });
+    }
+    if (path === "/api/backups" && post) {
+      const b = { name: `config-${Date.now()}-manual.json`, createdAt: Date.now(), size: 4096, kind: "manual" };
+      mockBackups.unshift(b);
+      return json(res, 200, b);
+    }
+    if (path === "/api/restore/backup" && post) {
+      console.log(`[mock] 控えから戻す: ${url.searchParams.get("name")}`);
+      return json(res, 200, config);
     }
     if (path === "/api/backup") {
       res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="dashboard-config-mock.json"' });

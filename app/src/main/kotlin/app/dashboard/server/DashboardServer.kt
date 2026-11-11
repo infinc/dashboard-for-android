@@ -317,6 +317,19 @@ class DashboardServer(private val graph: AppGraph) {
                 call.respond(graph.settings.restore(text).toPublic())
             }
 
+            /** いまの設定を端末の中に控える。 */
+            post("/api/backups") {
+                if (!guardWrite(call)) return@post
+                call.respond(graph.settings.backupNow())
+            }
+
+            /** 端末の中の控え（?name=config-…json）から戻す。戻す前にいまの設定も控える。 */
+            post("/api/restore/backup") {
+                if (!guardWrite(call)) return@post
+                val name = call.request.queryParameters["name"].orEmpty()
+                call.respond(graph.settings.restoreBackup(name).toPublic())
+            }
+
             /** 読めずに退避した config.json（?name=config.json.bad-…）から戻す。 */
             post("/api/restore/quarantined") {
                 if (!guardWrite(call)) return@post
