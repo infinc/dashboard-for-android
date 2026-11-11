@@ -714,6 +714,7 @@ curl -X POST http://<タブレットのIP>:8080/api/notify -H 'Authorization: Be
 |---|---|
 | URL から取る | JSON を返す URL を、決めた間隔（1 分〜1 日）で取りに行く。ヘッダーを 1 つ付けられる（`Authorization: Bearer …` など。値は保存後に表示しない）。URL の `{lat}`・`{lon}`・`{lang}` は「場所」の緯度・経度と表示の言語に置き換わる |
 | 外から送ってもらう | `POST /api/widgets/w1`〜`w4` に値を送る（下の例）。「外からの通知」とは別のトークン |
+| 中継（サーバーの代わりに取りに行く） | 「URL から取る」と同じに値を見せる。応答に `"relay"` の指示があれば、この端末から指示された `https://` の先へ代わりに取りに行き（GET か、フォームを付けた POST。16 件まで・1 件 1 MB まで）、本文をまとめて指示の返す先へ POST する。サーバー（Cloudflare Workers など）からは届かないサイトを、この端末の回線で読むためのもの。返す先はカードの URL と同じホスト（`https://`）だけで、家の中（LAN）の機器には中継しない。間隔は 1 分がおすすめ（下の形） |
 | 死活監視 | 1 行に 1 つ「名前 URL」。`https://`・LAN の `http://` は応答（2xx・3xx は正常、4xx は注意、5xx と応答なしは警戒）と時間を、`tcp://ホスト:ポート` はつながるかを見る（8 つまで） |
 
 **見せ方**: 数値（大きな値と 24 時間の小さな折れ線）・メーター（最小〜最大の半円）・一覧（名前と値の行）・文字・監視（緑／琥珀／赤の点）。
@@ -725,7 +726,22 @@ curl -X POST http://<タブレットのIP>:8080/api/notify -H 'Authorization: Be
 **値の場所**: 応答の中の値を `state`・`data.temp`・`items[0].value`・`rates.JPY`・`["点.の入ったキー"]` の形で指す（先頭の `$.` は付けても付けなくてもよい）。
 設定画面の「試しに取得」で、保存する前の設定のまま 1 回取りに行き、返ってきた JSON を木で出す。値を押すとその場所が入る。
 
-**ひな形**: Home Assistant のセンサー・GitHub のスター数・為替（frankfurter.app）・Open-Meteo の値（地点の湿度）・自宅サーバーの監視・外から送る数値。
+**ひな形**: Home Assistant のセンサー・GitHub のスター数・為替（frankfurter.app）・Open-Meteo の値（地点の湿度）・自宅サーバーの監視・中継・外から送る数値。
+
+**中継の形**: カードの URL が返す JSON に、ふつうの値と一緒に `relay` を入れる。カードは指示を実行して `result` へ
+`{"id": "…", "responses": [{"status": 200, "body": "…"}, …]}`（取れなかった件は `status` 0 と `error`）を POST し、そのあとカードの URL を取り直して表示を新しくする。
+ヘッダー（`Authorization` など）は返すときにも付ける。
+
+```json
+{
+  "items": [{"label": "11/14(土) 19:00-21:00", "value": "1/3面C"}],
+  "relay": {
+    "id": "6f1c…",
+    "result": "https://example.workers.dev/relay/result",
+    "requests": [{"method": "POST", "url": "https://example.jp/index.php", "form": {"op": "search"}}]
+  }
+}
+```
 
 **LAN の http://**: このアプリは平文の通信を原則として許していない（盗み見や書き換えを防ぐため）。自作カードの `http://` は、
 家の中（プライベートなアドレス: 192.168.x.x・10.x.x.x・172.16〜31.x.x・169.254.x.x・100.64〜127.x.x（Tailscale など）・`.local` の名前で、引いたアドレスがすべてプライベートなもの）にだけ届く。外のサイトは `https://` にする。

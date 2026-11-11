@@ -230,13 +230,24 @@ internal fun WidgetsPane(
                 "http" to L("URL から取る（JSON）", "Fetch from a URL (JSON)"),
                 "push" to L("外から送ってもらう", "Pushed from outside"),
                 "monitor" to L("死活監視（動いているか）", "Uptime monitor"),
+                "relay" to L("中継（サーバーの代わりに取りに行く）", "Relay (fetch on behalf of a server)"),
             ),
             w.source, { set(w.copy(source = it)) },
         )
     }
 
     when (w.source) {
-        "http" -> {
+        "http", "relay" -> {
+            if (w.source == "relay") {
+                Hint(
+                    L(
+                        "「URL から取る」と同じに値を見せます。応答に \"relay\" の指示があると、この端末から指示された https:// の先へ代わりに取りに行き、本文を指示の返す先（URL と同じホストだけ）へ返します。" +
+                            "サーバーからは見えないサイトを、この端末の回線で読むためのものです。家の中（LAN）の機器には中継しません。間隔は「1 分ごと」がおすすめです。",
+                        "Shows a value just like \"Fetch from a URL\". When the response carries a \"relay\" instruction, this device fetches the given https:// pages and posts the bodies back to the instruction's result URL (same host only). " +
+                            "Lets a server read sites it can't reach, through this device's connection. LAN devices are never relayed to. \"Every 1 min\" is recommended.",
+                    ),
+                )
+            }
             Field(
                 "URL",
                 L(

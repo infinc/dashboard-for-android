@@ -26,8 +26,11 @@ const val MAX_WIDGETS = 4
 /** 自作カードの識別子（`POST /api/widgets/{id}` の {id} にもなる）。 */
 val WIDGET_IDS: List<String> = (1..MAX_WIDGETS).map { "w$it" }
 
-/** 取得のしかた。"http" = URL から取る、"push" = 外から送ってもらう、"monitor" = 死活監視。 */
-val WIDGET_SOURCES: List<String> = listOf("http", "push", "monitor")
+/**
+ * 取得のしかた。"http" = URL から取る、"push" = 外から送ってもらう、"monitor" = 死活監視、
+ * "relay" = 中継（URL から取るのと同じに見せ、応答に "relay" の指示があればこの端末から代わりに取って返す。WidgetRelay.kt）。
+ */
+val WIDGET_SOURCES: List<String> = listOf("http", "push", "monitor", "relay")
 
 /** 見せ方。"number" = 数値、"gauge" = メーター、"list" = 一覧、"text" = 文字、"monitor" = 監視（死活監視のときだけ）。 */
 val WIDGET_STYLES: List<String> = listOf("number", "gauge", "list", "text", "monitor")
@@ -561,6 +564,16 @@ val WIDGET_TEMPLATES: List<WidgetTemplate>
                 targets = it.targets.ifEmpty {
                     listOf(WidgetTarget("Google", "https://www.google.com"), WidgetTarget(L("ルーター", "Router"), "tcp://192.168.1.1:80"))
                 },
+            )
+        },
+        WidgetTemplate("relay", "中継（サーバーの代わりに取りに行く）", "Relay (fetch on behalf of a server)") {
+            it.copy(
+                title = it.title.ifBlank { L("中継", "Relay") },
+                source = "relay", style = "list",
+                url = "https://example.workers.dev/relay",
+                headerName = "Authorization",
+                path = "items", labelKey = "label", valueKey = "value", unitPath = "", unit = "",
+                intervalMin = 1, warnAt = null, alertAt = null,
             )
         },
         WidgetTemplate("push", "外から送る（数値）", "Pushed from outside (number)") {

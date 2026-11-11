@@ -226,14 +226,21 @@
     box.appendChild(field(L("取得のしかた", "Source"), null, [select_("source", [
       ["http", L("URL から取る（JSON）", "Fetch from a URL (JSON)")],
       ["push", L("外から送ってもらう", "Pushed from outside")],
-      ["monitor", L("死活監視（動いているか）", "Uptime monitor")]
+      ["monitor", L("死活監視（動いているか）", "Uptime monitor")],
+      ["relay", L("中継（サーバーの代わりに取りに行く）", "Relay (fetch on behalf of a server)")]
     ], function () { renderForm(); })]));
+    if (w.source === "relay") {
+      box.appendChild(el("div", { className: "hint", text: L(
+        "「URL から取る」と同じに値を見せます。応答に \"relay\" の指示があると、この端末から指示された https:// の先へ代わりに取りに行き、本文を指示の返す先（URL と同じホストだけ）へ返します。家の中（LAN）の機器には中継しません。間隔は「1 分ごと」がおすすめです。",
+        "Shows a value just like \"Fetch from a URL\". When the response carries a \"relay\" instruction, this device fetches the given https:// pages and posts the bodies back to the instruction's result URL (same host only). LAN devices are never relayed to. \"Every 1 min\" is recommended."
+      ) }));
+    }
 
     // URL から取る
     box.appendChild(field("URL", L(
       "JSON を返す URL です。外のサイトは https:// にしてください。http:// は家の中（LAN）の機器（192.168.x.x・homeassistant.local など）だけに使えます。{lat}・{lon} は「場所」の緯度・経度に、{lang} は表示の言語に置き換えます。",
       "A URL that returns JSON. Use https:// for outside sites; plain http:// works only for devices on your LAN (192.168.x.x, homeassistant.local…). {lat} and {lon} become your location's coordinates and {lang} the display language."
-    ), [input("url", "https://…")], { "data-src": "http" }));
+    ), [input("url", "https://…")], { "data-src": "http relay" }));
 
     var hasHeader = headerSet[selected] && !w.clearHeader;
     var clear = el("button", { type: "button", className: "ghost", text: L("保存したヘッダーの値を消す", "Clear the saved header value") });
@@ -248,7 +255,7 @@
         input("headerValue", w.clearHeader ? L("保存すると消します", "Cleared when saved") : hasHeader ? L("設定済み（変更する場合のみ入力）", "Set (enter only to change)") : L("値", "Value"), "password")
       ]),
       clear
-    ], { "data-src": "http" }));
+    ], { "data-src": "http relay" }));
 
     // 死活監視
     var targets = el("textarea", { placeholder: "NAS http://192.168.1.10:5000\nSSH tcp://192.168.1.20:22\nGoogle https://www.google.com" });
@@ -259,7 +266,7 @@
       "One per line as \"name URL\" (the name is optional, up to 8). For https:// and LAN http:// the response is checked (2xx/3xx up, 4xx warning, 5xx or no response down); tcp://host:port checks that it connects."
     ), [targets], { "data-src": "monitor" }));
 
-    box.appendChild(field(L("取りに行く間隔", "Interval"), L("カードを表示している間だけ取りに行きます。", "Fetched only while the card is shown."), [select_("intervalMin", intervalOptions())], { "data-src": "http monitor" }));
+    box.appendChild(field(L("取りに行く間隔", "Interval"), L("カードを表示している間だけ取りに行きます。", "Fetched only while the card is shown."), [select_("intervalMin", intervalOptions())], { "data-src": "http relay monitor" }));
 
     // 外から送る
     box.appendChild(pushBlock(w));
@@ -270,16 +277,16 @@
       ["gauge", L("メーター（最小〜最大の半円）", "Gauge (half circle from min to max)")],
       ["list", L("一覧（名前と値の行）", "List (rows of names and values)")],
       ["text", L("文字", "Text")]
-    ], function () { applyVisibility(); })], { "data-src": "http push" }));
+    ], function () { applyVisibility(); })], { "data-src": "http relay push" }));
 
     box.appendChild(field(L("値の場所", "Value path"), L(
       "応答の中の値の場所です（例: state・data.temp・items[0].value・rates.JPY）。一覧の見せ方では配列（か物）の場所です。下の「試しに取得」で値を押すと入ります。外から {\"value\": 23.4} の形で送るときは空でかまいません。",
       "Where the value is in the response (e.g. state, data.temp, items[0].value, rates.JPY). For the list style, the path to an array (or object). Tap a value after \"Try fetching\" below to fill it in. Leave it empty when pushing simple bodies like {\"value\": 23.4}."
-    ), [input("path", L("例: data.temperature", "e.g. data.temperature")), el("div", { className: "status err", id: "wgPathStatus" })], { "data-src": "http push" }));
+    ), [input("path", L("例: data.temperature", "e.g. data.temperature")), el("div", { className: "status err", id: "wgPathStatus" })], { "data-src": "http relay push" }));
 
     box.appendChild(field(L("一覧の行（配列のとき）", "List rows (for arrays)"), L("各要素の中の、名前と値の場所です。空なら 1 つ目と 2 つ目の項目。", "Paths inside each element for the name and the value. Empty means the first and second fields."), [
       el("div", { className: "wg-row" }, [input("labelKey", L("名前のキー（例: name）", "Name key (e.g. name)")), input("valueKey", L("値のキー（例: value）", "Value key (e.g. value)"))])
-    ], { "data-src": "http push", "data-style": "list" }));
+    ], { "data-src": "http relay push", "data-style": "list" }));
 
     var decimals = [[-1, L("小数の桁: 自動", "Decimals: auto")]].concat([0, 1, 2, 3, 4].map(function (n) { return [n, L("小数の桁: " + n, "Decimals: " + n)]; }));
     box.appendChild(field(L("単位と桁", "Unit and digits"), L(
@@ -288,16 +295,16 @@
     ), [
       el("div", { className: "wg-row three" }, [input("unit", L("単位（例: ℃）", "Unit (e.g. °C)")), input("unitPath", L("単位の場所（任意）", "Unit path (optional)")), input("scale", L("倍率", "Scale"))]),
       select_("decimals", decimals)
-    ], { "data-src": "http push", "data-style": "number gauge list" }));
+    ], { "data-src": "http relay push", "data-style": "number gauge list" }));
 
     box.appendChild(field(L("メーターの範囲", "Gauge range"), null, [
       el("div", { className: "wg-row" }, [input("min", L("最小", "Min")), input("max", L("最大", "Max"))])
-    ], { "data-src": "http push", "data-style": "gauge" }));
+    ], { "data-src": "http relay push", "data-style": "gauge" }));
 
     box.appendChild(field(L("しきい値（任意）", "Thresholds (optional)"), L("越えると色が変わります（注意は琥珀、警戒は赤）。一覧では各行の値で決めます。", "Colors change when crossed (amber for warning, red for alert). In lists, each row is judged by its own value."), [
       el("div", { className: "wg-row" }, [input("warnAt", L("注意", "Warning")), input("alertAt", L("警戒", "Alert"))]),
       check("below", L("下回ったら（例: 湿度・電池）", "When it falls below (e.g. humidity, battery)"))
-    ], { "data-src": "http push", "data-style": "number gauge list" }));
+    ], { "data-src": "http relay push", "data-style": "number gauge list" }));
 
     var toneOptions = [["", L("音: LINE メモと同じ", "Sound: same as LINE memo")]].concat(tones.map(function (t) { return [t.value, t.label]; }));
     var preview = el("button", { type: "button", className: "ghost", text: L("試聴", "Preview") });
@@ -411,7 +418,7 @@
     return field(L("試しに取得", "Try fetching"), L(
       "保存していない下書きのまま 1 回だけ取りに行きます。下の木で値を押すと「値の場所」に入ります（一覧の見せ方なら配列を押します）。",
       "Fetches once with the unsaved draft. Tap a value in the tree below to set the value path (for the list style, tap an array)."
-    ), [el("div", { className: "row" }, [button]), out], { "data-src": "http monitor" });
+    ), [el("div", { className: "row" }, [button]), out], { "data-src": "http relay monitor" });
   }
 
   function fmt(n) {
