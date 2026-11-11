@@ -110,7 +110,13 @@ fun RadarCard(
 
 /** 地図と雨雲と天気の地点。ドラッグで動かす（指と同じ向きに地図が動く）。カードと全画面の両方で使う。 */
 @Composable
-internal fun RadarMap(frame: DashboardViewModel.RadarFrame, onPan: (Float, Float) -> Unit, modifier: Modifier) {
+internal fun RadarMap(
+    frame: DashboardViewModel.RadarFrame,
+    onPan: (Float, Float) -> Unit,
+    modifier: Modifier,
+    /** 再生中の雨雲（[frame] のズームの雨雲のタイル）。あれば [DashboardViewModel.RadarFrame.rain] の代わりに描く。 */
+    animRain: Map<Pair<Int, Int>, ImageBitmap>? = null,
+) {
     if (frame.zoom == 0) return
     val empty = frame.base.isEmpty() && frame.old.isEmpty()
     val accent = LocalAccent.current
@@ -143,8 +149,12 @@ internal fun RadarMap(frame: DashboardViewModel.RadarFrame, onPan: (Float, Float
         tiles(frame.old, frame.oldZoom, 1f)
         tiles(frame.base, frame.zoom, 1f)
         // 新しいズームの雨雲が揃うまでは前の雨雲を敷く
-        tiles(frame.oldRain, frame.oldRainZoom, 0.85f)
-        tiles(frame.rain, frame.rainZoom, 0.85f)
+        if (animRain != null) {
+            tiles(animRain, frame.rainZoom, 0.85f)
+        } else {
+            tiles(frame.oldRain, frame.oldRainZoom, 0.85f)
+            tiles(frame.rain, frame.rainZoom, 0.85f)
+        }
         if (empty) return@Canvas
         // 天気の地点
         val c = Offset(

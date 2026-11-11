@@ -200,6 +200,23 @@ class SettingsController(private val graph: AppGraph) {
         return restore(text)
     }
 
+    /** 端末の中の控えから戻す。戻す前に、いまの設定も控える（間違えて戻しても元に戻せるように）。 */
+    fun restoreBackup(name: String): Config {
+        val text = graph.backups.read(name)
+            ?: throw SettingsException("not_found", L("控えが見つかりません", "The backup wasn't found"))
+        // 読めない控えのときは、いまの設定を控えに押し出さない
+        runCatching { graph.config.json.decodeFromString<Config>(text) }.getOrElse {
+            throw SettingsException("bad_backup", L("この控えは読めません", "This backup can't be read"))
+        }
+        graph.backups.create(app.dashboard.data.BackupStore.PRE_RESTORE)
+        return restore(text)
+    }
+
+    /** いまの設定を端末の中に控える。 */
+    fun backupNow(): app.dashboard.data.BackupInfo =
+        graph.backups.create(app.dashboard.data.BackupStore.MANUAL)
+            ?: throw SettingsException("backup_failed", L("控えを保存できませんでした", "Couldn't save a backup"))
+
     fun refreshAllLater() {
         graph.scope.launch { refreshAll() }
     }

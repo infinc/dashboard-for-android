@@ -93,6 +93,7 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
 
     val wallpaper by vm.wallpaper.collectAsStateWithLifecycle()
     val radar by vm.radar.collectAsStateWithLifecycle()
+    val rainAnim by vm.rainAnim.collectAsStateWithLifecycle()
     val photo by vm.photo.collectAsStateWithLifecycle()
     val flightFrame by vm.flightMap.frame.collectAsStateWithLifecycle()
     val flights by vm.flights.state.collectAsStateWithLifecycle()
@@ -253,7 +254,8 @@ fun DashboardScreen(vm: DashboardViewModel, onOpenSettings: () -> Unit, onOpenBr
             AnimatedVisibility(radarFull, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {
                 RadarScreen(
                     radar, config.location.displayName(s?.disaster?.areaNameEn), keepAwake, vm::setKeepAwake,
-                    vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen, onBack = { radarFull = false },
+                    vm::panRadar, vm::zoomRadar, vm::recenterRadar, vm::setRadarFullscreen,
+                    rainAnim, vm::startRainAnim, vm::toggleRainAnim, vm::seekRainAnim, vm::stopRainAnim, onBack = { radarFull = false },
                 )
             }
             AnimatedVisibility(widgetFull != null, enter = fadeIn(tween(250)), exit = fadeOut(tween(200))) {

@@ -1687,4 +1687,6 @@ data class StatusResponse(
     val sources: List<SourceHealth>,
     /** 読めずに退避した config.json（新しい順）。 */
     val quarantined: List<String>,
+    /** 端末の中に残してある設定の控え（新しい順）。 */
+    val backups: List<BackupInfo> = emptyList(),
 )

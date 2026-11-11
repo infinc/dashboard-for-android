@@ -85,6 +85,7 @@
     $("panes").scrollTop = 0;
     if (location.hash !== "#" + name) location.hash = name;
     if (name === "status") loadStatus();
+    if (name === "backup") loadLocalBackups();
     if (name === "notifyapi") loadNotify();
     if (name === "widgets") window.DashWidgets.onShow();
   }
@@ -1321,6 +1322,71 @@
     if (!file) { setStatus("backupStatus", L("ファイルを選んでください", "Choose a file"), "warn"); return; }
     if (!confirm(L("いまの設定を、このファイルの内容で置き換えます。続けますか？", "Replace the current settings with this file?"))) return;
     file.text().then(function (text) { return restoreFrom("/api/restore", text); }).catch(function () {});
+  });
+
+  // ---------------------------------------------------------------- 端末の中の控え
+
+  var BACKUP_KINDS = {
+    auto: ["自動", "Auto"],
+    manual: ["手動", "Manual"],
+    prerestore: ["戻す直前", "Before restore"]
+  };
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function backupTime(ms) {
+    var d = new Date(ms);
+    return d.getFullYear() + "/" + pad2(d.getMonth() + 1) + "/" + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+
+  function renderLocalBackups(list) {
+    var box = $("localBackupList");
+    box.innerHTML = "";
+    if (!list.length) {
+      var none = document.createElement("div");
+      none.className = "hint";
+      none.textContent = L("まだ控えがありません", "No backups yet");
+      box.appendChild(none);
+      return;
+    }
+    list.forEach(function (b) {
+      var line = document.createElement("div");
+      line.className = "row";
+      line.style.padding = "6px 0";
+      var kind = BACKUP_KINDS[b.kind] || [b.kind, b.kind];
+      var label = document.createElement("span");
+      label.style.minWidth = "220px";
+      label.textContent = backupTime(b.createdAt) + "  " + L(kind[0], kind[1]) + "  " + Math.max(1, Math.round(b.size / 1024)) + " KB";
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.textContent = L("この控えに戻す", "Restore this");
+      button.addEventListener("click", function () {
+        if (!confirm(L("いまの設定を、" + backupTime(b.createdAt) + " の控えで置き換えます（戻す前のいまの設定も控えます）。続けますか？", "Replace the current settings with the backup from " + backupTime(b.createdAt) + "? (The current settings are backed up first.)"))) return;
+        setStatus("localBackupStatus", L("戻しています…", "Restoring…"));
+        api("/api/restore/backup?name=" + encodeURIComponent(b.name), { method: "POST", body: "{}" })
+          .then(function () {
+            setStatus("localBackupStatus", L("戻しました。画面を読み直します…", "Restored. Reloading…"), "ok");
+            setTimeout(function () { location.reload(); }, 800);
+          })
+          .catch(function (e) { setStatus("localBackupStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+      });
+      line.appendChild(label);
+      line.appendChild(button);
+      box.appendChild(line);
+    });
+  }
+
+  function loadLocalBackups() {
+    return api("/api/status").then(function (st) { renderLocalBackups(st.backups || []); })
+      .catch(function (e) { setStatus("localBackupStatus", L("エラー: ", "Error: ") + e.message, "err"); });
+  }
+
+  $("backupNow").addEventListener("click", function () {
+    setStatus("localBackupStatus", L("控えています…", "Saving…"));
+    api("/api/backups", { method: "POST", body: "{}" })
+      .then(function () { setStatus("localBackupStatus", L("控えました", "Saved"), "ok"); return loadLocalBackups(); })
+      .catch(function (e) { setStatus("localBackupStatus", L("エラー: ", "Error: ") + e.message, "err"); });
   });
 
   // ---------------------------------------------------------------- 取得状況

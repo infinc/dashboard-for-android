@@ -5,10 +5,16 @@ import app.dashboard.i18n.L
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.plugins.timeout
+import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.Parameters
+import io.ktor.http.contentType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +42,7 @@ import java.util.concurrent.ConcurrentHashMap
  *   `https://` は共有の Ktor、LAN の `http://` は [LanHttp]（平文はプライベートなアドレスだけ）
  * - 外から送る: サーバーが [push] に本文を渡す
  * - 死活監視: 行ごとに応答の有無と時間（`tcp://` はつながるかだけ）
+ * - 中継: URL から取るのと同じに見せ、応答に "relay" の指示があれば代わりに取って返す（[relay]、WidgetRelay.kt）
  *
  * 値と 24 時間ぶんの履歴は `filesDir/widgets-data.json` に残す（書き込みは [SAVE_DELAY_MS] ごとにまとめる）。
  * しきい値の「警戒」に入った・戻ったときは [notify] で知らせる（画面がバナーと音を出す）。
@@ -174,7 +181,8 @@ class WidgetRepository(
             } else {
                 val r = get(def)
                 if (r.status !in 200..299) throw WidgetException("HTTP ${r.status}")
-                when (val p = WidgetRead.parse(def, r.body, now)) {
+                val body = if (def.source == "relay") relay(def, r.body) else r.body
+                when (val p = WidgetRead.parse(def, body, now)) {
                     is WidgetPush.Value -> p.data
                     is WidgetPush.Bad -> throw WidgetException(p.reason)
                 }
@@ -214,6 +222,70 @@ class WidgetRepository(
             else -> throw WidgetException(L("URL は https:// か http:// で始めてください", "The URL must start with https:// or http://"))
         }
     }
+
+    /**
+     * 中継。応答に "relay" の指示があれば、書かれた先へ順に取りに行き、本文をまとめて返す先へ POST する。
+     * 返し終えたらカードの URL を取り直し、その本文を返す（指示が無ければ [body] のまま）。
+     * 取りに行く先 1 件ずつの失敗は [RelayResponse.error] に入れて返す（どこで失敗したかはサーバーが判断する）。
+     */
+    private suspend fun relay(def: WidgetDef, body: String): String {
+        val job = try {
+            WidgetRelay.job(body)
+        } catch (e: IllegalArgumentException) {
+            throw WidgetException(e.message ?: "relay")
+        } ?: return body
+        WidgetRelay.check(def.url, job)?.let { throw WidgetException(it) }
+        val responses = job.requests.mapIndexed { i, req ->
+            if (i > 0) delay(RELAY_GAP_MS) // 取りに行く先のサイトへ立て続けに送らない
+            relayOne(req)
+        }
+        val report = Http.json.encodeToString(RelayReport.serializer(), RelayReport(job.id, responses))
+        val res = client.post(job.result.trim()) {
+            expectSuccess = false
+            timeout { requestTimeoutMillis = RELAY_TIMEOUT_MS }
+            header(HttpHeaders.UserAgent, USER_AGENT)
+            authHeader(def)?.let { (k, v) -> header(k, v) }
+            contentType(ContentType.Application.Json)
+            setBody(report)
+        }
+        if (res.status.value !in 200..299) throw WidgetException(L("中継の結果を返せませんでした（HTTP ${res.status.value}）", "Couldn't return the relay result (HTTP ${res.status.value})"))
+        val again = get(def)
+        if (again.status !in 200..299) throw WidgetException("HTTP ${again.status}")
+        return again.body
+    }
+
+    private suspend fun relayOne(req: RelayRequest): RelayResponse = try {
+        val url = req.url.trim()
+        val host = URI(url).host ?: throw WidgetException(L("ホストがありません", "No host"))
+        if (withContext(Dispatchers.IO) { WidgetRelay.isPrivateHost(host) }) {
+            throw WidgetException(L("家の中（LAN）の機器には中継しません", "Relaying to LAN devices is not allowed"))
+        }
+        val res = if (req.method.equals("POST", ignoreCase = true)) {
+            client.post(url) {
+                expectSuccess = false
+                timeout { requestTimeoutMillis = RELAY_TIMEOUT_MS }
+                header(HttpHeaders.UserAgent, USER_AGENT)
+                setBody(FormDataContent(Parameters.build { req.form.forEach { (k, v) -> append(k, v) } }))
+            }
+        } else {
+            client.get(url) {
+                expectSuccess = false
+                timeout { requestTimeoutMillis = RELAY_TIMEOUT_MS }
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }
+        }
+        val length = res.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+        if (length != null && length > LanHttp.MAX_BYTES) throw WidgetException(L("応答が大きすぎます（1 MB まで）", "The response is too large (1 MB max)"))
+        RelayResponse(res.status.value, res.bodyAsText().take(LanHttp.MAX_BYTES.toInt()))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "中継の取得に失敗: ${req.url}", e)
+        RelayResponse(0, error = describe(e))
+    }
+
+    private fun authHeader(def: WidgetDef): Pair<String, String>? =
+        if (def.headerName.isNotBlank() && !def.headerValue.isNullOrBlank()) def.headerName.trim() to def.headerValue.trim() else null
 
     /** 死活監視。行ごとに並べて確かめる。 */
     private suspend fun monitor(def: WidgetDef, now: Long): WidgetData = coroutineScope {
@@ -372,6 +444,10 @@ class WidgetRepository(
         /** 「試しに取得」で返す本文の長さ。 */
         const val MAX_RAW = 64 * 1024
         private const val USER_AGENT = "Dashboard (Android; custom card)"
+        /** 中継で取りに行く 1 件・返す 1 回の時間切れ。 */
+        private const val RELAY_TIMEOUT_MS = 30_000L
+        /** 中継で続けて取りに行くときの間。 */
+        private const val RELAY_GAP_MS = 800L
 
         /** 自作カード [index]（0 から）を出しているか。 */
         fun shown(d: DisplayConfig, index: Int): Boolean = when (index) {
